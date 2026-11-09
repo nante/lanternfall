@@ -273,3 +273,4 @@ td.good { color: var(--good); } td.meh { color: var(--meh); } td.bad { color: va
 .add-row select { width: 200px; }
 .add-row .sub { font-size: 11px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
 .facts dd.over { color: var(--bad); }
+.look-presets h2.section-gap { margin-top: 18px; }

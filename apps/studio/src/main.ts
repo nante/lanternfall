@@ -24,9 +24,6 @@ const routes: Route[] = [
   { id: 'look', label: 'Look', group: 'Art', doc: 'style', make: lookView },
   { id: 'icons', label: 'Icons', group: 'Art', doc: 'icons', make: iconsView },
   { id: 'textures', label: 'Textures', group: 'Art', doc: null, make: texturesView },
-  // PROTO:chrome — temporary tab for the game chrome prototype; delete with apps/client/proto/chrome
-  { id: 'proto-chrome', label: 'Chrome (prototype)', group: 'Prototypes', doc: null, make: () => ({ el: h('div', { style: 'height:calc(100vh - 57px)' }, h('iframe', { class: 'game-frame', title: 'Game chrome prototype', src: 'http://127.0.0.1:4173/proto/chrome/' })) }) },
-  // /PROTO:chrome
 ];
 
 const store = new Store();

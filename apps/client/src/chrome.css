@@ -1,5 +1,4 @@
-@import './picker.css';
-/* PROTOTYPE — game chrome. Shared surfaces and slots first, then one block per variant (layout only). */
+/* The HUD frame (see chrome.ts): shared surfaces and panel contents first, then one block per layout. */
 :root {
   /* surfaces: one warm-neutral scale, depth from rings rather than solid borders (dark UI) */
   --s-frame: oklch(11% 0.006 65);
@@ -24,17 +23,18 @@
 @media (min-resolution: 2dppx) { :root { --hair: 0.5px; } }
 
 body { background: var(--s-frame); }
-:focus-visible { outline: 2px solid oklch(100% 0 0 / 0.75); outline-offset: 2px; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-#stage { position: fixed; inset: 0; display: grid; gap: 6px; padding: 6px; }
-.labels { z-index: var(--z-labels); }
+#hud.chrome { position: fixed; inset: 0; display: grid; gap: 6px; padding: 6px; }
+#hud[data-ready='false'] > :not(.c-viewport) { visibility: hidden; }
+#hud[data-ready='false'] .c-viewport > :not(.world-host) { visibility: hidden; }
+.labels, .fx { z-index: var(--z-labels); }
 button { border: 0; background: none; padding: 0; transition: color 150ms ease-out, background-color 150ms ease-out, box-shadow 150ms ease-out, transform 100ms ease-out; }
 button:active { transform: var(--press); }
 
 /* game viewport */
 .c-viewport { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: #000; border-radius: var(--r-panel); box-shadow: var(--ring); isolation: isolate; }
 .world-host { position: absolute; inset: 0; }
-.world-host canvas { width: 100%; height: 100%; display: block; image-rendering: pixelated; }
+.world-host .world-canvas { width: 100%; height: 100%; display: block; }
 
 /* zones hold the reorderable panels */
 .c-zone { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 6px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: oklch(100% 0 0 / 0.14) transparent; }
@@ -152,7 +152,6 @@ body.c-dragging { user-select: none; -webkit-user-select: none; }
 
 /* console */
 .c-foot { display: grid; grid-template-rows: minmax(0, 1fr) auto; min-width: 0; min-height: 0; background: var(--s-panel); border-radius: var(--r-panel); box-shadow: var(--ring); overflow: hidden; }
-.c-foot > [data-slot='console'] { min-height: 0; display: grid; }
 .c-console { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; }
 .c-tabs { display: flex; gap: 2px; padding: 4px 4px 0; box-shadow: 0 var(--hair) 0 var(--divider); }
 .c-tabs button { position: relative; height: 28px; padding: 0 12px; font-size: 11px; font-weight: 500; color: var(--ink-3); border-radius: 4px 4px 0 0; }
@@ -180,31 +179,31 @@ body.c-dragging { user-select: none; -webkit-user-select: none; }
 }
 
 /* ===== 1 Classic frame: game left, one column right, chat under the game ===== */
-.v-classic { grid-template-columns: minmax(0, 1fr) var(--w-side, 260px); grid-template-rows: minmax(0, 1fr) var(--h-foot, 176px); }
-.v-classic .c-viewport { grid-area: 1 / 1; }
-.v-classic .c-zone { grid-area: 1 / 2 / 3 / 3; }
-.v-classic .c-foot { grid-area: 2 / 1; }
+.chrome.v-classic { grid-template-columns: minmax(0, 1fr) var(--w-side, 260px); grid-template-rows: minmax(0, 1fr) var(--h-foot, 176px); }
+.chrome.v-classic .c-viewport { grid-area: 1 / 1; }
+.chrome.v-classic .c-zone { grid-area: 1 / 2 / 3 / 3; }
+.chrome.v-classic .c-foot { grid-area: 2 / 1; }
 
 /* ===== 2 Twin rails: fight on the left, you on the right ===== */
-.v-rails { grid-template-columns: var(--w-left, 228px) minmax(0, 1fr) var(--w-right, 252px); grid-template-rows: minmax(0, 1fr) var(--h-foot, 160px); }
-.v-rails .c-zone[data-zone='left'] { grid-area: 1 / 1 / 3 / 2; }
-.v-rails .c-viewport { grid-area: 1 / 2; }
-.v-rails .c-zone[data-zone='right'] { grid-area: 1 / 3 / 3 / 4; }
-.v-rails .c-foot { grid-area: 2 / 2; }
+.chrome.v-rails { grid-template-columns: var(--w-left, 228px) minmax(0, 1fr) var(--w-right, 252px); grid-template-rows: minmax(0, 1fr) var(--h-foot, 160px); }
+.chrome.v-rails .c-zone[data-zone='left'] { grid-area: 1 / 1 / 3 / 2; }
+.chrome.v-rails .c-viewport { grid-area: 1 / 2; }
+.chrome.v-rails .c-zone[data-zone='right'] { grid-area: 1 / 3 / 3 / 4; }
+.chrome.v-rails .c-foot { grid-area: 2 / 2; }
 
 /* ===== 3 Edge glass: full-bleed world, translucent panels on the edges ===== */
-.v-glass { display: block; padding: 0; }
-.v-glass .c-viewport { position: fixed; inset: 0; border-radius: 0; box-shadow: none; }
-.v-glass .c-zone { position: fixed; top: 12px; bottom: 12px; padding: 1px; pointer-events: none; scrollbar-width: none; }
-.v-glass .c-zone > * { pointer-events: auto; }
-.v-glass .c-zone[data-zone='left'] { left: 12px; width: var(--w-left, 228px); bottom: calc(var(--h-foot, 212px) + 24px); }
-.v-glass .c-zone[data-zone='right'] { right: 12px; width: var(--w-right, 260px); }
-.v-glass .c-panel, .v-glass .c-foot { background: oklch(15% 0.009 65 / 0.74); -webkit-backdrop-filter: blur(12px) saturate(1.25); backdrop-filter: blur(12px) saturate(1.25); box-shadow: 0 0 0 1px oklch(100% 0 0 / 0.09), 0 8px 24px -6px oklch(0% 0 0 / 0.45); }
-.v-glass .c-panel.lifted { box-shadow: var(--lift); }
-.v-glass .c-foot { position: fixed; left: 12px; bottom: 12px; width: min(580px, calc(100vw - var(--w-right, 260px) - 40px)); height: var(--h-foot, 212px); }
-.v-glass .c-cell, .v-glass .c-bar, .v-glass .c-modes, .v-glass .c-say input { background: oklch(8% 0.006 65 / 0.62); }
-.v-glass .c-doll { grid-template-columns: repeat(3, 38px); } .v-glass .c-doll .c-cell { width: 38px; height: 38px; }
-.v-glass .c-drop { background: oklch(80% 0.13 70 / 0.1); }
+.chrome.v-glass { display: block; padding: 0; }
+.chrome.v-glass .c-viewport { position: fixed; inset: 0; border-radius: 0; box-shadow: none; }
+.chrome.v-glass .c-zone { position: fixed; top: 12px; bottom: 12px; padding: 1px; pointer-events: none; scrollbar-width: none; }
+.chrome.v-glass .c-zone > * { pointer-events: auto; }
+.chrome.v-glass .c-zone[data-zone='left'] { left: 12px; width: var(--w-left, 228px); bottom: calc(var(--h-foot, 212px) + 24px); }
+.chrome.v-glass .c-zone[data-zone='right'] { right: 12px; width: var(--w-right, 260px); }
+.chrome.v-glass .c-panel, .chrome.v-glass .c-foot { background: oklch(15% 0.009 65 / 0.74); -webkit-backdrop-filter: blur(12px) saturate(1.25); backdrop-filter: blur(12px) saturate(1.25); box-shadow: 0 0 0 1px oklch(100% 0 0 / 0.09), 0 8px 24px -6px oklch(0% 0 0 / 0.45); }
+.chrome.v-glass .c-panel.lifted { box-shadow: var(--lift); }
+.chrome.v-glass .c-foot { position: fixed; left: 12px; bottom: 12px; width: var(--foot-w); height: var(--h-foot, 204px); }
+.chrome.v-glass .c-cell, .chrome.v-glass .c-bar, .chrome.v-glass .c-modes, .chrome.v-glass .c-say input { background: oklch(8% 0.006 65 / 0.62); }
+.chrome.v-glass .c-doll { grid-template-columns: repeat(3, 38px); } .chrome.v-glass .c-doll .c-cell { width: 38px; height: 38px; }
+.chrome.v-glass .c-drop { background: oklch(80% 0.13 70 / 0.1); }
 
 /* resizing: rail and chat splitters (fixed, positioned from JS) and a bottom edge on each panel */
 .c-split { position: fixed; z-index: 2; width: 12px; cursor: col-resize; touch-action: none; }
@@ -222,4 +221,38 @@ body.c-dragging { user-select: none; -webkit-user-select: none; }
 .c-body.sized { overflow-y: auto; overscroll-behavior: contain; align-content: start; scrollbar-width: thin; scrollbar-color: oklch(100% 0 0 / 0.14) transparent; }
 body.c-resizing-x, body.c-resizing-x * { cursor: col-resize !important; user-select: none; }
 body.c-resizing-y, body.c-resizing-y * { cursor: row-resize !important; user-select: none; }
-.v-glass .c-zone { padding-bottom: 6px; }
+.chrome.v-glass .c-zone { padding-bottom: 6px; }
+
+/* ---- game-specific panel contents ---- */
+.c-bar.hp.low > i { animation: pulse 1.1s ease-in-out infinite; }
+.c-vitals .flags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 2px; }
+.c-doll { grid-template-areas: '. head pack' 'weapon body shield' 'cap feet gold'; }
+.c-doll .doll-head { grid-area: head; } .c-doll .doll-pack { grid-area: pack; } .c-doll .doll-weapon { grid-area: weapon; }
+.c-doll .doll-body { grid-area: body; } .c-doll .doll-shield { grid-area: shield; } .c-doll .doll-feet { grid-area: feet; }
+.c-gold { grid-area: gold; display: grid; place-content: center; justify-items: center; gap: 3px; border-radius: 4px; box-shadow: inset 0 0 0 1px var(--divider); }
+.c-gold svg { width: 14px; height: 14px; }
+.c-gold b { font-size: 11px; color: var(--xp); }
+.c-zone .cell { width: 40px; height: 40px; border-radius: 4px; background: var(--s-well); box-shadow: var(--well-inset); }
+.c-zone .cell.over { background: oklch(80% 0.13 70 / 0.14); box-shadow: inset 0 0 0 1px oklch(80% 0.13 70 / 0.5); }
+.c-zone .item { border-radius: 4px; padding: 5px; }
+.c-zone .grid { grid-template-columns: repeat(auto-fill, 36px); gap: 4px; justify-content: space-between; }
+.c-zone .grid .cell { width: 36px; height: 36px; }
+.c-zone .grid .item { padding: 4px; }
+.c-zone h3 { margin: 12px 0 8px; }
+.c-zone .spells svg { width: 20px; height: 20px; }
+.c-lines li { display: block; max-width: 80ch; text-wrap: pretty; }
+.c-lines li b { font-weight: 600; color: var(--amber); }
+.c-lines li.combat, .c-lines li.loot { color: var(--ink-2); }
+.c-lines li.info { color: var(--ink); }
+.c-lines[data-filter='fight'] li:not([data-group='fight']), .c-lines[data-filter='talk'] li:not([data-group='talk']) { display: none; }
+.c-viewport .hotbar { bottom: 12px; }
+.c-viewport .toast { bottom: 84px; }
+.c-viewport .dialogue { bottom: 76px; }
+/* Edge glass: centre bottom overlays in the open space between the chat and the right rail */
+.chrome.v-glass { --foot-w: min(580px, calc(100vw - var(--w-right, 264px) - 40px)); --open-mid: calc(12px + var(--foot-w) + (100vw - var(--foot-w) - var(--w-right, 264px) - 36px) / 2); }
+.chrome.v-glass .c-viewport .hotbar, .chrome.v-glass .c-viewport .dialogue, .chrome.v-glass .c-viewport .toast { left: var(--open-mid); }
+.chrome.v-glass .c-viewport .dialogue { width: min(480px, calc(100vw - var(--foot-w) - var(--w-right, 264px) - 60px)); }
+.chrome.v-glass .c-viewport .place { top: 40px; }
+.flag { font: 8px/1 var(--pixel); padding: 4px 6px 3px; border-radius: 4px; background: var(--s-well); color: var(--ink-2); }
+.flag.combat { color: oklch(80% 0.13 40); }
+.flag.hungry { color: oklch(84% 0.11 85); }

@@ -158,6 +158,15 @@ export function balanceWarnings(b: Balance): Warning[] {
   return out;
 }
 
+/** The HUD frame around the game view. Players can still reorder, collapse and resize panels inside it. */
+export const chromeLayouts = [
+  { id: 'classic', label: 'Classic frame', blurb: 'Game view top left, one column on the right, chat underneath. The 7.6 arrangement.' },
+  { id: 'rails', label: 'Twin rails', blurb: 'Fight panels on the left, your own on the right. Fits a laptop without scrolling.' },
+  { id: 'glass', label: 'Edge glass', blurb: 'The world fills the window; translucent panels float on its edges.' },
+] as const;
+export const ChromeLayout = z.enum(['classic', 'rails', 'glass']);
+export type ChromeLayout = z.infer<typeof ChromeLayout>;
+
 /** How the world is drawn. Every value is a slider in the Studio's Look tab; content/render-style.json holds the chosen one. */
 export const RenderStyle = z.object({
   name: z.string().min(1).max(40),
@@ -171,5 +180,7 @@ export const RenderStyle = z.object({
   outline: z.number().min(0).max(1), rim: z.number().min(0).max(1), grid: z.number().min(0).max(0.6),
   grass: z.number().min(0).max(1), grassHeight: z.number().min(0.3).max(1.5), dapple: z.number().min(0).max(1),
   shafts: z.number().min(0).max(1), dust: z.number().min(0).max(1), actorPop: z.number().min(0).max(1), alwaysNames: z.boolean(),
+  /** Interface layout; missing means classic. */
+  chrome: ChromeLayout.optional(),
 }).strict();
 export type RenderStyle = z.infer<typeof RenderStyle>;

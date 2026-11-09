@@ -1,11 +1,11 @@
-import type { RenderStyle } from '../../../packages/game/src/content-schema.ts';
+import { chromeLayouts, type RenderStyle } from '../../../packages/game/src/content-schema.ts';
 import { stylePresets } from '../../../packages/game/src/style-presets.ts';
 import type { Store } from './store.ts';
 import type { View } from './balance.ts';
 import { h, fill } from './ui.ts';
 
-type NumKey = { [K in keyof RenderStyle]: RenderStyle[K] extends number ? K : never }[keyof RenderStyle];
-type BoolKey = { [K in keyof RenderStyle]: RenderStyle[K] extends boolean ? K : never }[keyof RenderStyle];
+type NumKey = { [K in keyof RenderStyle]-?: RenderStyle[K] extends number ? K : never }[keyof RenderStyle];
+type BoolKey = { [K in keyof RenderStyle]-?: RenderStyle[K] extends boolean ? K : never }[keyof RenderStyle];
 type Knob = { key: NumKey; label: string; min: number; max: number; step: number; unit?: string; hint?: string } | { key: BoolKey; label: string; toggle: true; hint?: string };
 
 const groups: { title: string; knobs: Knob[] }[] = [
@@ -56,7 +56,7 @@ const groups: { title: string; knobs: Knob[] }[] = [
 const scenes = [['meadow', 'Meadow fight'], ['square', 'Market square'], ['undercroft', 'Undercroft'], ['shrine', 'Inside the shrine']] as const;
 const gameOrigin = 'http://127.0.0.1:4173';
 let scene = 'meadow';
-const same = (a: RenderStyle, b: RenderStyle) => (Object.keys(a) as (keyof RenderStyle)[]).every(k => k === 'name' || a[k] === b[k]);
+const same = (a: RenderStyle, b: RenderStyle) => (Object.keys(a) as (keyof RenderStyle)[]).every(k => k === 'name' || k === 'chrome' || a[k] === b[k]);
 
 export function lookView(ctx: { store: Store }): View {
   const store = ctx.store;
@@ -77,6 +77,15 @@ export function lookView(ctx: { store: Store }): View {
         h('span', { class: 'preset-head' }, h('b', {}, p.style.name), p.flat ? h('span', { class: 'badge' }, '2D') : null),
         h('span', { class: 'blurb' }, p.blurb))),
       match ? null : h('p', { class: 'fine' }, 'Custom: your own mix of settings.'));
+  };
+
+  /** The HUD frame the live game uses. Same save path as the look: content/render-style.json. */
+  const chrome = h('div', { class: 'presets-list', role: 'radiogroup', 'aria-label': 'Interface layout' });
+  const drawChrome = () => {
+    const cur = doc().draft.chrome ?? 'classic', saved = doc().saved.chrome ?? 'classic';
+    fill(chrome, chromeLayouts.map(c => h('button', { class: `preset${cur === c.id ? ' on' : ''}`, role: 'radio', 'aria-checked': cur === c.id, onclick: () => { store.edit('style', d => { d.chrome = c.id; }); drawChrome(); } },
+      h('span', { class: 'preset-head' }, h('b', {}, c.label), saved === c.id ? h('span', { class: 'badge' }, 'Live') : null),
+      h('span', { class: 'blurb' }, c.blurb))));
   };
 
   const knobs = h('div', { class: 'knobs' });
@@ -105,11 +114,13 @@ export function lookView(ctx: { store: Store }): View {
     onpointerup: () => { showingSaved = false; push(); holdSaved.textContent = 'Hold to compare'; },
     onpointerleave: () => { if (showingSaved) { showingSaved = false; push(); holdSaved.textContent = 'Hold to compare'; } } }, 'Hold to compare');
 
-  drawPresets(); drawKnobs(); drawScenes();
+  drawPresets(); drawChrome(); drawKnobs(); drawScenes();
   const el = h('div', { class: 'look' },
     h('aside', { class: 'look-presets' },
       h('h2', {}, 'Looks'), h('p', { class: 'muted' }, 'Pick a starting point, then tune it on the right. The preview is the real renderer running a local fight.'),
       presets,
+      h('h2', { class: 'section-gap' }, 'Interface'), h('p', { class: 'muted' }, 'The frame around the game view. Players can still drag, collapse and resize its panels; their changes stay in their browser.'),
+      chrome,
       h('h3', {}, 'What keeps a frame readable'),
       h('ul', { class: 'fixed' },
         h('li', {}, 'Quiet ground, louder things: the floor stays mid-value and low-detail.'),
@@ -120,5 +131,5 @@ export function lookView(ctx: { store: Store }): View {
     h('section', { class: 'look-stage' }, h('div', { class: 'stage-bar' }, sceneBar, h('span', { class: 'spacer' }), holdSaved), h('div', { class: 'frame-wrap' }, frame),
       h('p', { class: 'fine' }, 'The preview needs the game client running (npm run dev). Saving writes content/render-style.json; the game reloads with it.')),
     h('aside', { class: 'look-knobs' }, knobs));
-  return { el, update: () => { drawPresets(); push(); }, destroy: () => { removeEventListener('message', onMessage); cancelAnimationFrame(queued); } };
+  return { el, update: () => { drawPresets(); drawChrome(); push(); }, destroy: () => { removeEventListener('message', onMessage); cancelAnimationFrame(queued); } };
 }
