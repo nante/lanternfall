@@ -29,5 +29,6 @@
   "shafts": 1,
   "dust": 1,
   "actorPop": 0.65,
-  "alwaysNames": false
+  "alwaysNames": false,
+  "chrome": "glass"
 }

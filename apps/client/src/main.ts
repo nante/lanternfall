@@ -1,20 +1,22 @@
 import '@fontsource-variable/inter';
 import '@fontsource/silkscreen/400.css';
 import './style.css';
+import './chrome.css';
 import { buildTown, placeAt } from '../../../packages/game/src/town.ts';
 import {
-  type GameView, type GameItem, type ItemKind, type Notice, type Pos, type Effect, type SpellId, type NpcSpawn,
+  type Action, type GameView, type GameItem, type ItemKind, type Notice, type Pos, type Effect, type SpellId, type NpcSpawn,
   equipSlots, distance, G, T, grounds,
 } from '../../../packages/game/src/model.ts';
 import { WorldView } from './render/view.ts';
 import { loadTextureOverrides } from './render/texture-overrides.ts';
 import { startPreview } from './preview.ts';
 import styleJson from '../../../content/render-style.json' with { type: 'json' };
-import { RenderStyle } from '../../../packages/game/src/content-schema.ts';
+import { RenderStyle, type ChromeLayout } from '../../../packages/game/src/content-schema.ts';
 import { defaultStyle, stylePresets } from '../../../packages/game/src/style-presets.ts';
 import { defaultBalance, defaultRules as rules } from '../../../packages/game/src/default-balance.ts';
 import { Net } from './net.ts';
 import { icon, iconCanvas } from './icons.ts';
+import { Chrome, type PanelDef } from './chrome.ts';
 
 const map = buildTown();
 const getDef = rules.item, xpAt = rules.xpAt;
@@ -27,32 +29,23 @@ const rendered = new WeakMap<HTMLElement, string>();
 function patch(el: HTMLElement, html: string) { if (rendered.get(el) === html) return false; rendered.set(el, html); el.innerHTML = html; return true; }
 
 $('#app').innerHTML = `
-<div class="stage" id="stage"></div>
+<div class="chrome" id="hud" data-ready="false"></div>
 <div class="labels" id="labels" aria-hidden="true"></div>
 <div class="fx" id="fx" aria-hidden="true"></div>
-<div class="hud" id="hud" data-ready="false">
-  <section class="vitals" aria-label="Character">
-    <div class="who"><span class="name" id="v-name"></span><span class="lvl">Lv <b id="v-level">1</b></span></div>
-    <div class="bar hp" role="meter" aria-label="Health" id="v-hp"><i></i><span></span></div>
-    <div class="bar mp" role="meter" aria-label="Mana" id="v-mp"><i></i><span></span></div>
-    <div class="xp" title="Experience to next level" id="v-xp"><i></i></div>
-    <div class="flags" id="v-flags"></div>
-    <div class="stance" id="stance" role="group" aria-label="Fighting mode"></div>
-  </section>
-  <div class="place" id="place" aria-live="polite"><span id="place-name"></span><small id="place-sub"></small></div>
-  <section class="minimap" aria-label="Map">
-    <canvas id="minimap" width="168" height="136" aria-label="Map. Click to walk there."></canvas>
-    <div class="coords"><span id="mm-place"></span><span id="mm-xy" class="num"></span></div>
-  </section>
-  <section class="log" id="log"><ol id="log-lines" aria-live="polite"></ol>
-    <form id="chat" autocomplete="off"><input id="chat-input" maxlength="180" placeholder="Press Enter to speak" aria-label="Say something" spellcheck="false"></form>
-  </section>
-  <div class="toast" id="toast" role="status"></div>
-  <nav class="hotbar" id="hotbar" aria-label="Actions"></nav>
-  <section class="dialogue" id="dialogue" aria-label="Conversation" data-open="false"></section>
-  <section class="window" id="container" data-open="false" aria-label="Container"></section>
-  <aside class="drawer" id="drawer" data-open="false" aria-label="Inventory and character"></aside>
-  <div class="tooltip" id="tooltip" role="tooltip"></div>
+<div class="tooltip" id="tooltip" role="tooltip"></div>
+<div hidden id="parts">
+  <div class="c-viewport" id="viewport">
+    <div class="world-host" id="world-host"></div>
+    <div class="place" id="place" aria-live="polite"><span id="place-name"></span><small id="place-sub"></small></div>
+    <div class="toast" id="toast" role="status"></div>
+    <nav class="hotbar" id="hotbar" aria-label="Actions"></nav>
+    <section class="dialogue" id="dialogue" aria-label="Conversation" data-open="false"></section>
+    <section class="window" id="container" data-open="false" aria-label="Container"></section>
+  </div>
+  <footer class="c-foot" id="foot">
+    <div class="c-console"><div class="c-tabs" role="tablist" aria-label="Messages" id="log-tabs"></div><ol class="c-lines" id="log-lines" aria-live="polite" data-filter="all"></ol></div>
+    <form class="c-say" id="chat" autocomplete="off"><input id="chat-input" maxlength="180" placeholder="Press Enter to speak" aria-label="Say something" spellcheck="false"><button type="submit">Say</button></form>
+  </footer>
 </div>
 <div class="gate" id="gate">
   <div class="gate-card">
@@ -76,15 +69,16 @@ $('#app').innerHTML = `
     <div><dt>Click a body</dt><dd>Loot it</dd></div>
     <div><dt><kbd>WASD</kbd> or arrows</dt><dd>Step</dd></div>
     <div><dt><kbd>1</kbd>–<kbd>7</kbd></dt><dd>Spells, tonics, food</dd></div>
-    <div><dt><kbd>I</kbd> · <kbd>C</kbd></dt><dd>Pack · character</dd></div>
-    <div><dt>Scroll</dt><dd>Zoom</dd></div>
+    <div><dt><kbd>I</kbd> · <kbd>C</kbd></dt><dd>Show or hide the pack · skills panel</dd></div>
+    <div><dt>Panel headers</dt><dd>Drag to rearrange. Drag edges to resize</dd></div>
+    <div><dt>Scroll</dt><dd>Zoom the view, or the map when over it</dd></div>
   </dl>
   <div class="menu-actions"><button class="primary" id="resume">Resume</button><button id="leave">Save and leave</button></div>
 </dialog>`;
 
-const stage = $('#stage'), hud = $('#hud'), fx = $('#fx');
+const hud = $('#hud'), fx = $('#fx');
 try { await loadTextureOverrides(); } catch (e) { console.error(e); alert((e as Error).message); }
-const world = new WorldView(stage, $('#labels'), map);
+const world = new WorldView($('#world-host'), $('#labels'), map);
 const savedStyle = RenderStyle.safeParse(styleJson);
 if (!savedStyle.success) console.error('content/render-style.json is invalid; using the default look.', savedStyle.error);
 world.applyStyle(savedStyle.success ? savedStyle.data : defaultStyle);
@@ -99,7 +93,6 @@ const inPz = (p: Pos) => { const r = map.floors[p.z]?.roof[p.y * map.width + p.x
 const groundKey = (p: Pos) => `ground:${p.x},${p.y},${p.z}`;
 const pileAt = (p: Pos) => (view?.ground ?? []).filter(i => i.parent === groundKey(p)).sort((a, b) => a.slot - b.slot);
 let openPouch: string | undefined;
-let drawerTab: 'pack' | 'character' = 'pack';
 let tradeMode: 'off' | 'buy' | 'sell' = 'off';
 
 const net = new Net({
@@ -108,6 +101,39 @@ const net = new Net({
   error: text => toast(text),
   closed: reason => { hud.dataset.ready = 'false'; showGate(reason); },
 });
+/** Where actions go: the server, or the local engine in the Studio preview. */
+let send: (a: Action) => void = a => { net.send(a); };
+
+// ---------------------------------------------------------------- chrome: the HUD frame (layout picked in the Studio's Look tab)
+const panels: Record<string, PanelDef> = {
+  map: { title: 'Map', slots: ['minimap'] },
+  status: { title: 'Status', slots: ['identity', 'vitals'] },
+  gear: { title: 'Equipment', slots: ['doll'] },
+  modes: { title: 'Fighting', slots: ['modes'] },
+  battle: { title: 'Battle', slots: ['battle'] },
+  skills: { title: 'Skills', slots: ['skills'] },
+  pack: { title: 'Pack', slots: ['pack'] },
+  journal: { title: 'Spells and tasks', slots: ['journal'] },
+  menu: { title: 'Menu', slots: ['buttons'] },
+};
+const chrome = new Chrome({
+  root: hud, viewport: $('#viewport'), footer: $('#foot'), labels: $('#labels'), panels,
+  defaults: {
+    classic: { side: ['map', 'status', 'gear', 'modes', 'menu', 'battle', 'pack', 'skills', 'journal'] },
+    rails: { left: ['battle', 'modes', 'skills', 'journal'], right: ['map', 'status', 'gear', 'pack', 'menu'] },
+    glass: { left: ['battle', 'skills', 'journal'], right: ['map', 'status', 'modes', 'gear', 'pack', 'menu'] },
+  },
+  collapsedByDefault: ['journal'],
+  slot: name => (view ? slots[name]?.() ?? '' : ''),
+  afterPatch: (name, el, changed) => {
+    if (name === 'minimap') drawMinimap(el.querySelector('canvas'));
+    if (changed && (name === 'doll' || name === 'pack')) wireItems(el);
+  },
+  onViewportResize: () => world.resize(),
+});
+$('#parts').remove();
+const applyChrome = (id: ChromeLayout | undefined) => chrome.setLayout(id ?? 'classic');
+applyChrome(savedStyle.success ? savedStyle.data.chrome : undefined);
 
 // ---------------------------------------------------------------- gate
 function showGate(error = '') {
@@ -139,14 +165,16 @@ $('#new').addEventListener('click', () => { localStorage.removeItem('lanternfall
 const params = new URLSearchParams(location.search);
 const previewScene = params.get('preview');
 if (previewScene !== null) {
-  // Studio Look tab: no server, no HUD; a local engine plays a scene and the Studio streams style changes in.
+  // Studio Look tab: no server. A local engine plays a scene through the real HUD, and the Studio streams style and layout changes in.
   $('#gate').hidden = true;
-  startPreview(world, map, previewScene);
+  hud.dataset.ready = 'true';
+  const play = (scene: string) => { view = undefined; log.length = 0; $('#log-lines').innerHTML = ''; const p = startPreview(map, scene, { view: onView, notice: addLog }); send = a => p.send(a); };
+  play(previewScene);
   addEventListener('message', e => {
     if (!/^http:\/\/(127\.0\.0\.1|localhost):4174$/.test(e.origin)) return;
     const msg = e.data as { type?: string; style?: unknown; scene?: string };
-    if (msg.type === 'lanternfall:style') { const r = RenderStyle.safeParse(msg.style); if (r.success) world.applyStyle(r.data); }
-    if (msg.type === 'lanternfall:scene' && msg.scene) startPreview(world, map, msg.scene);
+    if (msg.type === 'lanternfall:style') { const r = RenderStyle.safeParse(msg.style); if (r.success) { world.applyStyle(r.data); applyChrome(r.data.chrome); } }
+    if (msg.type === 'lanternfall:scene' && msg.scene) play(msg.scene);
   });
   parent.postMessage({ type: 'lanternfall:preview-ready' }, '*');
 } else if (params.get('as')) enter(params.get('as')!);
@@ -158,7 +186,7 @@ function onView(v: GameView) {
   view = v;
   serverOffset = v.time - performance.now();
   world.update(v);
-  if (first) drawMinimapBase(v.self.z);
+  if (first) { mmFloor = -1; renderLogTabs(); }
   if (pending) resolvePending();
   if (openContainer?.kind === 'corpse') { const c = v.corpses.find(c => c.id === (openContainer as { id: string }).id); if (!c || distance(v.self, c) > 1 || c.stage >= 2) openContainer = undefined; }
   if (openContainer?.kind === 'ground' && (distance(v.self, openContainer.at) > 1 || !pileAt(openContainer.at).length)) openContainer = undefined;
@@ -176,43 +204,112 @@ const count = (kind: ItemKind) => carried().filter(i => i.kind === kind).reduce(
 
 function renderHud() {
   if (!view) return;
-  const s = view.self, st = stats();
-  $('#v-name').textContent = s.name;
-  $('#v-level').textContent = String(st.level);
-  bar('#v-hp', s.hp, st.maxHp); bar('#v-mp', s.mana, st.maxMana);
-  const lo = xpAt(st.level), hi = xpAt(st.level + 1);
-  $('#v-xp i').style.transform = `scaleX(${(s.xp - lo) / (hi - lo)})`;
-  $('#v-xp').title = `${hi - s.xp} experience to level ${st.level + 1}`;
-  const flags: string[] = [];
-  if (s.combatUntil > view.time) flags.push('<span class="flag combat">In combat</span>');
-  if (s.fed <= 0) flags.push('<span class="flag hungry">Hungry · no regeneration</span>');
-  $('#v-flags').innerHTML = flags.join('');
-  renderStance();
+  const s = view.self;
   const here = placeAt(map, s);
   if (here !== place) { const firstPlace = !place; place = here; announce(here, s.z === 1 ? 'Undercroft' : 'Lanternfall', firstPlace); }
-  $('#mm-place').textContent = here;
-  $('#mm-xy').textContent = `${s.x}, ${s.y}${s.z ? ' · below' : ''}`;
-  drawMinimap();
+  chrome.render();
   renderHotbar();
-  renderDrawer();
   renderDialogue();
   renderContainer();
 }
-function renderStance() {
-  if (!view) return;
-  const s = view.self, el = $('#stance');
-  const modes: [string, string, string][] = [['offensive', 'Attack', 'More damage, weaker blocks'], ['balanced', 'Balanced', 'Even damage and blocks'], ['defensive', 'Defend', 'Less damage, much stronger blocks']];
-  if (!patch(el, `${modes.map(([m, label, tip]) => `<button aria-pressed="${s.fightMode === m}" data-fight="${m}" title="${tip}">${label}</button>`).join('')}<span class="sep" aria-hidden="true"></span><button aria-pressed="${s.chase}" data-chase title="${s.chase ? 'Chase: you follow your target. Click to stand your ground.' : 'Stand: you hold your position. Click to chase.'}">${s.chase ? 'Chase' : 'Stand'}</button>`)) return;
-  el.querySelectorAll<HTMLButtonElement>('[data-fight]').forEach(b => b.addEventListener('click', () => net.send({ kind: 'mode', fight: b.dataset.fight as 'offensive' | 'balanced' | 'defensive' })));
-  el.querySelector<HTMLButtonElement>('[data-chase]')?.addEventListener('click', () => net.send({ kind: 'mode', chase: !view!.self.chase }));
+
+// ---------------------------------------------------------------- panel contents (one function per slot; the chrome places them)
+const pct = (a: number, b: number) => Math.max(0, Math.min(100, (a / b) * 100));
+const meter = (kind: 'hp' | 'mp', v: number, max: number, label: string) =>
+  `<div class="c-bar ${kind}${kind === 'hp' && v / max < 0.3 ? ' low' : ''}" role="meter" aria-label="${label}" aria-valuenow="${Math.max(0, v)}" aria-valuemin="0" aria-valuemax="${max}"><i style="width:${pct(v, max)}%"></i><span class="num">${Math.max(0, v)}<em>/${max}</em></span></div>`;
+const slotNames: Record<string, string> = { weapon: 'Weapon', shield: 'Shield', head: 'Head', body: 'Body', feet: 'Feet', pack: 'Pack' };
+const slots: Record<string, () => string> = {
+  identity() {
+    const s = view!.self, st = stats();
+    return `<div class="c-id"><b title="${esc(s.name)}">${esc(s.name)}</b><span class="c-lvl">Level <span class="num">${st.level}</span></span></div>`;
+  },
+  vitals() {
+    const s = view!.self, st = stats(), lo = xpAt(st.level), hi = xpAt(st.level + 1);
+    const flags = [s.combatUntil > view!.time ? '<span class="flag combat">In combat</span>' : '', s.fed <= 0 ? '<span class="flag hungry">Hungry · no regeneration</span>' : ''].join('');
+    return `<div class="c-vitals">${meter('hp', s.hp, st.maxHp, 'Health')}${meter('mp', s.mana, st.maxMana, 'Mana')}<div class="c-xprow" title="${hi - s.xp} experience to level ${st.level + 1}"><div class="c-bar xp" role="meter" aria-label="Experience to next level" aria-valuenow="${Math.floor(pct(s.xp - lo, hi - lo))}" aria-valuemax="100"><i style="width:${pct(s.xp - lo, hi - lo)}%"></i></div><span class="num">${Math.floor(pct(s.xp - lo, hi - lo))}%</span></div>${flags ? `<div class="flags">${flags}</div>` : ''}</div>`;
+  },
+  minimap() {
+    const s = view!.self, z = chrome.mapZoom;
+    return `<div class="c-map"><canvas width="${map.width * 2}" height="${map.height * 2}" style="aspect-ratio:${map.width}/${map.height}" aria-label="Map at ${z}× zoom. Click to walk there; scroll to zoom."></canvas><div class="c-mapctl" role="group" aria-label="Map zoom"><button data-action="mapzoom" data-dir="1" aria-label="Zoom map in" ${z >= 4 ? 'disabled' : ''}>+</button><button data-action="mapzoom" data-dir="-1" aria-label="Zoom map out" ${z <= 1 ? 'disabled' : ''}>−</button><span class="c-zoomlvl num" aria-hidden="true">${z}×</span><span class="c-floor" title="Floor">${s.z ? 'B1' : 'G'}</span></div><p class="c-place"><span>${esc(placeAt(map, s))}</span><span class="num">${s.x}, ${s.y}</span></p></div>`;
+  },
+  doll() {
+    const s = view!.self, st = stats(), eq = `equip:${s.id}`, equipped = byParent().get(eq) ?? [];
+    const weight = carried().reduce((n, i) => n + getDef(i.kind).weight * i.count, 0);
+    const cells = equipSlots.map((name, i) => `<div class="doll-${name}">${itemButton(equipped.find(e => e.slot === i), eq, i, slotNames[name])}</div>`).join('');
+    return `<div class="c-doll">${cells}<div class="c-cap" title="${weight.toFixed(1)} of ${st.cap} oz carried"><span>Cap</span><b class="num">${Math.max(0, Math.floor(st.cap - weight))}</b></div><div class="c-gold" title="Gold">${icon('gold')}<b class="num">${count('gold')}</b></div></div>`;
+  },
+  modes() {
+    const s = view!.self;
+    const m: [string, string, string][] = [['offensive', 'Attack', 'More damage, weaker blocks'], ['balanced', 'Balanced', 'Even damage and blocks'], ['defensive', 'Defend', 'Less damage, much stronger blocks']];
+    return `<div class="c-modes" role="group" aria-label="Fighting mode">${m.map(([k, l, tip]) => `<button data-action="mode" data-fight="${k}" aria-pressed="${s.fightMode === k}" title="${tip}">${l}</button>`).join('')}<button data-action="chase" aria-pressed="${s.chase}" class="c-chase" title="${s.chase ? 'Chase: you follow your target. Click to stand your ground.' : 'Stand: you hold your position. Click to chase.'}">${s.chase ? 'Chase' : 'Stand'}</button></div>`;
+  },
+  battle() {
+    const self = view!.self;
+    const list = view!.monsters.filter(m => m.z === self.z && distance(m, self) <= 8).sort((a, b) => distance(a, self) - distance(b, self));
+    if (!list.length) return `<p class="c-empty">Nothing hostile nearby.</p>`;
+    return `<ul class="c-battle">${list.map(m => { const d = mobDefs[m.kind]; return `<li><button data-action="target" data-id="${m.id}" aria-pressed="${self.target === m.id}" aria-label="${esc(d.name)}, ${Math.round(pct(m.hp, d.hp))}% health, ${distance(m, self)} away"><span class="c-name">${esc(d.name)}</span><span class="c-hp"><i style="width:${pct(m.hp, d.hp)}%"></i></span><span class="c-dist num">${distance(m, self)}</span></button></li>`; }).join('')}</ul>`;
+  },
+  skills() {
+    const s = view!.self, st = stats(), lo = xpAt(st.level), hi = xpAt(st.level + 1);
+    const row = (label: string, k: { level: number; progress: number }) => `<li><span>${label}</span><b class="num">${k.level}</b><i class="c-prog"><i style="width:${Math.floor(k.progress * 100)}%"></i></i></li>`;
+    return `<ul class="c-skills">${row('Melee', st.melee)}${row('Shielding', st.shielding)}${row('Magic', st.magic)}<li class="c-plain"><span>Experience</span><b class="num">${s.xp.toLocaleString('en')}</b></li><li class="c-plain"><span>To level ${st.level + 1}</span><b class="num">${(hi - s.xp).toLocaleString('en')}</b></li><li class="c-plain"><span>Deaths</span><b class="num">${s.deaths}</b></li></ul>`;
+  },
+  pack() {
+    const s = view!.self, eq = byParent().get(`equip:${s.id}`) ?? [], pack = eq.find(i => i.slot === 5);
+    const pouch = openPouch && view!.items.find(i => i.id === openPouch);
+    if (!pack) return '<p class="c-empty">You carry no pack. Your remains still hold it.</p>';
+    return `<div class="grid">${grid(pack.id, getDef(pack.kind).slots!)}</div>${pouch ? `<h3>${esc(getDef(pouch.kind).name)}</h3><div class="grid">${grid(pouch.id, getDef(pouch.kind).slots!)}</div>` : ''}`;
+  },
+  journal() {
+    const s = view!.self, st = stats();
+    const quest = s.quests.shells === 1 ? `<li><b>Glaze for the shrine</b><span>Bring Sister Wren 5 beetle shells. You carry ${count('shell')}.</span></li>` : s.quests.shells === 2 ? '<li class="done"><b>Glaze for the shrine</b><span>Done.</span></li>' : '<li class="muted"><span>Ask Sister Wren for a task.</span></li>';
+    return `<ul class="spells">${(Object.keys(spells) as SpellId[]).map(id => { const sp = spells[id]; return `<li class="${st.level < sp.level ? 'locked' : ''}">${icon(id)}<b>${sp.name}</b><span>say “${sp.words}” · ${sp.mana} mana${st.level < sp.level ? ` · level ${sp.level}` : ''}</span></li>`; }).join('')}</ul><h3>Tasks</h3><ul class="quests">${quest}</ul>`;
+  },
+  buttons() {
+    return `<div class="c-buttons"><button data-action="options" aria-haspopup="dialog" aria-expanded="false">Options</button><button data-action="logout" aria-haspopup="dialog" aria-expanded="false">Log out</button></div>`;
+  },
+};
+const locked = () => !!view && view.self.combatUntil > view.time && !inPz(view.self);
+const popovers = {
+  options: () => `<label><input type="checkbox" data-pop="names" ${world.labels.classList.contains('names') ? 'checked' : ''}> Always show names and health</label><div class="c-popact"><button data-pop="reset">Reset panel layout</button><button data-pop="help">Controls</button><button data-pop="close">Done</button></div>`,
+  logout: () => locked()
+    ? '<p>You are in a fight. Wait for the fight lock to end, or step into a shrine.</p><div class="c-popact"><button data-pop="close">Stay</button></div>'
+    : '<p>Save and leave Lanternfall?</p><div class="c-popact"><button data-pop="close">Stay</button><button class="c-primary" data-pop="leave">Save and leave</button></div>',
+};
+function leave() {
+  if (locked()) { toast('You may not log out during or right after a fight.'); return; }
+  if (previewScene !== null) { toast('This is a preview. There is nothing to leave.'); return; }
+  net.leave().then(r => { if (!r.ok) { toast(r.text || 'You cannot log out right now.'); return; } hud.dataset.ready = 'false'; view = undefined; location.reload(); });
 }
-function bar(sel: string, v: number, max: number) {
-  const el = $(sel);
-  $('i', el).style.transform = `scaleX(${Math.max(0, Math.min(1, v / max))})`;
-  $('span', el).textContent = `${Math.max(0, v)} / ${max}`;
-  el.setAttribute('aria-valuenow', String(v)); el.setAttribute('aria-valuemax', String(max));
-  el.classList.toggle('low', v / max < 0.3);
-}
+hud.addEventListener('click', e => {
+  const t = (e.target as HTMLElement).closest<HTMLElement>('[data-action]');
+  if (!t || !view) return;
+  const a = t.dataset.action;
+  if (a === 'mode') send({ kind: 'mode', fight: t.dataset.fight as 'offensive' | 'balanced' | 'defensive' });
+  else if (a === 'chase') send({ kind: 'mode', chase: !view.self.chase });
+  else if (a === 'target') { pending = undefined; send({ kind: 'target', id: view.self.target === t.dataset.id ? null : t.dataset.id! }); }
+  else if (a === 'mapzoom') chrome.setMapZoom(chrome.mapZoom + Number(t.dataset.dir));
+  else if (a === 'options') chrome.openPopover('options', 'Options', popovers.options);
+  else if (a === 'logout') chrome.openPopover('logout', 'Log out', popovers.logout);
+  else if (a === 'logtab') { $('#log-lines').dataset.filter = t.dataset.tab!; renderLogTabs(); scrollLog(true); }
+});
+document.addEventListener('click', e => {
+  const t = (e.target as HTMLElement).closest<HTMLElement>('[data-pop]');
+  if (!t) return;
+  const a = t.dataset.pop;
+  if (a === 'names') world.labels.classList.toggle('names', (t as HTMLInputElement).checked);
+  else if (a === 'reset') chrome.reset();
+  else if (a === 'help') { chrome.closePopover(); $<HTMLDialogElement>('#menu').showModal(); }
+  else if (a === 'leave') { chrome.closePopover(); leave(); }
+  else if (a === 'close') chrome.closePopover(true);
+});
+let wheel = 0;
+hud.addEventListener('wheel', e => {
+  if (!(e.target as HTMLElement).closest('.c-map canvas')) return;
+  e.preventDefault();
+  wheel += e.deltaY; if (Math.abs(wheel) < 60) return; // trackpads send many tiny deltas; one notch ≈ one step
+  chrome.setMapZoom(chrome.mapZoom + (wheel < 0 ? 1 : -1)); wheel = 0;
+}, { passive: false });
 let placeTimer = 0;
 function announce(name: string, sub: string, quiet: boolean) {
   const el = $('#place');
@@ -224,18 +321,27 @@ function announce(name: string, sub: string, quiet: boolean) {
 }
 
 // ---------------------------------------------------------------- log, toast, fx
+const logTabs: [string, string][] = [['all', 'All'], ['fight', 'Fight'], ['talk', 'People']];
+const logGroup = (n: Notice) => (n.kind === 'combat' || n.kind === 'loot' ? 'fight' : n.kind === 'npc' ? 'talk' : 'other');
+function renderLogTabs() {
+  const cur = $('#log-lines').dataset.filter;
+  patch($('#log-tabs'), logTabs.map(([id, label]) => `<button role="tab" data-action="logtab" data-tab="${id}" aria-selected="${cur === id}">${label}</button>`).join(''));
+}
+function scrollLog(force = false) { const ol = $('#log-lines'); if (force || ol.scrollHeight - ol.scrollTop - ol.clientHeight < 40) ol.scrollTop = ol.scrollHeight; }
 function addLog(n: Notice) {
   log.push(n); if (log.length > 80) log.shift();
+  const ol = $('#log-lines'), stick = ol.scrollHeight - ol.scrollTop - ol.clientHeight < 40;
   const li = document.createElement('li');
-  li.className = n.kind;
+  li.className = n.kind; li.dataset.group = logGroup(n);
   const who = n.npc ? map.npcs.find(x => x.id === n.npc)?.name : undefined;
   li.innerHTML = who && n.kind === 'npc' && !n.text.startsWith(who) ? `<b>${esc(who)}</b> ${esc(n.text)}` : esc(n.text);
-  const ol = $('#log-lines'); ol.append(li);
-  while (ol.children.length > 40) ol.firstElementChild?.remove();
-  setTimeout(() => li.classList.add('old'), 14000);
+  ol.append(li);
+  while (ol.children.length > 200) ol.firstElementChild?.remove();
+  if (stick) scrollLog(true);
   if (n.kind === 'level') floatText(innerWidth / 2, innerHeight * 0.38, n.text, 'level');
   renderDialogue();
 }
+renderLogTabs();
 let toastTimer = 0;
 function toast(text: string) {
   const t = $('#toast'); t.textContent = text; t.dataset.show = 'true';
@@ -270,22 +376,22 @@ world.onPick = (tile, info) => {
   if (!view) return;
   closeTooltip();
   const self = view.self;
-  if (info.shift) { net.send({ kind: 'look', at: tile, actor: info.actor }); return; }
-  if (info.drag) { pending = undefined; if (tile.x !== self.x || tile.y !== self.y) net.send({ kind: 'path', to: tile }); return; }
+  if (info.shift) { send({ kind: 'look', at: tile, actor: info.actor }); return; }
+  if (info.drag) { pending = undefined; if (tile.x !== self.x || tile.y !== self.y) send({ kind: 'path', to: tile }); return; }
   if (info.actor) {
     const m = view.monsters.find(m => m.id === info.actor);
-    if (m) { if (self.target !== m.id) net.send({ kind: 'target', id: m.id }); pending = undefined; return; }
+    if (m) { if (self.target !== m.id) send({ kind: 'target', id: m.id }); pending = undefined; return; }
     const npc = npcAt(info.actor);
     if (npc) { approach(npc, 3); pending = { kind: 'talk', npc: npc.id }; resolvePending(); return; }
   }
   if (!info.corpse && pileAt(tile).length) { pending = { kind: 'ground', at: tile }; if (distance(self, tile) > 1) approach(tile, 1); resolvePending(); return; }
   if (info.corpse) { pending = { kind: 'corpse', id: info.corpse }; const c = view.corpses.find(c => c.id === info.corpse)!; if (distance(self, c) > 1) approach(c, 1); resolvePending(); return; }
   const t = map.floors[tile.z].thing[tile.y * map.width + tile.x];
-  if (t === T.vault) { pending = { kind: 'vault' }; net.send({ kind: 'useTile', to: tile }); resolvePending(); return; }
-  if (t === T.hatch || t === T.ladder || t === T.well || t === T.altar || (t === T.door && info.button === 2)) { pending = undefined; net.send({ kind: 'useTile', to: tile }); return; }
+  if (t === T.vault) { pending = { kind: 'vault' }; send({ kind: 'useTile', to: tile }); resolvePending(); return; }
+  if (t === T.hatch || t === T.ladder || t === T.well || t === T.altar || (t === T.door && info.button === 2)) { pending = undefined; send({ kind: 'useTile', to: tile }); return; }
   pending = undefined;
   if (tile.x === self.x && tile.y === self.y) return;
-  net.send({ kind: 'path', to: tile });
+  send({ kind: 'path', to: tile });
 };
 // ---------------------------------------------------------------- items in the world: drop, throw, pick up
 world.itemIcon = kind => iconCanvas(getDef(kind as ItemKind).icon);
@@ -294,7 +400,7 @@ const dropOnTile = (i: GameItem, clientX: number, clientY: number) => {
   const tile = world.tileAtPoint(clientX, clientY);
   if (!tile || !view) return;
   if (distance(view.self, tile) > 7) return toast('That is too far away to throw.');
-  net.send({ kind: 'moveItem', id: i.id, parent: groundKey(tile), slot: 0, count: i.count, version: i.version });
+  send({ kind: 'moveItem', id: i.id, parent: groundKey(tile), slot: 0, count: i.count, version: i.version });
 };
 // Pack or loot window → world: native drag and drop onto the canvas.
 canvasEl.addEventListener('dragover', e => { if (e.dataTransfer?.types.includes('text/item')) e.preventDefault(); });
@@ -334,12 +440,12 @@ function approach(p: Pos, within: number) {
   for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (dx || dy) options.push({ x: p.x + dx, y: p.y + dy, z: p.z });
   const free = options.filter(q => { const i = q.y * map.width + q.x; const g = map.floors[q.z].ground[i], t = map.floors[q.z].thing[i]; return g !== G.water && g !== G.void && [T.none, T.flowers, T.door, T.hatch].includes(t) && !map.npcs.some(n => n.x === q.x && n.y === q.y); })
     .sort((a, b) => distance(view!.self, a) - distance(view!.self, b));
-  if (free[0]) net.send({ kind: 'path', to: free[0] });
+  if (free[0]) send({ kind: 'path', to: free[0] });
 }
 function resolvePending() {
   if (!view || !pending) return;
   const self = view.self;
-  if (pending.kind === 'talk') { const n = npcAt(pending.npc)!; if (distance(self, n) <= 3) { net.send({ kind: 'talk', npc: n.id }); pending = undefined; } }
+  if (pending.kind === 'talk') { const n = npcAt(pending.npc)!; if (distance(self, n) <= 3) { send({ kind: 'talk', npc: n.id }); pending = undefined; } }
   else if (pending.kind === 'corpse') { const c = view.corpses.find(c => c.id === (pending as { id: string }).id); if (!c) pending = undefined; else if (distance(self, c) <= 1) { openContainer = { kind: 'corpse', id: c.id }; pending = undefined; renderContainer(); } }
   else if (pending.kind === 'vault') { if (distance(self, map.vault) <= 2) { openContainer = { kind: 'vault' }; pending = undefined; renderContainer(); } }
   else if (pending.kind === 'ground') { const at = pending.at; if (!pileAt(at).length) pending = undefined; else if (distance(self, at) <= 1) { openContainer = { kind: 'ground', at }; pending = undefined; renderContainer(); } }
@@ -355,7 +461,7 @@ setInterval(() => {
   for (const k of held) { const d = dirs[k]; if (d) { dx += d[0]; dy += d[1]; } }
   dx = Math.sign(dx); dy = Math.sign(dy);
   // Send the next step as the current one is finishing, so held keys follow the real step time.
-  if ((dx || dy) && serverNow() >= view.self.moveAt - 90 && performance.now() - lastStep > 120) { lastStep = performance.now(); pending = undefined; net.send({ kind: 'walk', dx, dy }); }
+  if ((dx || dy) && serverNow() >= view.self.moveAt - 90 && performance.now() - lastStep > 120) { lastStep = performance.now(); pending = undefined; send({ kind: 'walk', dx, dy }); }
 }, 30);
 addEventListener('keydown', e => {
   if (!$('#gate').hidden || $<HTMLDialogElement>('#menu').open) return;
@@ -367,13 +473,12 @@ addEventListener('keydown', e => {
   if (e.key === 'Enter') { e.preventDefault(); input.focus(); return; }
   if (/^[1-7]$/.test(e.key)) { hotbarSlots()[Number(e.key) - 1]?.run(); return; }
   if (k === ' ' || k === 'tab') { e.preventDefault(); cycleTarget(); return; }
-  if (k === 'i') { toggleDrawer('pack'); return; }
-  if (k === 'c') { toggleDrawer('character'); return; }
+  if (k === 'i') { chrome.toggle('pack'); world.resize(); return; }
+  if (k === 'c') { chrome.toggle('skills'); world.resize(); return; }
   if (e.key === 'Escape') {
     if (openContainer) openContainer = undefined;
-    else if (view?.self.talking) net.send({ kind: 'talk', npc: null });
-    else if ($('#drawer').dataset.open === 'true') $('#drawer').dataset.open = 'false';
-    else if (view?.self.target) net.send({ kind: 'target', id: null });
+    else if (view?.self.talking) send({ kind: 'talk', npc: null });
+    else if (view?.self.target) send({ kind: 'target', id: null });
     else $<HTMLDialogElement>('#menu').showModal();
     renderHud();
   }
@@ -385,21 +490,16 @@ function cycleTarget() {
   const list = view.monsters.filter(m => m.z === view!.self.z).sort((a, b) => distance(view!.self, a) - distance(view!.self, b)).filter(m => distance(view!.self, m) <= 7);
   if (!list.length) { toast('Nothing to fight nearby.'); return; }
   const i = list.findIndex(m => m.id === view!.self.target);
-  net.send({ kind: 'target', id: list[(i + 1) % list.length].id });
+  send({ kind: 'target', id: list[(i + 1) % list.length].id });
 }
 $('#chat').addEventListener('submit', e => {
   e.preventDefault();
   const input = $<HTMLInputElement>('#chat-input'); const text = input.value.trim();
-  if (text) net.send({ kind: 'say', text });
+  if (text) send({ kind: 'say', text });
   input.value = ''; input.blur(); world.renderer.domElement.focus();
 });
-$('#chat-input').addEventListener('focus', () => $('#log').classList.add('active'));
-$('#chat-input').addEventListener('blur', () => $('#log').classList.remove('active'));
 $('#resume').addEventListener('click', () => $<HTMLDialogElement>('#menu').close());
-$('#leave').addEventListener('click', () => {
-  if (view && view.self.combatUntil > view.time && !inPz(view.self)) { $<HTMLDialogElement>('#menu').close(); toast('You may not log out during or right after a fight.'); return; } $<HTMLDialogElement>('#menu').close();
-  net.leave().then(r => { if (!r.ok) { toast(r.text || 'You cannot log out right now.'); return; } hud.dataset.ready = 'false'; view = undefined; location.reload(); });
-});
+$('#leave').addEventListener('click', () => { $<HTMLDialogElement>('#menu').close(); leave(); });
 
 // ---------------------------------------------------------------- hotbar
 type Slot = { key: string; label: string; sub: string; icon: string; disabled: boolean; cooldown: number; count?: number; run: () => void };
@@ -407,23 +507,21 @@ function hotbarSlots(): Slot[] {
   if (!view) return [];
   const st = stats(), now = serverNow(), self = view.self;
   const cd = Math.max(0, self.spellAt - now);
-  const spell = (id: SpellId): Slot => { const sp = spells[id]; const locked = st.level < sp.level; return { key: id, label: sp.name, sub: locked ? `Level ${sp.level}` : `${sp.mana} mana`, icon: id, disabled: locked || self.mana < sp.mana, cooldown: cd / sp.cooldown, run: () => net.send({ kind: 'cast', spell: id }) }; };
-  const item = (kind: ItemKind, label: string): Slot => { const n = count(kind); return { key: kind, label, sub: getDef(kind).name, icon: getDef(kind).icon, disabled: !n, cooldown: kind === 'tonic' || kind === 'tincture' ? cd / 1000 : 0, count: n, run: () => net.send({ kind: 'useKind', item: kind }) }; };
+  const spell = (id: SpellId): Slot => { const sp = spells[id]; const locked = st.level < sp.level; return { key: id, label: sp.name, sub: locked ? `Level ${sp.level}` : `${sp.mana} mana`, icon: id, disabled: locked || self.mana < sp.mana, cooldown: cd / sp.cooldown, run: () => send({ kind: 'cast', spell: id }) }; };
+  const item = (kind: ItemKind, label: string): Slot => { const n = count(kind); return { key: kind, label, sub: getDef(kind).name, icon: getDef(kind).icon, disabled: !n, cooldown: kind === 'tonic' || kind === 'tincture' ? cd / 1000 : 0, count: n, run: () => send({ kind: 'useKind', item: kind }) }; };
   const food = count('cheese') ? 'cheese' : 'loaf';
   return [spell('mend'), spell('ember'), spell('renew'), item('tonic', 'Tonic'), item('tincture', 'Tincture'), { ...item(food, 'Eat'), disabled: !count('cheese') && !count('loaf') }, spell('cinderburst')];
 }
 function renderHotbar() {
   const bar = $('#hotbar');
   const slots = hotbarSlots();
-  if (bar.children.length !== slots.length + 4) {
-    bar.innerHTML = slots.map((_, i) => `<button class="slot" data-i="${i}"><span class="ico"></span><span class="cd"></span><kbd>${i + 1}</kbd><span class="n num"></span></button>`).join('')
-      + `<span class="sep" aria-hidden="true"></span><button class="slot tool" data-tool="pack" aria-label="Pack (I)"><span class="ico">${icon('bag')}</span><kbd>I</kbd></button><button class="slot tool" data-tool="character" aria-label="Character (C)"><span class="ico">${icon('person')}</span><kbd>C</kbd></button><button class="slot tool" data-tool="menu" aria-label="Menu (Esc)"><span class="ico">${icon('menu')}</span><kbd>Esc</kbd></button>`;
+  if (bar.children.length !== slots.length) {
+    bar.innerHTML = slots.map((_, i) => `<button class="slot" data-i="${i}"><span class="ico"></span><span class="cd"></span><kbd>${i + 1}</kbd><span class="n num"></span></button>`).join('');
     bar.querySelectorAll<HTMLButtonElement>('.slot[data-i]').forEach(b => {
       b.addEventListener('click', () => hotbarSlots()[Number(b.dataset.i)]?.run());
       b.addEventListener('pointerenter', () => { const s = hotbarSlots()[Number(b.dataset.i)]; if (s) showTooltip(b, `<b>${esc(s.label)}</b><span>${esc(s.sub)}</span>`); });
       b.addEventListener('pointerleave', closeTooltip);
     });
-    bar.querySelectorAll<HTMLButtonElement>('.tool').forEach(b => b.addEventListener('click', () => b.dataset.tool === 'menu' ? $<HTMLDialogElement>('#menu').showModal() : toggleDrawer(b.dataset.tool as 'pack' | 'character')));
   }
   slots.forEach((s, i) => {
     const b = $<HTMLButtonElement>(`.slot[data-i="${i}"]`, bar);
@@ -433,19 +531,10 @@ function renderHotbar() {
     $('.n', b).textContent = s.count !== undefined ? String(s.count) : '';
     $('.cd', b).style.transform = `scaleY(${Math.min(1, s.cooldown)})`;
   });
-  bar.querySelector('[data-tool="pack"]')?.classList.toggle('on', $('#drawer').dataset.open === 'true' && drawerTab === 'pack');
-  bar.querySelector('[data-tool="character"]')?.classList.toggle('on', $('#drawer').dataset.open === 'true' && drawerTab === 'character');
 }
 setInterval(() => { if (view) renderHotbar(); }, 100);
 
-// ---------------------------------------------------------------- drawer
-function toggleDrawer(tab: 'pack' | 'character') {
-  const d = $('#drawer');
-  if (d.dataset.open === 'true' && drawerTab === tab) d.dataset.open = 'false';
-  else { drawerTab = tab; d.dataset.open = 'true'; }
-  renderDrawer(); renderHotbar();
-}
-const slotNames: Record<string, string> = { weapon: 'Weapon', shield: 'Shield', head: 'Head', body: 'Body', feet: 'Feet', pack: 'Pack' };
+// ---------------------------------------------------------------- item cells (doll, pack, loot)
 function itemButton(i: GameItem | undefined, parent: string, slot: number, placeholder = '') {
   if (!i) return `<div class="cell empty" data-parent="${esc(parent)}" data-slot="${slot}">${placeholder ? `<span class="ph">${placeholder}</span>` : ''}</div>`;
   return `<div class="cell" data-parent="${esc(parent)}" data-slot="${slot}"><button class="item" draggable="true" data-id="${i.id}" aria-label="${esc(getDef(i.kind).name)}${i.count > 1 ? ` × ${i.count}` : ''}">${icon(getDef(i.kind).icon)}${i.count > 1 ? `<span class="n num">${i.count}</span>` : ''}</button></div>`;
@@ -455,39 +544,6 @@ function grid(parent: string, size: number) {
   let html = '';
   for (let s = 0; s < size; s++) html += itemButton(kids.find(k => k.slot === s), parent, s);
   return html;
-}
-function renderDrawer() {
-  const d = $('#drawer');
-  if (!view || d.dataset.open !== 'true') { patch(d, ''); return; }
-  const self = view.self, st = stats(), eq = `equip:${self.id}`, kids = byParent();
-  const equipped = kids.get(eq) ?? [];
-  const pack = equipped.find(i => i.slot === 5);
-  const weight = carried().reduce((n, i) => n + getDef(i.kind).weight * i.count, 0);
-  const tabs = `<div class="tabs" role="tablist"><button role="tab" aria-selected="${drawerTab === 'pack'}" data-tab="pack">Pack</button><button role="tab" aria-selected="${drawerTab === 'character'}" data-tab="character">Character</button><button class="close" aria-label="Close" data-close>×</button></div>`;
-  let body = '';
-  if (drawerTab === 'pack') {
-    const doll = equipSlots.map((name, i) => `<div class="doll-${name}">${itemButton(equipped.find(e => e.slot === i), eq, i, slotNames[name])}</div>`).join('');
-    const pouch = openPouch && view.items.find(i => i.id === openPouch);
-    body = `<div class="doll">${doll}</div>
-      <div class="meta"><span>${weight.toFixed(1)} / ${st.cap} oz</span><span class="gold">${icon('gold')}<b class="num">${count('gold')}</b></span></div>
-      ${pack ? `<h3>${esc(getDef(pack.kind).name)}</h3><div class="grid">${grid(pack.id, getDef(pack.kind).slots!)}</div>` : '<p class="muted">You carry no pack. Your remains still hold it.</p>'}
-      ${pouch ? `<h3>${esc(getDef(pouch.kind).name)}</h3><div class="grid">${grid(pouch.id, getDef(pouch.kind).slots!)}</div>` : ''}
-      <p class="hint">Click to use or equip. Drag to move.</p>`;
-  } else {
-    const lo = xpAt(st.level), hi = xpAt(st.level + 1);
-    const skill = (name: string, s: { level: number; progress: number }) => `<div class="skill"><span>${name}</span><b class="num">${s.level}</b><div class="prog"><i style="transform:scaleX(${s.progress})"></i></div></div>`;
-    const quest = self.quests.shells === 1 ? `<li><b>Glaze for the shrine</b><span>Bring Sister Wren 5 beetle shells. You carry ${count('shell')}.</span></li>` : self.quests.shells === 2 ? '<li class="done"><b>Glaze for the shrine</b><span>Done.</span></li>' : '<li class="muted"><span>Ask Sister Wren for a task.</span></li>';
-    body = `<div class="char-head"><div><p class="kicker">Wayfarer</p><h2>${esc(self.name)}</h2></div><div class="big num">${st.level}</div></div>
-      <div class="skill"><span>Experience</span><b class="num">${self.xp}</b><div class="prog xp"><i style="transform:scaleX(${(self.xp - lo) / (hi - lo)})"></i></div></div>
-      <div class="stats"><div><span>Health</span><b class="num">${self.hp}/${st.maxHp}</b></div><div><span>Mana</span><b class="num">${self.mana}/${st.maxMana}</b></div><div><span>Capacity</span><b class="num">${st.cap}</b></div><div><span>Deaths</span><b class="num">${self.deaths}</b></div></div>
-      <h3>Skills</h3>${skill('Melee', st.melee)}${skill('Shielding', st.shielding)}${skill('Magic', st.magic)}
-      <h3>Spells</h3><ul class="spells">${Object.values(spells).map(sp => `<li class="${st.level < sp.level ? 'locked' : ''}">${icon(Object.keys(spells).find(k => spells[k as SpellId] === sp)!)}<b>${sp.name}</b><span>say “${sp.words}” · ${sp.mana} mana${st.level < sp.level ? ` · level ${sp.level}` : ''}</span></li>`).join('')}</ul>
-      <h3>Tasks</h3><ul class="quests">${quest}</ul>`;
-  }
-  if (!patch(d, tabs + `<div class="drawer-body">${body}</div>`)) return;
-  d.querySelectorAll<HTMLButtonElement>('[data-tab]').forEach(b => b.addEventListener('click', () => { drawerTab = b.dataset.tab as 'pack' | 'character'; renderDrawer(); renderHotbar(); }));
-  d.querySelector('[data-close]')?.addEventListener('click', () => { d.dataset.open = 'false'; renderDrawer(); renderHotbar(); });
-  wireItems(d);
 }
 
 // ---------------------------------------------------------------- item interactions
@@ -507,15 +563,15 @@ function packTarget(item?: GameItem, reserved?: Set<string>) {
   const bags = [pack, ...(pack ? (byParent().get(pack.id) ?? []).filter(i => getDef(i.kind).slots) : [])].filter(Boolean) as GameItem[];
   return targetIn(bags.map(b => ({ id: b.id, size: getDef(b.kind).slots! })), item, reserved);
 }
-function move(i: GameItem, parent: string, slot: number) { net.send({ kind: 'moveItem', id: i.id, parent, slot, count: i.count, version: i.version }); }
+function move(i: GameItem, parent: string, slot: number) { send({ kind: 'moveItem', id: i.id, parent, slot, count: i.count, version: i.version }); }
 function primary(i: GameItem) {
   if (!view) return;
   const def = getDef(i.kind), eq = `equip:${view.self.id}`;
   const inCorpseOrVault = !carried().some(c => c.id === i.id);
   if (inCorpseOrVault) { const t = packTarget(i); if (!t) return toast('Your pack is full.'); return move(i, t.parent, t.slot); }
   if (openContainer?.kind === 'vault' && !i.parent.startsWith('equip:')) { const t = targetIn([{ id: `vault:${view.self.id}`, size: 30 }], i); if (!t) return toast('Your vault is full.'); return move(i, t.parent, t.slot); }
-  if (def.food || def.heal || def.mana) return net.send({ kind: 'useItem', id: i.id });
-  if (def.slots && !def.slot) { openPouch = openPouch === i.id ? undefined : i.id; return renderDrawer(); }
+  if (def.food || def.heal || def.mana) return send({ kind: 'useItem', id: i.id });
+  if (def.slots && !def.slot) { openPouch = openPouch === i.id ? undefined : i.id; if (!chrome.isOpen('pack')) chrome.toggle('pack'); return renderHud(); }
   if (i.parent === eq) { if (def.slot === 'pack') return toast('Drag the pack to move it.'); const t = packTarget(); if (!t) return toast('Your pack is full.'); return move(i, t.parent, t.slot); }
   if (def.slot) return move(i, eq, equipSlots.indexOf(def.slot));
   toast(`${def.name} sells to a merchant.`);
@@ -588,15 +644,15 @@ function renderDialogue() {
   el.querySelectorAll<HTMLButtonElement>('[data-topic]').forEach(b => b.addEventListener('click', () => {
     const t = b.dataset.topic!;
     if (t === 'trade') { tradeMode = tradeMode === 'off' ? (def.sells.length ? 'buy' : 'sell') : 'off'; }
-    net.send({ kind: 'say', text: t });
+    send({ kind: 'say', text: t });
     renderDialogue();
   }));
   el.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach(b => b.addEventListener('click', () => { tradeMode = b.dataset.mode as 'buy' | 'sell'; renderDialogue(); }));
-  el.querySelector('[data-bye]')?.addEventListener('click', () => net.send({ kind: 'talk', npc: null }));
+  el.querySelector('[data-bye]')?.addEventListener('click', () => send({ kind: 'talk', npc: null }));
   el.querySelectorAll<HTMLButtonElement>('[data-trade]').forEach(b => b.addEventListener('click', () => {
     const item = b.dataset.trade as ItemKind;
     const have = carried().filter(i => i.kind === item && !i.parent.startsWith('equip:')).reduce((n, i) => n + i.count, 0);
-    net.send({ kind: 'trade', npc: npc.id, item, mode: tradeMode === 'buy' ? 'buy' : 'sell', count: tradeMode === 'sell' ? Math.max(1, Math.min(50, have)) : 1 });
+    send({ kind: 'trade', npc: npc.id, item, mode: tradeMode === 'buy' ? 'buy' : 'sell', count: tradeMode === 'sell' ? Math.max(1, Math.min(50, have)) : 1 });
   }));
 }
 
@@ -637,14 +693,14 @@ function pileList(parent: string) {
 }
 function equipLike(i: GameItem) { if (!view) return; const eq = byParent().get(`equip:${view.self.id}`) ?? []; if (getDef(i.kind).slot === 'pack' && !eq.some(e => e.slot === 5)) return { parent: `equip:${view.self.id}`, slot: 5 }; return packTarget(); }
 
-// ---------------------------------------------------------------- minimap
-const mm = $<HTMLCanvasElement>('#minimap');
-const mmCtx = mm.getContext('2d')!;
-let mmBase: ImageData | undefined, mmFloor = -1;
+// ---------------------------------------------------------------- minimap: a cached 2px-per-tile base, drawn through a zoom window centred on you
+const mmBase = document.createElement('canvas');
+const mmBaseCtx = mmBase.getContext('2d')!;
+let mmFloor = -1;
 const groundColors: Record<string, string> = { void: '#0b0a09', grass: '#3d6236', meadow: '#34572f', dirt: '#6e5537', cobble: '#8a816f', plank: '#7a5a3a', stone: '#4a4744', water: '#1f4650', sand: '#b39a6b', moss: '#3d5236', flagstone: '#7d7768' };
 function drawMinimapBase(z: number) {
-  const f = map.floors[z];
-  mm.width = map.width * 2; mm.height = map.height * 2;
+  const f = map.floors[z], g = mmBaseCtx;
+  mmBase.width = map.width * 2; mmBase.height = map.height * 2;
   for (let y = 0; y < map.height; y++) for (let x = 0; x < map.width; x++) {
     const i = y * map.width + x, t = f.thing[i];
     let c = groundColors[grounds[f.ground[i]]];
@@ -653,29 +709,40 @@ function drawMinimapBase(z: number) {
     else if (t === T.tree || t === T.pine) c = '#24402a';
     else if (t === T.door) c = '#d8a050';
     else if (t === T.hatch || t === T.ladder) c = '#f0c060';
-    mmCtx.fillStyle = c; mmCtx.fillRect(x * 2, y * 2, 2, 2);
+    g.fillStyle = c; g.fillRect(x * 2, y * 2, 2, 2);
   }
-  if (z === 0) for (const b of map.buildings) { mmCtx.fillStyle = b.roof === 'clay' ? '#8e4a34' : b.roof === 'thatch' ? '#9c8448' : b.roof === 'teal' ? '#2f6762' : '#3c5873'; mmCtx.fillRect(b.x0 * 2 + 1, b.y0 * 2 + 1, (b.x1 - b.x0 + 1) * 2 - 2, (b.y1 - b.y0 + 1) * 2 - 2); }
-  mmBase = mmCtx.getImageData(0, 0, mm.width, mm.height); mmFloor = z;
+  if (z === 0) for (const b of map.buildings) { g.fillStyle = b.roof === 'clay' ? '#8e4a34' : b.roof === 'thatch' ? '#9c8448' : b.roof === 'teal' ? '#2f6762' : '#3c5873'; g.fillRect(b.x0 * 2 + 1, b.y0 * 2 + 1, (b.x1 - b.x0 + 1) * 2 - 2, (b.y1 - b.y0 + 1) * 2 - 2); }
+  mmFloor = z;
 }
-function drawMinimap() {
-  if (!view) return;
+/** The visible part of the map in base pixels (2 per tile), centred on you and clamped to the edges. */
+function mapWindow() {
+  const z = chrome.mapZoom, w = map.width / z, h = map.height / z, s = view!.self;
+  return { z, x0: Math.max(0, Math.min(map.width - w, s.x + 0.5 - w / 2)), y0: Math.max(0, Math.min(map.height - h, s.y + 0.5 - h / 2)), w, h };
+}
+function drawMinimap(canvas: HTMLCanvasElement | null) {
+  if (!view || !canvas) return;
   if (mmFloor !== view.self.z) drawMinimapBase(view.self.z);
-  mmCtx.putImageData(mmBase!, 0, 0);
-  for (const n of map.npcs) if (n.z === view.self.z) { mmCtx.fillStyle = '#f0d27a'; mmCtx.fillRect(n.x * 2, n.y * 2, 2, 2); }
-  for (const m of view.monsters) if (m.z === view.self.z) { mmCtx.fillStyle = '#e0604a'; mmCtx.fillRect(m.x * 2, m.y * 2, 2, 2); }
-  for (const p of view.players) if (p.z === view.self.z) { mmCtx.fillStyle = '#c8a0e0'; mmCtx.fillRect(p.x * 2 - 1, p.y * 2 - 1, 3, 3); }
-  mmCtx.fillStyle = '#ffffff'; mmCtx.fillRect(view.self.x * 2 - 1, view.self.y * 2 - 1, 4, 4);
-  mmCtx.strokeStyle = 'rgba(255,240,220,.5)'; mmCtx.lineWidth = 1;
+  const g = canvas.getContext('2d')!, { z, x0, y0 } = mapWindow(), self = view.self;
+  g.setTransform(1, 0, 0, 1, 0, 0); g.imageSmoothingEnabled = false;
+  g.fillStyle = '#0b0a09'; g.fillRect(0, 0, canvas.width, canvas.height);
+  g.setTransform(z, 0, 0, z, -x0 * 2 * z, -y0 * 2 * z);
+  g.drawImage(mmBase, 0, 0);
+  const dot = (x: number, y: number, size: number) => { const d = Math.max(2 / z, size / z); g.fillRect(x * 2 + 1 - d / 2, y * 2 + 1 - d / 2, d, d); };
+  g.fillStyle = '#f0d27a'; for (const n of map.npcs) if (n.z === self.z) dot(n.x, n.y, 2);
+  g.fillStyle = '#e0604a'; for (const m of view.monsters) if (m.z === self.z) dot(m.x, m.y, 2);
+  g.fillStyle = '#c8a0e0'; for (const p of view.players) if (p.z === self.z) dot(p.x, p.y, 3);
+  g.fillStyle = '#ffffff'; dot(self.x, self.y, 4);
+  g.strokeStyle = 'rgba(255,240,220,.5)'; g.lineWidth = 1 / z;
   const vw = (world.camera.right - world.camera.left) * 2, vh = (world.camera.top - world.camera.bottom) * 2.3;
-  mmCtx.strokeRect(view.self.x * 2 - vw / 2 + 0.5, view.self.y * 2 - vh / 2 + 0.5, vw, vh);
+  g.strokeRect(self.x * 2 - vw / 2 + 0.5, self.y * 2 - vh / 2 + 0.5, vw, vh);
 }
-mm.addEventListener('click', e => {
-  if (!view) return;
-  const r = mm.getBoundingClientRect();
-  const x = Math.floor(((e.clientX - r.left) / r.width) * map.width), y = Math.floor(((e.clientY - r.top) / r.height) * map.height);
+hud.addEventListener('click', e => {
+  const c = (e.target as HTMLElement).closest<HTMLCanvasElement>('.c-map canvas');
+  if (!c || !view) return;
+  const r = c.getBoundingClientRect(), { x0, y0, w, h } = mapWindow();
+  const x = Math.floor(x0 + ((e.clientX - r.left) / r.width) * w), y = Math.floor(y0 + ((e.clientY - r.top) / r.height) * h);
   pending = undefined;
-  net.send({ kind: 'path', to: { x, y, z: view.self.z } });
+  send({ kind: 'path', to: { x, y, z: view.self.z } });
 });
 
 // Developer hook for automated screenshots.
