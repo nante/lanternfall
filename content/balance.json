@@ -1,0 +1,543 @@
+{
+  "progression": {
+    "hpBase": 150,
+    "hpPerLevel": 15,
+    "manaBase": 30,
+    "manaPerLevel": 10,
+    "capBase": 220,
+    "capPerLevel": 20,
+    "xpCurve": [
+      50,
+      -150,
+      400
+    ],
+    "stepMs": 300,
+    "attackMs": 2000,
+    "monsterAttackMs": 2000,
+    "regenMs": 6000,
+    "deathXpLoss": 0.1,
+    "deathSkillLoss": 0.1,
+    "meleeSkillBase": 50,
+    "shieldSkillBase": 100,
+    "skillGrowth": 1.1,
+    "magicBase": 1600,
+    "magicGrowth": 1.4,
+    "respawnMs": 45000
+  },
+  "world": {
+    "viewX": 8,
+    "viewY": 6,
+    "lureLimit": 50,
+    "wanderRadius": 3,
+    "respawnMin": 0.5,
+    "respawnMax": 1,
+    "blockRange": 7,
+    "corpseStages": [
+      300,
+      300,
+      60
+    ],
+    "heroCorpseStages": [
+      600,
+      600,
+      300
+    ],
+    "lootProtectSec": 0,
+    "throwRange": 7,
+    "tileItemLimit": 20,
+    "speedBase": 218,
+    "speedPerLevel": 2,
+    "diagonalCost": 3,
+    "groundSpeed": {
+      "cobble": 100,
+      "plank": 100,
+      "flagstone": 100,
+      "dirt": 110,
+      "stone": 120,
+      "moss": 130,
+      "grass": 150,
+      "meadow": 150,
+      "sand": 160
+    },
+    "regenHp": 1,
+    "regenMana": 2,
+    "foodCapSec": 1200,
+    "blocksPerTurn": 2,
+    "fightLockSec": 60,
+    "equipmentLossChance": 0.1
+  },
+  "items": {
+    "cudgel": {
+      "name": "Ash cudgel",
+      "icon": "club",
+      "weight": 12,
+      "buy": 8,
+      "sell": 2,
+      "slot": "weapon",
+      "attack": 7,
+      "defense": 4
+    },
+    "shortsword": {
+      "name": "Iron shortsword",
+      "icon": "sword",
+      "weight": 16,
+      "buy": 60,
+      "sell": 18,
+      "slot": "weapon",
+      "attack": 11,
+      "defense": 7
+    },
+    "hatchet": {
+      "name": "Woodman's hatchet",
+      "icon": "axe",
+      "weight": 20,
+      "buy": 140,
+      "sell": 40,
+      "slot": "weapon",
+      "attack": 14,
+      "defense": 6
+    },
+    "blade": {
+      "name": "Watchman's blade",
+      "icon": "blade",
+      "weight": 24,
+      "buy": 360,
+      "sell": 100,
+      "slot": "weapon",
+      "attack": 18,
+      "defense": 10
+    },
+    "buckler": {
+      "name": "Oak buckler",
+      "icon": "buckler",
+      "weight": 10,
+      "buy": 30,
+      "sell": 8,
+      "slot": "shield",
+      "defense": 6
+    },
+    "banded": {
+      "name": "Banded shield",
+      "icon": "shield",
+      "weight": 22,
+      "buy": 200,
+      "sell": 60,
+      "slot": "shield",
+      "defense": 11
+    },
+    "cap": {
+      "name": "Felt cap",
+      "icon": "cap",
+      "weight": 3,
+      "buy": 6,
+      "sell": 1,
+      "slot": "head",
+      "armor": 1
+    },
+    "coif": {
+      "name": "Iron coif",
+      "icon": "helmet",
+      "weight": 12,
+      "buy": 80,
+      "sell": 22,
+      "slot": "head",
+      "armor": 2
+    },
+    "tunic": {
+      "name": "Quilted tunic",
+      "icon": "tunic",
+      "weight": 10,
+      "buy": 15,
+      "sell": 4,
+      "slot": "body",
+      "armor": 2
+    },
+    "jerkin": {
+      "name": "Studded jerkin",
+      "icon": "armor",
+      "weight": 24,
+      "buy": 120,
+      "sell": 35,
+      "slot": "body",
+      "armor": 5
+    },
+    "boots": {
+      "name": "Walking boots",
+      "icon": "boots",
+      "weight": 6,
+      "buy": 12,
+      "sell": 3,
+      "slot": "feet",
+      "armor": 1
+    },
+    "pack": {
+      "name": "Canvas pack",
+      "icon": "bag",
+      "weight": 6,
+      "buy": 15,
+      "sell": 4,
+      "slot": "pack",
+      "slots": 16
+    },
+    "pouch": {
+      "name": "Belt pouch",
+      "icon": "pouch",
+      "weight": 2,
+      "buy": 6,
+      "sell": 1,
+      "slots": 6
+    },
+    "gold": {
+      "name": "Gold coins",
+      "icon": "gold",
+      "weight": 0.1,
+      "buy": 0,
+      "sell": 0,
+      "stack": true
+    },
+    "loaf": {
+      "name": "Rye loaf",
+      "icon": "bread",
+      "weight": 2,
+      "buy": 3,
+      "sell": 0,
+      "stack": true,
+      "food": 180000
+    },
+    "cheese": {
+      "name": "Hard cheese",
+      "icon": "cheese",
+      "weight": 3,
+      "buy": 6,
+      "sell": 0,
+      "stack": true,
+      "food": 360000
+    },
+    "tonic": {
+      "name": "Red tonic",
+      "icon": "tonic",
+      "weight": 2,
+      "buy": 30,
+      "sell": 0,
+      "stack": true,
+      "heal": 60
+    },
+    "tincture": {
+      "name": "Blue tincture",
+      "icon": "tincture",
+      "weight": 2,
+      "buy": 35,
+      "sell": 0,
+      "stack": true,
+      "mana": 50
+    },
+    "tail": {
+      "name": "Rat tail",
+      "icon": "tail",
+      "weight": 0.5,
+      "buy": 0,
+      "sell": 2,
+      "stack": true
+    },
+    "shell": {
+      "name": "Beetle shell",
+      "icon": "shell",
+      "weight": 3,
+      "buy": 0,
+      "sell": 12,
+      "stack": true
+    },
+    "silk": {
+      "name": "Grub silk",
+      "icon": "silk",
+      "weight": 1,
+      "buy": 0,
+      "sell": 28,
+      "stack": true
+    },
+    "tusk": {
+      "name": "Boar tusk",
+      "icon": "tusk",
+      "weight": 2,
+      "buy": 0,
+      "sell": 16,
+      "stack": true
+    }
+  },
+  "creatures": {
+    "gutterRat": {
+      "name": "Gutter rat",
+      "hp": 15,
+      "armor": 1,
+      "attack": 7,
+      "xp": 6,
+      "gold": [
+        0,
+        4
+      ],
+      "loot": [
+        {
+          "item": "tail",
+          "chance": 0.6
+        },
+        {
+          "item": "loaf",
+          "chance": 0.08
+        }
+      ],
+      "step": 520,
+      "aggro": 8
+    },
+    "caveBeetle": {
+      "name": "Cave beetle",
+      "hp": 48,
+      "armor": 5,
+      "attack": 13,
+      "xp": 22,
+      "gold": [
+        2,
+        9
+      ],
+      "loot": [
+        {
+          "item": "shell",
+          "chance": 0.45
+        }
+      ],
+      "step": 700,
+      "aggro": 8
+    },
+    "mireGrub": {
+      "name": "Mire grub",
+      "hp": 95,
+      "armor": 3,
+      "attack": 22,
+      "xp": 60,
+      "gold": [
+        6,
+        18
+      ],
+      "loot": [
+        {
+          "item": "silk",
+          "chance": 0.35
+        },
+        {
+          "item": "tonic",
+          "chance": 0.06
+        },
+        {
+          "item": "cheese",
+          "chance": 0.1
+        }
+      ],
+      "step": 900,
+      "aggro": 8
+    },
+    "thornboar": {
+      "name": "Thornboar",
+      "hp": 72,
+      "armor": 3,
+      "attack": 17,
+      "xp": 42,
+      "gold": [
+        0,
+        6
+      ],
+      "loot": [
+        {
+          "item": "tusk",
+          "chance": 0.5
+        },
+        {
+          "item": "cheese",
+          "chance": 0.08
+        }
+      ],
+      "step": 480,
+      "aggro": 8
+    }
+  },
+  "spells": {
+    "mend": {
+      "words": "mend",
+      "name": "Mend",
+      "mana": 20,
+      "level": 1,
+      "cooldown": 1500,
+      "kind": "heal",
+      "base": 18,
+      "perLevel": 2,
+      "perMagic": 4,
+      "spread": 0.25
+    },
+    "ember": {
+      "words": "ember",
+      "name": "Ember",
+      "mana": 15,
+      "level": 3,
+      "cooldown": 2000,
+      "kind": "attack",
+      "range": 4,
+      "base": 10,
+      "perLevel": 1,
+      "perMagic": 3,
+      "spread": 12
+    },
+    "renew": {
+      "words": "renew",
+      "name": "Renew",
+      "mana": 70,
+      "level": 8,
+      "cooldown": 2000,
+      "kind": "heal",
+      "base": 70,
+      "perLevel": 3,
+      "perMagic": 6,
+      "spread": 0.25
+    },
+    "cinderburst": {
+      "words": "cinderburst",
+      "name": "Cinderburst",
+      "mana": 140,
+      "level": 20,
+      "cooldown": 2000,
+      "kind": "area",
+      "radius": 3,
+      "base": 20,
+      "perLevel": 1.5,
+      "perMagic": 4,
+      "spread": 25
+    }
+  },
+  "merchants": {
+    "shrine": {
+      "greeting": "The lanterns are lit, wayfarer. Rest here whenever the dark below gets too close.",
+      "topics": {
+        "heal": "Hold still. There. Go carefully.",
+        "spells": "Speak \"mend\" to close your wounds. At level 3 the old word \"ember\" will answer you. At level 8, \"renew\". And when you reach level 20, \"cinderburst\" sets the air around you alight. Mind your friends.",
+        "undercroft": "The cellars under the east lanes run deeper than anyone mapped. Rats first, then beetles. Past the beetle hall, the grubs.",
+        "task": ""
+      },
+      "sells": [],
+      "buys": []
+    },
+    "smith": {
+      "greeting": "Forge is hot. Weapons on the left wall, armour on the right. Say \"trade\".",
+      "topics": {
+        "tusks": "Boar tusks make good handles. I pay fair for them.",
+        "repair": "Good steel does not need me twice."
+      },
+      "sells": [
+        "cudgel",
+        "shortsword",
+        "hatchet",
+        "blade",
+        "buckler",
+        "banded",
+        "cap",
+        "coif",
+        "tunic",
+        "jerkin",
+        "boots"
+      ],
+      "buys": [
+        "cudgel",
+        "shortsword",
+        "hatchet",
+        "blade",
+        "buckler",
+        "banded",
+        "cap",
+        "coif",
+        "tunic",
+        "jerkin",
+        "boots",
+        "tusk"
+      ]
+    },
+    "inn": {
+      "greeting": "Welcome to the Copper Kettle. Sit, eat, and do not start fights indoors.",
+      "topics": {
+        "rumours": "They say the grubs spin silk worth more than their meat. Odo pays well for it.",
+        "food": "A loaf keeps you going on the road. Cheese keeps you going longer."
+      },
+      "sells": [
+        "loaf",
+        "cheese"
+      ],
+      "buys": []
+    },
+    "apothecary": {
+      "greeting": "Mind the shelves. Tonics for the body, tinctures for the mind.",
+      "topics": {
+        "silk": "Grub silk. Bring it. I pay twenty-eight a skein.",
+        "shells": "Beetle shells grind into a fine glaze. Twelve each."
+      },
+      "sells": [
+        "tonic",
+        "tincture"
+      ],
+      "buys": [
+        "silk",
+        "shell"
+      ]
+    },
+    "store": {
+      "greeting": "Pell's provisions. Packs, pouches, and whatever the rats left behind.",
+      "topics": {
+        "tails": "Rat tails? The tanner takes them. Two coins each."
+      },
+      "sells": [
+        "pack",
+        "pouch",
+        "loaf"
+      ],
+      "buys": [
+        "tail",
+        "pouch",
+        "pack"
+      ]
+    },
+    "warden": {
+      "greeting": "South gate. Thornboars roam the meadow at dusk. Keep your shield up.",
+      "topics": {
+        "boars": "They charge when they see you. Their tusks fetch a price at the smithy.",
+        "town": "Lanternfall. Walls since the first harvest. The lamps never go out."
+      },
+      "sells": [],
+      "buys": []
+    }
+  },
+  "quests": {
+    "shells": {
+      "need": 5,
+      "gold": 150,
+      "reward": "banded",
+      "item": "shell"
+    }
+  },
+  "starter": {
+    "equipment": {
+      "weapon": "cudgel",
+      "head": "cap",
+      "body": "tunic",
+      "feet": "boots",
+      "pack": "pack"
+    },
+    "pack": [
+      {
+        "item": "gold",
+        "count": 40
+      },
+      {
+        "item": "loaf",
+        "count": 3
+      },
+      {
+        "item": "tonic",
+        "count": 1
+      }
+    ]
+  }
+}

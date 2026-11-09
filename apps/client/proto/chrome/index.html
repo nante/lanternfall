@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Prototype · game chrome</title>
+</head>
+<body>
+<div id="stage"></div>
+<div class="labels" id="labels" aria-hidden="true"></div>
+<div class="c-pop" id="c-pop" role="dialog" aria-label="Menu" hidden></div>
+<p class="sr-only" id="c-announce" aria-live="polite"></p>
+<p class="sr-only" id="c-move-help">Drag the header to move this panel, or use the arrow keys: up and down to reorder, left and right to switch rails.</p>
+<p class="sr-only" id="c-size-help">Drag to resize, or use the arrow keys. Double-click to reset.</p>
+<nav class="proto-picker" data-position="top" aria-label="Prototype variants">
+  <span class="proto-picker-highlight" aria-hidden="true"></span>
+  <button class="proto-picker-item" data-active aria-current="true">Classic frame</button>
+  <button class="proto-picker-item">Twin rails</button>
+  <button class="proto-picker-item">Edge glass</button>
+</nav>
+<script type="module" src="./main.ts"></script>
+</body>
+</html>

@@ -1,0 +1,322 @@
+{
+ "fights": [
+  {
+   "kind": "gutterRat",
+   "seed": 1,
+   "ticks": 41,
+   "hp": 145,
+   "xp": 6,
+   "melee": 3,
+   "shielding": 0,
+   "deaths": 0,
+   "mobHp": 0,
+   "rng": 1149571554,
+   "loot": []
+  },
+  {
+   "kind": "gutterRat",
+   "seed": 7,
+   "ticks": 81,
+   "hp": 130,
+   "xp": 6,
+   "melee": 5,
+   "shielding": 0,
+   "deaths": 0,
+   "mobHp": 0,
+   "rng": 388408862,
+   "loot": [
+    "gold:4"
+   ]
+  },
+  {
+   "kind": "gutterRat",
+   "seed": 42,
+   "ticks": 101,
+   "hp": 131,
+   "xp": 6,
+   "melee": 6,
+   "shielding": 0,
+   "deaths": 0,
+   "mobHp": 0,
+   "rng": 4000578235,
+   "loot": [
+    "gold:1",
+    "tail:1"
+   ]
+  },
+  {
+   "kind": "gutterRat",
+   "seed": 1234,
+   "ticks": 101,
+   "hp": 124,
+   "xp": 6,
+   "melee": 6,
+   "shielding": 0,
+   "deaths": 0,
+   "mobHp": 0,
+   "rng": 3252134945,
+   "loot": [
+    "gold:2",
+    "tail:1"
+   ]
+  },
+  {
+   "kind": "gutterRat",
+   "seed": 99991,
+   "ticks": 101,
+   "hp": 124,
+   "xp": 6,
+   "melee": 6,
+   "shielding": 0,
+   "deaths": 0,
+   "mobHp": 0,
+   "rng": 135934468,
+   "loot": [
+    "gold:4",
+    "tail:1"
+   ]
+  },
+  {
+   "kind": "caveBeetle",
+   "seed": 1,
+   "ticks": 261,
+   "hp": 150,
+   "xp": 90,
+   "melee": 13,
+   "shielding": 0,
+   "deaths": 1,
+   "mobHp": 21,
+   "rng": 2321665238,
+   "loot": []
+  },
+  {
+   "kind": "caveBeetle",
+   "seed": 7,
+   "ticks": 221,
+   "hp": 150,
+   "xp": 90,
+   "melee": 11,
+   "shielding": 0,
+   "deaths": 1,
+   "mobHp": 27,
+   "rng": 874506006,
+   "loot": []
+  },
+  {
+   "kind": "caveBeetle",
+   "seed": 42,
+   "ticks": 248,
+   "hp": 150,
+   "xp": 90,
+   "melee": 12,
+   "shielding": 0,
+   "deaths": 1,
+   "mobHp": 30,
+   "rng": 3796492896,
+   "loot": []
+  },
+  {
+   "kind": "caveBeetle",
+   "seed": 1234,
+   "ticks": 228,
+   "hp": 150,
+   "xp": 90,
+   "melee": 11,
+   "shielding": 0,
+   "deaths": 1,
+   "mobHp": 23,
+   "rng": 2515013672,
+   "loot": []
+  },
+  {
+   "kind": "caveBeetle",
+   "seed": 99991,
+   "ticks": 208,
+   "hp": 150,
+   "xp": 90,
+   "melee": 10,
+   "shielding": 0,
+   "deaths": 1,
+   "mobHp": 26,
+   "rng": 566745870,
+   "loot": []
+  },
+  {
+   "kind": "mireGrub",
+   "seed": 1,
+   "ticks": 166,
+   "hp": 210,
+   "xp": 1350,
+   "melee": 9,
+   "shielding": 0,
+   "deaths": 1,
+   "mobHp": 68,
+   "rng": 3403740097,
+   "loot": []
+  },
+  {
+   "kind": "mireGrub",
+   "seed": 7,
+   "ticks": 146,
+   "hp": 210,
+   "xp": 1350,
+   "melee": 8,
+   "shielding": 0,
+   "deaths": 1,
+   "mobHp": 75,
+   "rng": 2324129854,
+   "loot": []
+  },
+  {
+   "kind": "mireGrub",
+   "seed": 42,
+   "ticks": 186,
+   "hp": 210,
+   "xp": 1350,
+   "melee": 9,
+   "shielding": 0,
+   "deaths": 1,
+   "mobHp": 72,
+   "rng": 1113832518,
+   "loot": []
+  },
+  {
+   "kind": "mireGrub",
+   "seed": 1234,
+   "ticks": 181,
+   "hp": 210,
+   "xp": 1350,
+   "melee": 9,
+   "shielding": 0,
+   "deaths": 1,
+   "mobHp": 55,
+   "rng": 3564056363,
+   "loot": []
+  },
+  {
+   "kind": "mireGrub",
+   "seed": 99991,
+   "ticks": 141,
+   "hp": 210,
+   "xp": 1350,
+   "melee": 8,
+   "shielding": 0,
+   "deaths": 1,
+   "mobHp": 73,
+   "rng": 257981348,
+   "loot": []
+  },
+  {
+   "kind": "thornboar",
+   "seed": 1,
+   "ticks": 219,
+   "hp": 180,
+   "xp": 360,
+   "melee": 10,
+   "shielding": 0,
+   "deaths": 1,
+   "mobHp": 41,
+   "rng": 2890711346,
+   "loot": []
+  },
+  {
+   "kind": "thornboar",
+   "seed": 7,
+   "ticks": 200,
+   "hp": 180,
+   "xp": 360,
+   "melee": 9,
+   "shielding": 0,
+   "deaths": 1,
+   "mobHp": 42,
+   "rng": 1485774221,
+   "loot": []
+  },
+  {
+   "kind": "thornboar",
+   "seed": 42,
+   "ticks": 280,
+   "hp": 180,
+   "xp": 360,
+   "melee": 13,
+   "shielding": 0,
+   "deaths": 1,
+   "mobHp": 30,
+   "rng": 1816261603,
+   "loot": []
+  },
+  {
+   "kind": "thornboar",
+   "seed": 1234,
+   "ticks": 261,
+   "hp": 180,
+   "xp": 360,
+   "melee": 13,
+   "shielding": 0,
+   "deaths": 1,
+   "mobHp": 28,
+   "rng": 2515013672,
+   "loot": []
+  },
+  {
+   "kind": "thornboar",
+   "seed": 99991,
+   "ticks": 196,
+   "hp": 180,
+   "xp": 360,
+   "melee": 9,
+   "shielding": 0,
+   "deaths": 1,
+   "mobHp": 43,
+   "rng": 212833729,
+   "loot": []
+  }
+ ],
+ "spells": [
+  {
+   "seed": 1,
+   "mend": 85,
+   "renew": 151,
+   "emberMobHp": 68,
+   "mana": 95,
+   "magic": 605,
+   "rng": 2647435461
+  },
+  {
+   "seed": 7,
+   "mend": 79,
+   "renew": 142,
+   "emberMobHp": 65,
+   "mana": 95,
+   "magic": 605,
+   "rng": 3882205507
+  },
+  {
+   "seed": 42,
+   "mend": 78,
+   "renew": 160,
+   "emberMobHp": 72,
+   "mana": 95,
+   "magic": 605,
+   "rng": 476557059
+  },
+  {
+   "seed": 1234,
+   "mend": 77,
+   "renew": 155,
+   "emberMobHp": 75,
+   "mana": 95,
+   "magic": 605,
+   "rng": 4018585650
+  },
+  {
+   "seed": 99991,
+   "mend": 84,
+   "renew": 137,
+   "emberMobHp": 64,
+   "mana": 95,
+   "magic": 605,
+   "rng": 2351158380
+  }
+ ]
+}

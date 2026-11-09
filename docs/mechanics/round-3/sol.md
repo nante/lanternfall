@@ -1,0 +1,13 @@
+# Round 3 — Sol
+
+**Score: 8.5/10.** Most round-2 fixes are correct. Two gaps remain in the claimed chase-route cleanup/PZ fix. This is a current-code review: the project has no Git metadata. Only this report was written; deferred mechanics were excluded.
+
+## Blocking issues
+
+1. **P2 — Killing the target leaves its automatic chase route running.** `packages/game/src/engine.ts:403` clears `p.target` without clearing the associated route. Consequently, the invalid-target cleanup at `:441` never runs, and movement at `:449` continues. Reproduced on the town map: start chasing a rat, advance one 50-ms tick, then kill it with `hurt()` (the same death path used by Ember or another player's hit). The target becomes null but three automatic steps remain; subsequent ticks move the hero from `(59,45,1)` to `(56,45,1)` without a target. **Exact fix:** whenever `dead()` clears a matching target, also clear `p.path` if `!p.manual`. Apply the same cleanup to the anti-lure target cancellation at `:564`. Preserve manual routes. Verify a ranged/other-player kill during pursuit stops subsequent automatic movement.
+
+2. **P2 — Obstacle rerouting bypasses PZ avoidance and keeps moving after PZ cancels the attack.** `packages/game/src/engine.ts:464` reroutes using only occupancy avoidance, discarding the PZ restriction from the initial chase path at `:447`. Reproduced in an open arena with one protected tile `(3,3,0)`: hero `(1,3,0)` chases a stationary rat `(5,3,0)`; after the first step, another hero occupies the next route tile `(2,2,0)`. The replacement route becomes `[(3,3,0),(4,3,0)]`. At 900 ms the chaser enters PZ, loses its target, and retains the remaining automatic step. **Exact fix:** in the fallback path's avoidance predicate, combine occupancy with `(!p.manual && this.geo.pz(q))`; reject PZ destinations for automatic routes as well. At both PZ target-clear sites (`:442`, `:469`), clear `p.path` when `!p.manual`. Verify a blocked chase stays outside PZ and that PZ cancellation leaves no automatic route.
+
+## Verification
+
+`npm test`: **56/56 pass**. `npm run typecheck`: **passes**. Additional engine probes above ran in memory with shipped balance. Confirmed the offensive-cast/melee PZ guards, stand-mode cleanup, 50-ms server/simulator ticks, 100-ms periodic views, accepted-logout combat cleanup, full-pile partial stacking, weapon defense, armour-1 absorption, actor Look screen/presence checks, corpse wording and direct magic thresholds. Client code inspection confirms duration-based whole-step interpolation and result-correlated logout; no browser/runtime client validation was performed.

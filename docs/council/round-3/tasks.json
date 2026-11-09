@@ -1,0 +1,52 @@
+[
+  {
+    "round": 3,
+    "member": "opus",
+    "taskId": "node:delegated-task:command%3Amcp%3Acbc50d32-adea-484d-949a-9c2180601254%3Adelegate-task%3Ad396b441-ce7c-4ad6-b73b-01c77120bf2d",
+    "threadId": "thread:delegated-task:command%3Amcp%3Acbc50d32-adea-484d-949a-9c2180601254%3Adelegate-task%3Ad396b441-ce7c-4ad6-b73b-01c77120bf2d",
+    "link": "<t3-thread://v2/653a0e60-6c1f-4e7e-a995-7ab34991766b/thread:delegated-task:command%3Amcp%3Acbc50d32-adea-484d-949a-9c2180601254%3Adelegate-task%3Ad396b441-ce7c-4ad6-b73b-01c77120bf2d>",
+    "model": "claude-opus-5-5",
+    "options": [
+      {
+        "id": "effort",
+        "value": "medium"
+      }
+    ]
+  },
+  {
+    "round": 3,
+    "member": "sol",
+    "taskId": "node:delegated-task:command%3Amcp%3Acbc50d32-adea-484d-949a-9c2180601254%3Adelegate-task%3A14216f08-9e64-4f19-bcfc-9f4115b68a6d",
+    "threadId": "thread:delegated-task:command%3Amcp%3Acbc50d32-adea-484d-949a-9c2180601254%3Adelegate-task%3A14216f08-9e64-4f19-bcfc-9f4115b68a6d",
+    "link": "<t3-thread://v2/653a0e60-6c1f-4e7e-a995-7ab34991766b/thread:delegated-task:command%3Amcp%3Acbc50d32-adea-484d-949a-9c2180601254%3Adelegate-task%3A14216f08-9e64-4f19-bcfc-9f4115b68a6d>",
+    "model": "gpt-6.1-sol",
+    "options": [
+      {
+        "id": "reasoningEffort",
+        "value": "xhigh"
+      },
+      {
+        "id": "serviceTier",
+        "value": "priority"
+      }
+    ]
+  },
+  {
+    "round": 3,
+    "member": "terra",
+    "taskId": "node:delegated-task:command%3Amcp%3Acbc50d32-adea-484d-949a-9c2180601254%3Adelegate-task%3A2c1d4473-2fcc-4a6f-b61a-af91300a3170",
+    "threadId": "thread:delegated-task:command%3Amcp%3Acbc50d32-adea-484d-949a-9c2180601254%3Adelegate-task%3A2c1d4473-2fcc-4a6f-b61a-af91300a3170",
+    "link": "<t3-thread://v2/653a0e60-6c1f-4e7e-a995-7ab34991766b/thread:delegated-task:command%3Amcp%3Acbc50d32-adea-484d-949a-9c2180601254%3Adelegate-task%3A2c1d4473-2fcc-4a6f-b61a-af91300a3170>",
+    "model": "gpt-6.1-terra",
+    "options": [
+      {
+        "id": "reasoningEffort",
+        "value": "max"
+      },
+      {
+        "id": "serviceTier",
+        "value": "priority"
+      }
+    ]
+  }
+]

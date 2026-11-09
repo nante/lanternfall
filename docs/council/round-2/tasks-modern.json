@@ -1,0 +1,55 @@
+[
+  {
+    "round": 2,
+    "revision": "modern",
+    "member": "opus",
+    "taskId": "node:delegated-task:command%3Amcp%3Acbc50d32-adea-484d-949a-9c2180601254%3Adelegate-task%3A1dc8808f-4ed7-4fff-94ba-a3cb7f4bf5ed",
+    "threadId": "thread:delegated-task:command%3Amcp%3Acbc50d32-adea-484d-949a-9c2180601254%3Adelegate-task%3A1dc8808f-4ed7-4fff-94ba-a3cb7f4bf5ed",
+    "link": "<t3-thread://v2/653a0e60-6c1f-4e7e-a995-7ab34991766b/thread:delegated-task:command%3Amcp%3Acbc50d32-adea-484d-949a-9c2180601254%3Adelegate-task%3A1dc8808f-4ed7-4fff-94ba-a3cb7f4bf5ed>",
+    "model": "claude-opus-5-5",
+    "options": [
+      {
+        "id": "effort",
+        "value": "medium"
+      }
+    ]
+  },
+  {
+    "round": 2,
+    "revision": "modern",
+    "member": "sol",
+    "taskId": "node:delegated-task:command%3Amcp%3Acbc50d32-adea-484d-949a-9c2180601254%3Adelegate-task%3Ad8543f46-f414-4e04-8161-cc92d9465c95",
+    "threadId": "thread:delegated-task:command%3Amcp%3Acbc50d32-adea-484d-949a-9c2180601254%3Adelegate-task%3Ad8543f46-f414-4e04-8161-cc92d9465c95",
+    "link": "<t3-thread://v2/653a0e60-6c1f-4e7e-a995-7ab34991766b/thread:delegated-task:command%3Amcp%3Acbc50d32-adea-484d-949a-9c2180601254%3Adelegate-task%3Ad8543f46-f414-4e04-8161-cc92d9465c95>",
+    "model": "gpt-6.1-sol",
+    "options": [
+      {
+        "id": "reasoningEffort",
+        "value": "xhigh"
+      },
+      {
+        "id": "serviceTier",
+        "value": "priority"
+      }
+    ]
+  },
+  {
+    "round": 2,
+    "revision": "modern",
+    "member": "terra",
+    "taskId": "node:delegated-task:command%3Amcp%3Acbc50d32-adea-484d-949a-9c2180601254%3Adelegate-task%3A2136c6a3-f498-4b6e-9dd3-effd035f7b84",
+    "threadId": "thread:delegated-task:command%3Amcp%3Acbc50d32-adea-484d-949a-9c2180601254%3Adelegate-task%3A2136c6a3-f498-4b6e-9dd3-effd035f7b84",
+    "link": "<t3-thread://v2/653a0e60-6c1f-4e7e-a995-7ab34991766b/thread:delegated-task:command%3Amcp%3Acbc50d32-adea-484d-949a-9c2180601254%3Adelegate-task%3A2136c6a3-f498-4b6e-9dd3-effd035f7b84>",
+    "model": "gpt-6.1-terra",
+    "options": [
+      {
+        "id": "reasoningEffort",
+        "value": "max"
+      },
+      {
+        "id": "serviceTier",
+        "value": "priority"
+      }
+    ]
+  }
+]
