@@ -50,7 +50,7 @@ class TownRoom extends Room {
  bindings=new Map<string,{id:string;epoch:number}>();
  onCreate(){room=this;this.onMessage('action',(client:Client,input:unknown)=>this.action(client,input));this.onMessage('ready',(client:Client)=>this.sendView(client));this.setSimulationInterval(()=>this.tick(),50);}
  onJoin(client:Client,input:unknown){const options=Join.parse(input);const existing=options.token?Object.values(engine.state.players).find(p=>p.token===options.token):undefined;if(options.token&&!existing)throw new Error('This character could not be found. Start a new wayfarer.');
-  const id=transaction(()=>{const p=existing?engine.state.players[existing.id]:engine.createPlayer(options.name);engine.tidy(p);p.connected=true;p.epoch++;p.seq=0;p.path=[];return p.id;});const p=engine.state.players[id];
+  const id=transaction(()=>{const p=existing?engine.state.players[existing.id]:engine.createPlayer(options.name);engine.tidy(p);engine.rejoin(p);p.epoch++;p.seq=0;p.path=[];return p.id;});const p=engine.state.players[id];
   for(const old of this.clients){const binding=this.bindings.get(old.sessionId);if(old!==client&&binding?.id===id){old.send('fenced',{});old.leave();}}
   this.bindings.set(client.sessionId,{id,epoch:p.epoch});client.send('welcome',{id:p.id,token:p.token,epoch:p.epoch});this.sendView(client);this.flushNotices();}
  onLeave(client:Client){this.detachPlayer(client);}

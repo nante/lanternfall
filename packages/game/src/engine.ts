@@ -210,6 +210,14 @@ export class Engine {
       || this.map.npcs.some(n => distance(n, pos) === 0);
   }
   present(p: Hero) { return p.connected || p.combatUntil > this.state.time; }
+  /** Back in the world. A body that took the hero's tile meanwhile sends them one step aside, or, with no room there, to the shrine start. */
+  rejoin(p: Hero) {
+    p.connected = true;
+    if (!this.occupied(p, p.id)) return;
+    const aside = [[0, -1], [1, 0], [0, 1], [-1, 0], [1, -1], [1, 1], [-1, 1], [-1, -1]].map(([dx, dy]) => ({ x: p.x + dx, y: p.y + dy, z: p.z }))
+      .find(q => !this.geo.blocked(q, this.state) && !this.map.links[key(q)] && !this.occupied(q, p.id));
+    Object.assign(p, aside ?? this.geo.near(this.map.shrine, q => this.occupied(q, p.id)));
+  }
 
   private lighting() {
     const world = this.balance.world, time = this.state.time;
@@ -692,7 +700,8 @@ export class Engine {
       // A respawn waits while anyone stands near the spawn; a taken spawn square uses the nearest free one.
       if (players.some(p => p.z === m.home.z && distance(p, m.home) <= w.blockRange)) return;
       let spot: Pos;
-      try { spot = this.geo.near(m.home, q => this.occupied(q, m.id)); } catch { return; }
+      const heroOn = (q: Pos) => Object.values(this.state.players).some(h => distance(h, q) === 0);
+      try { spot = this.geo.near(m.home, q => this.occupied(q, m.id) || heroOn(q)); } catch { return; }
       Object.assign(m, spot); m.hp = def.hp; m.damage = {}; m.target = null;
       return;
     }

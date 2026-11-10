@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { Engine } from '../packages/game/src/engine.ts';
 import { buildTown } from '../packages/game/src/town.ts';
 import { Balance } from '../packages/game/src/content-schema.ts';
-import type { Hero } from '../packages/game/src/model.ts';
+import { distance, type Hero } from '../packages/game/src/model.ts';
 import fixture from './fixtures/balance.json' with { type: 'json' };
 
 const balance = Balance.parse(fixture);
@@ -259,4 +259,37 @@ test('a save that does not fit is reported by path', () => {
   const broken = loadWorld('{"version":2,');
   assert.equal(!broken.ok && broken.problems.length, 1);
   assert.match(!broken.ok ? broken.problems[0] : '', /^\(whole save\): not JSON/);
+});
+
+// ---- C1 two bodies on one tile -----------------------------------------------------------------
+test('a hero who rejoins onto a taken tile stands one step away', () => {
+  const { e, ann, bob } = pair();
+  e.action(ann, { kind: 'logout' });
+  place(bob, 40, 34);
+  e.rejoin(ann);
+  assert.equal(ann.connected, true);
+  assert.deepEqual([bob.x, bob.y], [40, 34]);
+  assert.equal(distance(ann, { x: 40, y: 34, z: 0 }), 1);
+  assert.equal(e.occupied(ann, ann.id), false);
+});
+
+test('a hero who rejoins with every neighbour taken wakes at the shrine', () => {
+  const { e, ann, bob } = pair();
+  e.action(ann, { kind: 'logout' });
+  place(bob, 40, 34);
+  for (const [dx, dy] of [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [0, 1], [1, 1]]) place(e.createPlayer('Crowd'), 40 + dx, 34 + dy);
+  e.rejoin(ann);
+  assert.ok(distance(ann, map.shrine) <= 1, `at ${ann.x},${ann.y}`);
+  assert.equal(e.occupied(ann, ann.id), false);
+});
+
+test('a creature never respawns on a hero, even one who is logged out', () => {
+  const e = new Engine(map, balance);
+  const rat = Object.values(e.state.monsters).find(m => m.kind === 'gutterRat')!;
+  const p = place(e.createPlayer('Tess'), rat.home.x, rat.home.y, rat.home.z);
+  e.action(p, { kind: 'logout' });
+  rat.hp = 0; rat.respawnAt = 0;
+  e.tick();
+  assert.equal(rat.hp, balance.creatures.gutterRat.hp);
+  assert.equal(distance(rat, rat.home), 1);
 });
