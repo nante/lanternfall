@@ -8,7 +8,7 @@ import { RenderStyle } from '../../../../packages/game/src/content-schema.ts';
 import { T, type GameView } from '../../../../packages/game/src/model.ts';
 import styleJson from '../../../../content/render-style.json' with { type: 'json' };
 import { WorldView } from '../../src/render/view.ts';
-import { stops, type StopId } from '../../src/render/stops.ts';
+import { stops, stopIds, isStopId, type StopId } from '../../src/render/stops.ts';
 import { hourToMinute, minuteToHour, phaseOf } from '../../src/render/clock-style.ts';
 import * as THREE from 'three';
 import { defaultBalance } from '../../../../packages/game/src/default-balance.ts';
@@ -27,7 +27,8 @@ const q = (k: string, d: string) => url.searchParams.get(k) ?? d;
 const state = {
   tab: q('tab', 'light') as Tab,
   at: q('at', 'meadow'),
-  stop: q('stop', 'play') as StopId,
+  stop: (isStopId(q('stop', 'play')) ? q('stop', 'play') : 'play') as StopId,
+  yaw: Number(q('yaw', '0')),
   pal: q('pal', '1') === '1',
   hunt: q('hunt', '1') === '1',
   shot: q('shot', '0') === '1',
@@ -64,7 +65,8 @@ const w = new WorldView(stage, $('labels'), map);
 w.applyStyle(RenderStyle.parse(styleJson));
 w.setPalette(state.pal);
 w.setStop(state.stop);
-const drawStops = () => seg($('stops'), (['close', 'play', 'scenery'] as StopId[]).map(id => [id, stops[id].label]), w.stop.id, id => w.setStop(id as StopId), id => id === 'scenery' && !w.canScenery());
+w.rig.face(THREE.MathUtils.degToRad(state.yaw));
+const drawStops = () => seg($('stops'), stopIds.map(id => [id, stops[id].label]), w.stop.id, id => w.setStop(id as StopId), id => stops[id as StopId].vista && !w.canScenery());
 w.onStop = s => { state.stop = s.id; write(false); drawStops(); };
 drawStops();
 const picks = $('picks');
@@ -103,9 +105,11 @@ const steps: Record<string, [number, number]> = { w: [0, -1], ArrowUp: [0, -1], 
 addEventListener('keydown', e => {
   if ((e.target as HTMLElement).closest('input, textarea')) return;
   const step = steps[e.key];
-  if (step) { e.preventDefault(); lab.send({ kind: 'walk', dx: step[0], dy: step[1] }); }
+  if (step) { e.preventDefault(); const [dx, dy] = w.walkStep(step[0], step[1]); lab.send({ kind: 'walk', dx, dy }); }
   else if (e.key === '-') w.stepStop(1);
   else if (e.key === '=' || e.key === '+') w.stepStop(-1);
+  else if (e.key === 'q' || e.key === 'e') { w.turn(e.key === 'q' ? 1 : -1); state.yaw = Math.round(THREE.MathUtils.radToDeg(w.rig.yawGoal)); write(false); }
+  else if (e.key === 'v') w.setStop(w.stop.vista ? 'play' : 'scenery');
   else if (e.key === ' ' && view) {
     e.preventDefault();
     const near = [...view.monsters].sort((a, b) => Math.max(Math.abs(a.x - view!.self.x), Math.abs(a.y - view!.self.y)) - Math.max(Math.abs(b.x - view!.self.x), Math.abs(b.y - view!.self.y)))[0];
@@ -134,7 +138,8 @@ const drawLight = () => {
 };
 w.setFieldOn(state.field);
 w.fieldGain = Number(q('gain', '1'));
-{ const e = q('eye', '').split(',').map(Number); if (e.length >= 3 && e.every(Number.isFinite)) w.sceneryEye = { back: e[0], up: e[1], look: e[2], fov: e[3] ?? 40 }; }
+// eye=back,up,look[,fov[,ahead]] retunes the current perspective stop's lens.
+{ const e = q('eye', '').split(',').map(Number), s = stops[state.stop]; if (e.length >= 3 && e.every(Number.isFinite) && s.projection === 'persp') Object.assign(s.eye, { back: e[0], up: e[1], look: e[2], fov: e[3] ?? s.eye.fov, ahead: e[4] ?? s.eye.ahead }); }
 // Level overlay: the rule's number on every tile in view.
 const overlay = document.createElement('canvas'); overlay.className = 'lab-overlay'; overlay.hidden = !state.levels; document.body.append(overlay);
 const drawOverlay = () => {
@@ -179,6 +184,8 @@ drawLight();
   const L = w.lock;
   return `median ${times[60].toFixed(2)} ms p95 ${times[114].toFixed(2)} ms · buffer ${L.bufW}x${L.bufH} · sources ${w.field()?.sources.length ?? 0} · calls ${w.renderer.info.render.calls}`;
 };
+// Handles for CDP drivers: the view, the local engine and the latest GameView.
+Object.assign(window, { __lab: { w, lab, get view() { return view; } } });
 if (q('bench', '0') === '1') setTimeout(() => { document.title = `bench: ${(window as unknown as { labBench: () => string }).labBench()}`; }, 1500);
 // Picture vs server under darkness, while walking a scripted square: every sample reads the light field back from the
 // GPU (the picture) and checks each creature the server sent against it, and the field against the rule.
@@ -243,7 +250,7 @@ const advance = (t: number) => {
 };
 requestAnimationFrame(advance);
 meter(() => {
-  const L = w.lock, tileH = Math.round(Math.sin(w.stop.pitch) * 32 * 100) / 100;
+  const L = w.lock, tileH = w.stop.projection === 'ortho' ? Math.round(Math.sin(w.stop.pitch) * 32 * 100) / 100 : 'lens';
   const cv = w.renderer.domElement.getBoundingClientRect();
   const exact = Math.abs(cv.width * devicePixelRatio - L.bufW * L.k) < 0.5 && Math.abs(cv.height * devicePixelRatio - L.bufH * L.k) < 0.5;
   return `<b>${w.stop.label}</b>\nbuffer ${L.bufW}×${L.bufH}\nscale ×${L.k} · dpr ${devicePixelRatio}\ncanvas ${Math.round(cv.width * devicePixelRatio)}×${Math.round(cv.height * devicePixelRatio)} phys <span class="${exact ? 'ok' : 'bad'}">${exact ? 'exact' : 'stretched'}</span>\ntile 32×${tileH} px${verdict ? '\n' + verdict : ''}`;

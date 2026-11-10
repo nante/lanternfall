@@ -6,7 +6,7 @@ import { human, creature, corpseMesh, type Rig } from './actors.ts';
 import type { Key } from './clock-style.ts';
 import { stops } from './stops.ts';
 import { bake, frameIndex, type Atlas } from './figures/bake.ts';
-import { SpriteSheet, SpriteBody, setSpriteLight } from './figures/sprites.ts';
+import { SpriteSheet, SpriteBody, setSpriteLight, spriteLight } from './figures/sprites.ts';
 import { STRIKE, type AnimName } from './figures/poses.ts';
 import type { FigureId } from './figures/kit.ts';
 import { Particles } from './particles.ts';
@@ -15,15 +15,24 @@ import { stepSwing, strike, swingFrame, tuning, prefersReducedMotion, knockOffse
 const mobDefs = defaultBalance.creatures;
 const STEP_MS = defaultBalance.progression.stepMs;
 const PLAY_PITCH = stops.play.pitch;
-/** Scenery looks at figures from just above their heads; a second bake draws them at that angle. */
-/** The Scenery eye stands above the hero (view.ts `sceneryEye`), so figures are baked looking down about this much. */
-const SCENERY_PITCH = (9 * Math.PI) / 180;
+/** Bakes are cached by pitch to a tenth of a degree; every stop names the pitch its figures are seen at. */
+const bakeKey = (pitch: number) => Math.round((pitch * 1800) / Math.PI);
 
 export type ActorKind = 'self' | 'player' | 'npc' | 'monster';
 /** What the view needs from an actor: the server's tile, where the feet are drawn, and how tall it is. */
 export type ActorHandle = { id: string; kind: ActorKind; name: string; target: THREE.Vector3; position: THREE.Vector3; height: number; visible: boolean };
 /** Per-frame inputs. `key` is the current lighting keyframe (sun, sky, grade); `sunDir` points from the ground to the sun or moon. */
-export type FrameContext = { floor: number; selfTarget: string | null; hiddenByRoof: (x: number, y: number) => boolean; key: Key; sunDir: THREE.Vector3; time: number; serverTime: number; pitch: number; wide: boolean };
+export type FrameContext = {
+  floor: number; selfTarget: string | null; hiddenByRoof: (x: number, y: number) => boolean; key: Key; sunDir: THREE.Vector3; time: number; serverTime: number; pitch: number; wide: boolean;
+  /** Camera yaw (radians, positive turns the view left): picks each figure's drawn direction and turns its normals. */
+  yaw: number;
+  /** The lens is in the hero's head: their own figure is not drawn. */
+  hideSelf: boolean;
+  /** The camera of the last frame: names and pick boxes follow the sprite planes, which face it. */
+  camera: THREE.Camera;
+  /** A name over a head on this tile would float over a wall that hides its actor. */
+  occluded: (x: number, y: number) => boolean;
+};
 
 /** Baked sprites, or the old box rigs for comparison. */
 export type Variant = 'baked' | 'boxes';
@@ -43,6 +52,8 @@ type Actor = ActorHandle & {
   /** Animation clock (ms). Hit-stop holds it; nothing positional reads it. */
   clock: number; stopUntil: number; swing: Swing; walk: number; walkFrame: number; hurtAt: number; castAt: number;
   knockAt: number; knockDir: THREE.Vector2; flash: boolean; seed: number; striking: boolean; rigSwing: number;
+  /** From the feet to where the drawn plane stands: sprites step towards the camera (see SpriteBody.set). */
+  lift: THREE.Vector3;
 };
 type Corpse = { id: string; stage: number; x: number; y: number; z: number; figure?: FigureId; dir: number; born: number; collapse: boolean; landed: boolean; sprite?: SpriteBody; mesh?: THREE.Group };
 
@@ -59,7 +70,7 @@ export class ActorLayer {
   readonly kick = new THREE.Vector2();
   readonly atlas?: Atlas;
   private readonly sheet?: SpriteSheet;
-  private low?: { atlas: Atlas; sheet: SpriteSheet };
+  private readonly bakes = new Map<number, { atlas: Atlas; sheet: SpriteSheet }>();
   private readonly particles = new Particles();
   variant: Variant = 'baked';
   feel: FeelLevel = 'heavy';
@@ -77,10 +88,11 @@ export class ActorLayer {
   constructor(readonly scene: THREE.Scene, readonly labels: HTMLElement, readonly map: MapData, readonly screen: (v: THREE.Vector3) => { x: number; y: number }) {
     try {
       this.atlas = bake(PLAY_PITCH);
-      // Bake the Scenery pitch in idle time after the first paint, so the first zoom-out never stalls.
-      const idle = (globalThis as { requestIdleCallback?: (f: () => void, o?: { timeout: number }) => void }).requestIdleCallback ?? ((f: () => void) => setTimeout(f, 1500));
-      idle(() => { if (!this.low && this.sheet) { const atlas = bake(SCENERY_PITCH); this.low = { atlas, sheet: new SpriteSheet(atlas) }; } }, { timeout: 4000 });
       this.sheet = new SpriteSheet(this.atlas);
+      this.bakes.set(bakeKey(PLAY_PITCH), { atlas: this.atlas, sheet: this.sheet });
+      // The other stops' bakes are made in idle time after the first paint, so the first change of view never stalls.
+      const idle = (globalThis as { requestIdleCallback?: (f: () => void, o?: { timeout: number }) => void }).requestIdleCallback ?? ((f: () => void) => setTimeout(f, 1500));
+      idle(() => { for (const st of Object.values(stops)) this.bakeFor(st.figures); }, { timeout: 4000 });
       console.info(`figures: baked ${this.atlas.cells} frames (${this.atlas.width}×${this.atlas.height}) in ${this.atlas.ms.toFixed(0)} ms`);
     } catch (e) {
       console.error('figures: bake failed, drawing box rigs', e);
@@ -99,14 +111,28 @@ export class ActorLayer {
     let best: Actor | undefined, bestD = 26;
     for (const a of this.actors.values()) {
       if (a.kind === 'self' || !a.visible) continue;
-      const foot = this.screen(a.position), head = this.screen(a.position.clone().add(new THREE.Vector3(0, a.height, 0)));
+      const base = a.position.clone().add(a.lift), foot = this.screen(base), head = this.screen(base.add(new THREE.Vector3(0, a.height, 0)));
       const cx = foot.x, cy = (foot.y + head.y) / 2, half = Math.abs(foot.y - head.y) / 2 + 8;
       const dx = Math.abs(clientX - cx), dy = Math.abs(clientY - cy);
-      if (dy < half + 6 && dx < 22) { const d = dx + dy * 0.3; if (d < bestD) { bestD = d; best = a; } }
+      // Through a lens a near figure is drawn larger: its box grows with its drawn height.
+      if (dy < half + 6 && dx < Math.max(22, half * 0.55)) { const d = dx + dy * 0.3; if (d < bestD) { bestD = d; best = a; } }
     }
     return best;
   }
 
+  /** On the ground, `p` stands between the lens and the hero: nearer the lens, and inside a narrow lane towards them. */
+  private between(lens: THREE.Vector3, hero: THREE.Vector3, p: THREE.Vector3) {
+    const hx = hero.x - lens.x, hz = hero.z - lens.z, len = Math.hypot(hx, hz) || 1, px = p.x - lens.x, pz = p.z - lens.z;
+    const along = (px * hx + pz * hz) / len, side = Math.abs(px * hz - pz * hx) / len;
+    return along > 0 && along < len - 0.5 && side < 0.8;
+  }
+  /** The bake for a pitch, made the first time a stop needs it, then kept. */
+  private bakeFor(pitch: number) {
+    const key = bakeKey(pitch);
+    let b = this.bakes.get(key);
+    if (!b) { const atlas = bake(pitch); b = { atlas, sheet: new SpriteSheet(atlas) }; this.bakes.set(key, b); console.info(`figures: bake at ${(key / 10).toFixed(1)}° ${atlas.cells} frames in ${atlas.ms.toFixed(0)} ms`); }
+    return b;
+  }
   private serverNow() { const s = this.server; return s.time + Math.min(performance.now() - s.at, 250) * s.rate; }
   private figureFor(look: string) { return this.variant === 'baked' && this.sheet ? baked[look] : undefined; }
   private makeBody(kind: ActorKind, look: string): Body {
@@ -144,7 +170,7 @@ export class ActorLayer {
         a = {
           id, kind, name, look, body, target, position: target.clone(), height, visible: true, stepMs: STEP_MS, movingUntil: 0,
           facing: p.facing ?? 0, hp, max, attackAt, foe, clock: 0, stopUntil: 0, swing: { phase: 'rest' }, walk: 0, walkFrame: -1,
-          hurtAt: -1e9, castAt: -1e9, knockAt: -1e9, knockDir: new THREE.Vector2(), flash: false, seed: (id.length * 977 + id.charCodeAt(0) * 131) % 1300, striking: false, rigSwing: 0,
+          hurtAt: -1e9, castAt: -1e9, knockAt: -1e9, knockDir: new THREE.Vector2(), lift: new THREE.Vector3(), flash: false, seed: (id.length * 977 + id.charCodeAt(0) * 131) % 1300, striking: false, rigSwing: 0,
         };
         if (body.kind === 'rig') { body.rig.root.position.copy(target); body.rig.root.rotation.y = a.facing; }
         if (kind !== 'self') {
@@ -243,9 +269,9 @@ export class ActorLayer {
 
   frame(dt: number, t: number, ctx: FrameContext) {
     const tun = tuning(this.feel, this.reduced), dms = dt * 1000 * this.server.rate, sNow = this.serverNow();
-    // The Scenery bake is made the first time the wide view opens, then kept.
-    if (ctx.wide && !this.low && this.sheet) { const atlas = bake(SCENERY_PITCH); this.low = { atlas, sheet: new SpriteSheet(atlas) }; console.info(`figures: scenery bake ${atlas.cells} frames in ${atlas.ms.toFixed(0)} ms`); }
-    const useLow = ctx.wide && !!this.low, atlas = useLow ? this.low!.atlas : this.atlas!, sheet = useLow ? this.low!.sheet : this.sheet!, pitch = useLow ? SCENERY_PITCH : PLAY_PITCH;
+    const { atlas, sheet } = this.bakeFor(ctx.pitch), pitch = atlas.pitch;
+    const turn = Math.round(ctx.yaw / (Math.PI / 4));
+    spriteLight.uYaw.value = ctx.yaw;
     this.clock += dms;
     setSpriteLight(ctx.key, ctx.sunDir, ctx.floor === 1, ctx.wide);
     const sunStrength = ctx.floor === 1 ? 0 : ctx.key.shadows * Math.min(1, ctx.key.sunI / 2.5);
@@ -253,6 +279,8 @@ export class ActorLayer {
     this.kick.set(-this.kickDir.x * kp, this.kickDir.y * kp);
     this.particles.update(dms);
 
+    // Through a lens standing behind the hero, the hero is the point of interest; orthographic views look straight down.
+    const me = ctx.camera instanceof THREE.PerspectiveCamera && !ctx.hideSelf ? this.actors.get(this.lastView?.self.id ?? '') : undefined;
     for (const a of this.actors.values()) {
       const pos = a.position;
       if (this.motion === 'snap' || !a.from || a.startedAt === undefined) pos.copy(a.target);
@@ -264,7 +292,7 @@ export class ActorLayer {
       if (was.phase !== 'windup' && next.phase === 'windup') this.log.windups++;
       if (was.phase === 'windup' && next.phase === 'recover') this.log.relaxed++;
       a.swing = next;
-      const shown = a.visible && !(a.kind !== 'self' && ctx.hiddenByRoof(Math.round(a.target.x), Math.round(a.target.z)));
+      const shown = a.visible && !(a.kind === 'self' ? ctx.hideSelf : ctx.hiddenByRoof(Math.round(a.target.x), Math.round(a.target.z)));
       const moving = sNow < a.movingUntil;
 
       if (a.body.kind === 'sprite') {
@@ -285,18 +313,26 @@ export class ActorLayer {
         }
         a.striking = striking;
         a.body.sprite.use(sheet);
-        const rect = atlas.sheets.get(a.body.figure)!.frames[frameIndex(anim, frame, dirIndex(a.facing))];
+        const rect = atlas.sheets.get(a.body.figure)!.frames[frameIndex(anim, frame, dirIndex(a.facing - ctx.yaw))];
         const kb = knockOffset(a.clock - a.knockAt, tun.knock);
+        const ghost = a.kind !== 'self' && !!me && this.between(ctx.camera.position, me.position, pos);
         const foot = new THREE.Vector3(pos.x + a.knockDir.x * kb, 0, pos.z + a.knockDir.y * kb);
-        a.body.sprite.set(rect, foot, { flat: false, flash: a.flash, dim: 0, sun: ctx.sunDir, sunStrength, blob: blobs[a.body.figure] ?? [0.26, 0.15], self: a.kind === 'self' ? 0.35 : 0 }, pitch);
+        a.body.sprite.set(rect, foot, { flat: false, flash: a.flash, dim: 0, sun: ctx.sunDir, sunStrength, blob: blobs[a.body.figure] ?? [0.26, 0.15], self: a.kind === 'self' ? 0.35 : 0, ghost }, pitch);
         a.flash = false;
         a.body.sprite.visible = shown;
+        // Where the shader puts the plane: stepped `front` towards the camera, rising to keep the feet on the tile, and
+        // top rows over 1/c of a tile, c being the camera's level share.
+        const e = ctx.camera.matrixWorldInverse.elements, c = Math.hypot(e[2], e[10]) || 1, front = a.body.sprite.front;
+        a.lift.set((e[2] / c) * front, (front * e[6]) / c, (e[10] / c) * front);
+        a.height = (atlas.sheets.get(a.body.figure)!.height * Math.cos(pitch)) / c;
       } else this.animateRig(a, a.body.rig, dt, t, moving, shown);
 
       if (a.label) {
-        const s = this.screen(pos.clone().add(new THREE.Vector3(0, a.height + 0.2, 0)));
+        const head = pos.clone().add(a.lift).add(new THREE.Vector3(0, a.height, 0)), s = this.screen(head);
+        // A fifth of a tile over the head, but never more than a few pixels: through a lens a near tile is tall.
+        s.y -= Math.min(10, s.y - this.screen(head.add(new THREE.Vector3(0, 0.2, 0))).y);
         // Scenery has no picking, and labels there would float over walls that hide their actors.
-        const onScreen = shown && !ctx.wide && s.x > -50 && s.y > -50 && s.x < innerWidth + 50 && s.y < innerHeight + 50;
+        const onScreen = shown && !ctx.wide && !ctx.occluded(Math.round(a.target.x), Math.round(a.target.z)) && s.x > -50 && s.y > -50 && s.x < innerWidth + 50 && s.y < innerHeight + 50;
         a.label.style.transform = `translate3d(${Math.round(s.x)}px, ${Math.round(s.y)}px, 0) translate(-50%, -100%)`;
         a.label.style.visibility = onScreen ? 'visible' : 'hidden';
         a.label.classList.toggle('targeted', ctx.selfTarget === a.id);
@@ -311,7 +347,7 @@ export class ActorLayer {
       const frame = k.collapse ? Math.min(3, Math.floor((this.clock - k.born) / 110)) : 3;
       if (frame === 3 && !k.landed) { k.landed = true; if (!this.reduced) this.particles.collapse(new THREE.Vector3(k.x, 0, k.y), 0.8); }
       k.sprite.use(sheet);
-      const rect = atlas.sheets.get(k.figure)!.frames[frameIndex('die', frame, k.dir)];
+      const rect = atlas.sheets.get(k.figure)!.frames[frameIndex('die', frame, (((k.dir - turn) % 8) + 8) % 8)];
       k.sprite.set(rect, new THREE.Vector3(k.x, 0, k.y), { flat: frame >= 2, flash: false, dim: k.stage ? 0.55 : 0, sun: ctx.sunDir, sunStrength, blob: blobs[k.figure] ?? [0.3, 0.16] }, pitch);
     }
   }

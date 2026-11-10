@@ -7,7 +7,9 @@ import {
   type Action, type GameView, type GameItem, type ItemKind, type Notice, type Pos, type Effect, type SpellId, type NpcSpawn,
   equipSlots, distance, G, T, grounds,
 } from '../../../packages/game/src/model.ts';
+import * as THREE from 'three';
 import { WorldView } from './render/view.ts';
+import { stops, stopIds, isStopId } from './render/stops.ts';
 import { hourToMinute } from './render/clock-style.ts';
 import { loadTextureOverrides } from './render/texture-overrides.ts';
 import { startPreview } from './preview.ts';
@@ -39,6 +41,7 @@ $('#app').innerHTML = `
     <div class="world-host" id="world-host"></div>
     <div class="place" id="place" aria-live="polite"><span id="place-name"></span><small id="place-sub"></small></div>
     <div class="toast" id="toast" role="status"></div>
+    <div class="views" id="views" role="group" aria-label="View"></div>
     <nav class="hotbar" id="hotbar" aria-label="Actions"></nav>
     <section class="dialogue" id="dialogue" aria-label="Conversation" data-open="false"></section>
     <section class="window" id="container" data-open="false" aria-label="Container"></section>
@@ -72,8 +75,10 @@ $('#app').innerHTML = `
     <div><dt><kbd>1</kbd>–<kbd>7</kbd></dt><dd>Spells, tonics, food</dd></div>
     <div><dt><kbd>I</kbd> · <kbd>C</kbd></dt><dd>Show or hide the pack · skills panel</dd></div>
     <div><dt>Panel headers</dt><dd>Drag to rearrange. Drag edges to resize</dd></div>
-    <div><dt>Scroll</dt><dd>Zoom the view, or the map when over it</dd></div>
-    <div><dt><kbd>-</kbd> · <kbd>=</kbd></dt><dd>Zoom out · in: Close, Play, Scenery</dd></div>
+    <div><dt>Scroll</dt><dd>Change the view, or zoom the map when over it</dd></div>
+    <div><dt><kbd>-</kbd> · <kbd>=</kbd></dt><dd>Lower · raise the view: Top-down, Close, Tilt, Third person, First person</dd></div>
+    <div><dt><kbd>Q</kbd> · <kbd>E</kbd></dt><dd>Turn the view in Third and First person; <kbd>W</kbd> walks where you look</dd></div>
+    <div><dt><kbd>V</kbd></dt><dd>Vista: look out over the land, under open sky</dd></div>
   </dl>
   <div class="menu-actions"><button class="primary" id="resume">Resume</button><button id="leave">Save and leave</button></div>
 </dialog>`;
@@ -136,6 +141,31 @@ const chrome = new Chrome({
 $('#parts').remove();
 const applyChrome = (id: ChromeLayout | undefined) => chrome.setLayout(id ?? 'classic');
 applyChrome(savedStyle.success ? savedStyle.data.chrome : undefined);
+
+// ---------------------------------------------------------------- view picker: the perspective, kept across reloads
+const VIEW_KEY = 'lanternfall.view';
+function saveView() { try { localStorage.setItem(VIEW_KEY, JSON.stringify({ stop: world.stop.vista ? undefined : world.stop.id, yaw: Math.round(THREE.MathUtils.radToDeg(world.rig.yawGoal)) })); } catch { /* storage blocked: the view just won't survive a reload */ } }
+{
+  let saved: { stop?: string; yaw?: number } = {};
+  try { saved = JSON.parse(localStorage.getItem(VIEW_KEY) ?? '{}'); } catch { /* unreadable: start at Tilt */ }
+  if (saved.stop && isStopId(saved.stop) && !stops[saved.stop].vista) world.setStop(saved.stop);
+  if (Number.isFinite(saved.yaw)) world.rig.face(THREE.MathUtils.degToRad(saved.yaw!));
+}
+const viewsEl = $('#views');
+function drawViews() {
+  patch(viewsEl, stopIds.map(id => `<button type="button" data-stop="${id}" aria-pressed="${world.stop.id === id}"${stops[id].vista && !world.canScenery() ? ' disabled title="Needs open sky"' : ''}>${esc(stops[id].label)}</button>`).join(''));
+}
+viewsEl.addEventListener('click', e => {
+  const id = (e.target as HTMLElement).closest<HTMLElement>('[data-stop]')?.dataset.stop;
+  if (id && isStopId(id)) { world.setStop(id); world.renderer.domElement.focus({ preventScroll: true }); }
+});
+function toggleVista() {
+  if (world.stop.vista) world.stepStop(1);
+  else if (world.canScenery()) world.setStop('scenery');
+  else toast('The Vista needs open sky.');
+}
+world.onStop = () => { saveView(); drawViews(); };
+drawViews();
 
 // ---------------------------------------------------------------- gate
 function showGate(error = '') {
@@ -210,6 +240,7 @@ const count = (kind: ItemKind) => carried().filter(i => i.kind === kind).reduce(
 
 function renderHud() {
   if (!view) return;
+  drawViews();
   const s = view.self;
   const here = placeAt(map, s);
   if (here !== place) { const firstPlace = !place; place = here; announce(here, s.z === 1 ? 'Undercroft' : 'Lanternfall', firstPlace); }
@@ -465,7 +496,7 @@ setInterval(() => {
   if (!view || !held.size || document.activeElement === $('#chat-input')) return;
   let dx = 0, dy = 0;
   for (const k of held) { const d = dirs[k]; if (d) { dx += d[0]; dy += d[1]; } }
-  dx = Math.sign(dx); dy = Math.sign(dy);
+  [dx, dy] = world.walkStep(Math.sign(dx), Math.sign(dy));
   // Send the next step as the current one is finishing, so held keys follow the real step time.
   if ((dx || dy) && serverNow() >= view.self.moveAt - 90 && performance.now() - lastStep > 120) { lastStep = performance.now(); pending = undefined; send({ kind: 'walk', dx, dy }); }
 }, 30);
@@ -483,6 +514,8 @@ addEventListener('keydown', e => {
   if (k === 'c') { chrome.toggle('skills'); world.resize(); return; }
   if (e.key === '-') { world.stepStop(1); return; }
   if (e.key === '=' || e.key === '+') { world.stepStop(-1); return; }
+  if (k === 'q' || k === 'e') { world.turn(k === 'q' ? 1 : -1); saveView(); return; }
+  if (k === 'v') { toggleVista(); return; }
   if (e.key === 'Escape') {
     if (openContainer) openContainer = undefined;
     else if (view?.self.talking) send({ kind: 'talk', npc: null });
@@ -741,7 +774,7 @@ function drawMinimap(canvas: HTMLCanvasElement | null) {
   g.fillStyle = '#c8a0e0'; for (const p of view.players) if (p.z === self.z) dot(p.x, p.y, 3);
   g.fillStyle = '#ffffff'; dot(self.x, self.y, 4);
   g.strokeStyle = 'rgba(255,240,220,.5)'; g.lineWidth = 1 / z;
-  if (!world.stop.ortho) return;
+  if (world.stop.projection !== 'ortho') return;
   const vw = (world.camera.right - world.camera.left) * 2, vh = (world.camera.top - world.camera.bottom) * 2 / Math.sin(world.stop.pitch);
   g.strokeRect(self.x * 2 - vw / 2 + 0.5, self.y * 2 - vh / 2 + 0.5, vw, vh);
 }

@@ -95,6 +95,8 @@ export function tuftMesh(kind: TuftKind, spots: { x: number; z: number }[], time
       // Sway the top by whole render pixels so the pixel grid holds.
       float sway = floor(sin(uTime * 1.3 + root.x * 0.6 + root.z * 0.4) * 1.4 + 0.5) / ${PX.toFixed(1)};
       transformed.x += sway * step(0.6 * ${h.toFixed(4)}, position.y);
+      // Cards turn with the camera's yaw, so a turned view never sees them edge-on.
+      transformed.xz = transformed.x * normalize(vec2(viewMatrix[0][0], viewMatrix[2][0]));
     `);
   };
   const mesh = new THREE.InstancedMesh(geo, mat, Math.max(1, spots.length));
