@@ -3,6 +3,7 @@ import { type MapData, type Building, G, T, grounds } from '../../../../packages
 import { hash2 } from '../../../../packages/game/src/town.ts';
 import { groundAtlas, wallTexture, roofTexture, plankTexture } from './textures.ts';
 import { tuftMesh, type TuftKind } from './tufts.ts';
+import { Mason, prim, roundArch } from './architecture/kit.ts';
 import { buildTrees } from './trees.ts';
 import { ramps } from './palette.ts';
 import { propModel, type PropPart } from './props.ts';
@@ -224,14 +225,139 @@ function gableRoof(b: Building, tex: THREE.Texture) {
   return group;
 }
 
-function towerTop(b: Building, h: number, mat: THREE.Material) {
+const tinted = <M extends THREE.MeshLambertMaterial>(m: M) => { m.vertexColors = true; return m; };
+const STONE = { face: '#ffffff', light: '#e8e2d8', dark: '#8a8178', deep: '#5e5852', slit: '#1c1816' };
+/** An arrow slit with a cross arm: a dark recess in a paler stone surround, on a face whose outward normal is (nx, nz). */
+function slit(m: Mason, x: number, y: number, z: number, nx: number, nz: number, hgt = 0.62) {
+  const ry = Math.atan2(nx, nz);
+  m.within(x, y, z, ry, () => {
+    m.block(STONE.light, 0, -0.08, hgt + 0.08, 0.01, 0.3, 0.06);
+    m.block(STONE.slit, 0, 0, hgt, 0.035, 0.1, 0.04);
+    m.block(STONE.slit, 0, hgt * 0.55, hgt * 0.55 + 0.08, 0.035, 0.26, 0.04);
+  });
+}
+/** A row of merlons along an edge from (ax, az) to (bx, bz), standing on y, with corbels under a projecting course. The outer side is to the left of travel. */
+function battlement(m: Mason, ax: number, az: number, bx: number, bz: number, y: number, merlon = 0.42, gap = 0.34) {
+  const len = Math.hypot(bx - ax, bz - az), ry = Math.atan2(bx - ax, bz - az) - Math.PI / 2, n = Math.max(1, Math.floor((len + gap) / (merlon + gap)));
+  const pad = (len - (n * merlon + (n - 1) * gap)) / 2;
+  m.within((ax + bx) / 2, 0, (az + bz) / 2, ry, () => {
+    // Corbels under the course, then the course, a parapet wall, and the merlons on it.
+    for (let u = -len / 2 + 0.2; u < len / 2 - 0.1; u += 0.42) m.block(STONE.deep, u, y - 0.26, y, 0.06, 0.16, 0.16);
+    m.block(STONE.light, 0, y, y + 0.12, 0.02, len + 0.1, 0.3);
+    m.block(STONE.face, 0, y + 0.12, y + 0.42, -0.02, len, 0.22);
+    for (let i = 0; i < n; i++) m.block(STONE.face, -len / 2 + pad + merlon / 2 + i * (merlon + gap), y + 0.42, y + 0.82, -0.02, merlon, 0.22);
+  });
+}
+
+/**
+ * A gate tower over its walls: a battered plinth, a string course, arrow slits on the faces that see the road and the
+ * field, a machicolated parapet with merlons, and a slate pyramid roof with a finial, a pennant, and a banner hung on the
+ * field side. The roof is kept low enough that, from the Play camera, nothing north of the tower is hidden that its
+ * walls did not already hide.
+ */
+function gateTower(b: Building, h: number, wall: THREE.Material) {
+  const x0 = b.x0 - 0.5, x1 = b.x1 + 0.5, z0 = b.y0 - 0.5, z1 = b.y1 + 0.5, cx = (x0 + x1) / 2, cz = (z0 + z1) / 2, W = x1 - x0, D = z1 - z0;
+  const m = new Mason(), paint = new Mason(), slate = new Mason();
+  m.block(STONE.dark, cx, 0, 0.32, cz, W + 0.24, D + 0.24);
+  m.block(STONE.light, cx, 1.5, 1.62, cz, W + 0.1, D + 0.1);
+  const faces: [number, number, number, number, number, number][] = [[x0, z1, x1, z1, 0, 1], [x1, z1, x1, z0, 1, 0], [x1, z0, x0, z0, 0, -1], [x0, z0, x0, z1, -1, 0]];
+  for (const [ax, az, bx, bz, nx, nz] of faces) battlement(m, ax + nx * 0.12, az + nz * 0.12, bx + nx * 0.12, bz + nz * 0.12, h);
+  m.block(STONE.deep, cx, h, h + 0.12, cz, W - 0.2, D - 0.2);
+  // Slits on the field face (south) and the faces that flank the road.
+  for (const x of [cx - 0.75, cx + 0.75]) slit(m, x, 0.8, z1, 0, 1);
+  slit(m, cx, 2.0, z1, 0, 1, 0.5);
+  const road = b.x0 < 40 ? 1 : -1, rx = road > 0 ? x1 : x0;
+  for (const z of [cz - 0.8, cz + 0.9]) slit(m, rx, 1.9, z, road, 0, 0.5);
+  // The roof: a slate pyramid inside the parapet, a finial and a pennant on a pole.
+  const rh = 1.75, top = h + 0.12;
+  slate.put(prim.cone(4), '#a4a2b4', cx, top + rh / 2, cz, { sx: (W - 0.5) * 0.71, sy: rh, sz: (D - 0.5) * 0.71, ry: Math.PI / 4 });
+  paint.put(prim.box(), '#3c3836', cx, top + rh + 0.5, cz, { sx: 0.05, sy: 1.1, sz: 0.05 });
+  paint.put(prim.box(), ramps.fire[5], cx, top + rh + 0.06, cz, { sx: 0.16, sy: 0.12, sz: 0.16 });
+  paint.put(prim.box(), ramps.roof[2], cx + 0.24, top + rh + 0.88, cz, { sx: 0.44, sy: 0.16, sz: 0.02 });
+  paint.put(prim.box(), ramps.roof[1], cx + 0.52, top + rh + 0.9, cz, { sx: 0.16, sy: 0.1, sz: 0.02 });
+  // A banner on the field face: a pole on brackets, the cloth, a gold device, and a swallowtail.
+  const bx2 = cx + (road > 0 ? -0.05 : 0.05), bz = z1 + 0.09;
+  paint.put(prim.box(), '#3c3836', bx2, h - 0.35, bz + 0.03, { sx: 0.7, sy: 0.05, sz: 0.05 });
+  paint.block(ramps.roof[2], bx2, h - 1.65, h - 0.38, bz, 0.56, 0.03);
+  paint.block(ramps.roof[1], bx2 - 0.18, h - 1.95, h - 1.65, bz, 0.2, 0.03);
+  paint.block(ramps.roof[1], bx2 + 0.18, h - 1.95, h - 1.65, bz, 0.2, 0.03);
+  paint.block(ramps.fire[5], bx2, h - 1.2, h - 0.75, bz + 0.012, 0.22, 0.02);
+  paint.block(ramps.fire[4], bx2, h - 1.42, h - 1.2, bz + 0.012, 0.08, 0.02);
   const g = new THREE.Group();
-  const w = b.x1 - b.x0 + 1.3, d = b.y1 - b.y0 + 1.3, cx = (b.x0 + b.x1) / 2, cz = (b.y0 + b.y1) / 2;
-  const slab = new THREE.Mesh(box, mat); slab.scale.set(w, 0.25, d); slab.position.set(cx, h + 0.12, cz); slab.castShadow = true; slab.receiveShadow = true; g.add(slab);
-  for (let x = b.x0 - 0.15; x <= b.x1 + 0.2; x += 1) for (const z of [b.y0 - 0.5, b.y1 + 0.5]) { const c = new THREE.Mesh(box, mat); c.scale.set(0.5, 0.45, 0.3); c.position.set(x, h + 0.45, z); c.castShadow = true; g.add(c); }
-  for (let z = b.y0; z <= b.y1; z += 1) for (const x of [b.x0 - 0.5, b.x1 + 0.5]) { const c = new THREE.Mesh(box, mat); c.scale.set(0.3, 0.45, 0.5); c.position.set(x, h + 0.45, z); c.castShadow = true; g.add(c); }
-  const banner = new THREE.Mesh(box, lambert('#8a2e26')); banner.scale.set(0.5, 1.1, 0.05); banner.position.set(cx, h - 0.7, b.y1 + 0.53); g.add(banner);
+  const meshes = [m.build(tinted(wall as THREE.MeshLambertMaterial)), paint.build(lambert('#ffffff', { vertexColors: true })), slate.build(tinted(worldMapped(roofTexture('slate'))))];
+  for (const mesh of meshes) { mesh.castShadow = true; mesh.receiveShadow = true; g.add(mesh); }
   return g;
+}
+
+/**
+ * The gate arch between the two towers, with a raised portcullis and a crenellated top. It is drawn only for a low
+ * eye: from the Play and top-down cameras an arch over the passage would hide whoever stands just inside the gate.
+ */
+function gateArch(x0: number, x1: number, z: number, open0: number, open1: number, wall: THREE.MeshLambertMaterial) {
+  const m = new Mason(), iron = new Mason(), crown = 3.0, top = 3.25, ow = open1 - open0, spring = crown - ow / 2;
+  const shape = new THREE.Shape([new THREE.Vector2(x0, 0), new THREE.Vector2(x1, 0), new THREE.Vector2(x1, top), new THREE.Vector2(x0, top)]);
+  shape.holes.push(roundArch(ow, spring, (open0 + open1) / 2, 0));
+  const geo = new THREE.ExtrudeGeometry(shape, { depth: 0.8, bevelEnabled: false, curveSegments: 8 }).toNonIndexed(); geo.translate(0, 0, z - 0.4); geo.deleteAttribute('uv');
+  m.putMatrix(geo, STONE.face, new THREE.Matrix4());
+  // Voussoirs: a paler ring of stones round the arch on both faces.
+  for (let i = 0; i <= 8; i++) {
+    const a = Math.PI - (i / 8) * Math.PI, r = ow / 2 + 0.14, px = (open0 + open1) / 2 + Math.cos(a) * r, py = spring + Math.sin(a) * r;
+    for (const f of [-1, 1]) m.put(prim.box(), i === 4 ? STONE.light : STONE.dark, px, py, z + f * 0.41, { sx: 0.24, sy: 0.32, sz: 0.04, rz: a - Math.PI / 2 });
+  }
+  battlement(m, x0, z + 0.4, x1, z + 0.4, top);
+  for (let x = open0 + 0.25; x < open1 - 0.1; x += 0.36) { iron.block('#3a3634', x, crown - 0.75, crown - 0.02, z, 0.05, 0.05); iron.put(prim.cone(4), '#3a3634', x, crown - 0.85, z, { sx: 0.05, sy: 0.2, sz: 0.05, rx: Math.PI }); }
+  for (const y of [crown - 0.6, crown - 0.3]) iron.block('#3a3634', (open0 + open1) / 2, y, y + 0.05, z, ow - 0.2, 0.05);
+  const g = new THREE.Group();
+  // No shadow: from above, a dark band across the passage with no arch to cast it reads as a hole.
+  for (const mesh of [m.build(lowOnly(tinted(wall.clone()))), iron.build(lowOnly(lambert('#ffffff', { vertexColors: true })))]) { mesh.receiveShadow = true; g.add(mesh); }
+  return g;
+}
+/** Draw a material only where the eye looks at it from low down, dithering it out as the view steepens past ~35°. */
+function lowOnly<M extends THREE.MeshLambertMaterial>(mat: M) {
+  mat.customProgramCacheKey = () => 'low-only';
+  mat.onBeforeCompile = shader => {
+    shader.vertexShader = 'varying vec3 vLowPos;\n' + shader.vertexShader.replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\n vLowPos = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+    shader.fragmentShader = 'varying vec3 vLowPos;\n' + shader.fragmentShader.replace('void main() {', `void main() {
+      { float up = normalize(cameraPosition - vLowPos).y;
+        float b = fract(dot(floor(gl_FragCoord.xy), vec2(0.5, 0.25)) + 0.125 * mod(floor(gl_FragCoord.y), 2.0));
+        if (smoothstep(0.5, 0.62, up) > b) discard; }`);
+  };
+  return mat;
+}
+
+/**
+ * The town wall: a battered foot, a string course, a parapet with merlons on the field side (corbelled out over the
+ * face), buttress piers and arrow slits along the outer face. One merged mesh over the rampart tiles.
+ */
+function ramparts(at: (x: number, y: number) => number, w: number, h: number, wall: THREE.MeshLambertMaterial) {
+  const m = new Mason();
+  let bx0 = Infinity, by0 = Infinity, bx1 = -Infinity, by1 = -Infinity;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (at(x, y) === T.rampart) { bx0 = Math.min(bx0, x); by0 = Math.min(by0, y); bx1 = Math.max(bx1, x); by1 = Math.max(by1, y); }
+  if (bx0 === Infinity) return undefined;
+  const H = 2.5;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    if (at(x, y) !== T.rampart) continue;
+    m.block(STONE.face, x, 0, H, y, 1, 1);
+    m.block(STONE.dark, x, 0, 0.28, y, 1.16, 1.16);
+    m.block(STONE.light, x, 1.3, 1.38, y, 1.06, 1.06);
+    m.block(STONE.deep, x, H - 0.01, H + 0.02, y, 0.98, 0.98);
+    const outs: [number, number][] = [];
+    if (y === by1) outs.push([0, 1]); if (y === by0) outs.push([0, -1]); if (x === bx0) outs.push([-1, 0]); if (x === bx1) outs.push([1, 0]);
+    // A short run of rampart beside a gate (not on the outer ring) faces the way its row does.
+    if (!outs.length) outs.push(y > (by0 + by1) / 2 ? [0, 1] : [0, -1]);
+    for (const [nx, nz] of outs) {
+      const along = nx === 0, cx = x + nx * 0.45, cz = y + nz * 0.45, tx = nz * 0.5, tz = -nx * 0.5;
+      const run = (dx: number, dz: number) => at(x + dx, y + dz) === T.rampart;
+      battlement(m, cx - tx, cz - tz, cx + tx, cz + tz, H, 0.46, 0.54);
+      const k = along ? x : y;
+      if (k % 5 === 0 && (along ? run(-1, 0) && run(1, 0) : run(0, -1) && run(0, 1))) {
+        m.block(STONE.face, x + nx * 0.6, 0, 1.9, y + nz * 0.6, along ? 0.46 : 0.24, along ? 0.24 : 0.46);
+        m.put(prim.box(), STONE.light, x + nx * 0.6, 1.95, y + nz * 0.6, { sx: along ? 0.48 : 0.26, sy: 0.12, sz: along ? 0.26 : 0.48, rx: along ? nz * 0.6 : 0, rz: along ? 0 : -nx * 0.6 });
+      } else if (k % 5 === 2) slit(m, x + nx * 0.5, 0.9, y + nz * 0.5, nx, nz);
+    }
+  }
+  const mesh = m.build(tinted(wall)); mesh.castShadow = true; mesh.receiveShadow = true;
+  return mesh;
 }
 
 export function buildFloor(map: MapData, z: number, doorsOpen: Record<string, boolean>): FloorScene {
@@ -288,24 +414,30 @@ export function buildFloor(map: MapData, z: number, doorsOpen: Record<string, bo
     for (let y = b.y0; y <= b.y1; y++) for (let x = b.x0; x <= b.x1; x++) if (at(x, y) === T.wall) list.push({ x, y: wh / 2, z: y, sy: wh });
     const walls = instanced(new THREE.BoxGeometry(1, 1, 1), wallMat(b.wall), list);
     group.add(walls);
-    const roof = tower ? towerTop(b, wh, wallMat('rampart')) : gableRoof(b, roofTexture(b.roof));
+    const roof = tower ? gateTower(b, wh, worldMapped(wallTexture('rampart'))) : gableRoof(b, roofTexture(b.roof));
     group.add(roof);
     roofs.push({ building: b, mesh: roof, walls });
   }
   // Ramparts and cave walls.
-  const ramp: Inst[] = [], crenel: Inst[] = [], cave: Inst[] = [];
+  const cave: Inst[] = [];
   const open = (x: number, y: number) => { const t = at(x, y); return t !== T.cavewall; };
-  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-    const t = at(x, y);
-    if (t === T.rampart) { ramp.push({ x, y: 1.25, z: y, sy: 2.5 }); if ((x + y) % 2 === 0) crenel.push({ x, y: 2.7, z: y, sx: 0.55, sy: 0.4, sz: 0.55 }); }
-    if (z === 1 && t === T.cavewall) {
-      let edge = false;
-      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (open(x + dx, y + dy)) edge = true;
-      if (edge) { const r = hash2(x * 1.3, y * 2.9); cave.push({ x, y: 0.8 + r * 0.3, z: y, sx: 1.02, sy: 1.6 + r * 0.6, sz: 1.02, color: r > 0.5 ? '#9a948a' : '#8a847a' }); }
-    }
+  if (z === 1) for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    if (at(x, y) !== T.cavewall) continue;
+    let edge = false;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (open(x + dx, y + dy)) edge = true;
+    if (edge) { const r = hash2(x * 1.3, y * 2.9); cave.push({ x, y: 0.8 + r * 0.3, z: y, sx: 1.02, sy: 1.6 + r * 0.6, sz: 1.02, color: r > 0.5 ? '#9a948a' : '#8a847a' }); }
   }
-  group.add(instanced(box, wallMat('rampart'), ramp));
-  group.add(instanced(box, wallMat('rampart'), crenel));
+  const wallRing = ramparts(at, w, h, worldMapped(wallTexture('rampart')));
+  if (wallRing) group.add(wallRing);
+  // The arch over the gate passage, between the two gate towers.
+  const gates = map.buildings.filter(b => b.name === 'South gate').sort((a, b2) => a.x0 - b2.x0);
+  if (z === 0 && gates.length === 2) {
+    const [l, r] = gates, gz = l.y1 - 1;
+    let o0 = l.x1 + 1, o1 = r.x0 - 1;
+    while (at(o0, gz) === T.rampart) o0++;
+    while (at(o1, gz) === T.rampart) o1--;
+    group.add(gateArch(l.x1 + 0.5, r.x0 - 0.5, gz, o0 - 0.5, o1 + 0.5, worldMapped(wallTexture('rampart'))));
+  }
   if (cave.length) group.add(instanced(box, worldMapped(wallTexture('cave')), cave));
 
   // Props: one model per thing kind and variant (`props.ts`), instanced per part.
