@@ -4,7 +4,7 @@ export const postFragment = /* glsl */`
 precision highp float;
 uniform sampler2D tColor; uniform sampler2D tDepth; uniform vec2 uRes; uniform float uCave; uniform float uTime; uniform float uHurt;
 uniform float uExposure; uniform float uSaturation; uniform float uContrast; uniform float uWarm; uniform float uCool; uniform float uVignette;
-uniform float uLevels; uniform float uDither; uniform float uFaceDither; uniform float uOutline; uniform float uRim;
+uniform float uLevels; uniform float uDither; uniform vec2 uDitherShift; uniform float uFaceDither; uniform float uOutline; uniform float uRim;
 uniform highp sampler3D uLut; uniform float uPalette; uniform float uNightEdges; uniform vec3 uShadowTint; uniform vec3 uLightTint;
 uniform sampler2D uMoodA; uniform sampler2D uMoodB; uniform vec2 uMoodSize; uniform mat4 uInvVP; uniform vec4 uHeroW[2]; uniform vec2 uHeroXZ;
 uniform vec4 uMoodGrade[8]; uniform vec3 uMoodShadow[8]; uniform vec3 uMoodLight[8]; uniform vec3 uMoodHaze[8];
@@ -82,17 +82,21 @@ void main(){
   float drift = 0.75 + 0.25 * sin(mood.world.x * 0.31 + uTime * 0.05 + sin(mood.world.z * 0.23 - uTime * 0.03) * 2.0);
   c = mix(c, mood.haze, clamp(mood.mist * drift, 0.0, 0.8));
   vec2 q = vUv - 0.5;
-  c += vec3(1.0, 0.5, 0.18) * 0.06 * uWarm * (1.0 - uCave) * smoothstep(1.0, 0.0, length(vUv - vec2(0.0, 1.0)));
-  c *= 1.0 - dot(q, q) * (uCave > 0.5 ? max(1.1, uVignette) : uVignette);
-  c = mix(c, c * vec3(1.25, 0.45, 0.4), uHurt * smoothstep(0.15, 0.6, length(q)));
   c = pow(max(c, 0.0), vec3(1.0 / 2.2));
   // Contrast pivots on display mid-grey, after gamma, so dark ground keeps its detail.
   c = clamp((c - 0.5) * uContrast + 0.5, 0.0, 1.0);
   bool sky = d >= 0.9999;
   if (uPalette > 0.5) {
     // Ordered dither nudges colours near a palette boundary, so bands break up only at their edges.
-    vec3 d = c + (bayer(gl_FragCoord.xy) - 0.5) * uDither * (sky ? 1.0 : uFaceDither) / 24.0;
+    vec3 d = c + (bayer(gl_FragCoord.xy + uDitherShift) - 0.5) * uDither * (sky ? 1.0 : uFaceDither) / 24.0;
     c = texture(uLut, clamp(d, 0.0, 1.0) * (31.0 / 32.0) + 0.5 / 32.0).rgb;
-  } else c = floor(c * uLevels + 0.5 + (bayer(gl_FragCoord.xy) - 0.5) * uDither) / uLevels;
+  } else c = floor(c * uLevels + 0.5 + (bayer(gl_FragCoord.xy + uDitherShift) - 0.5) * uDither) / uLevels;
+  // Screen-fixed light (corner glow, vignette, hurt flash) goes on after the palette snap. Before it, the palette's
+  // band edges followed the screen and slid across the ground as the camera moved.
+  c = pow(c, vec3(2.2));
+  c += vec3(1.0, 0.5, 0.18) * 0.06 * uWarm * (1.0 - uCave) * smoothstep(1.0, 0.0, length(vUv - vec2(0.0, 1.0)));
+  c *= 1.0 - dot(q, q) * (uCave > 0.5 ? max(1.1, uVignette) : uVignette);
+  c = mix(c, c * vec3(1.25, 0.45, 0.4), uHurt * smoothstep(0.15, 0.6, length(q)));
+  c = pow(max(c, 0.0), vec3(1.0 / 2.2));
   gl_FragColor = vec4(c, 1.0);
 }`;

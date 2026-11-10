@@ -180,7 +180,7 @@ export class WorldView {
     this.target = new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType, depthTexture: new THREE.DepthTexture(4, 4), magFilter: THREE.NearestFilter, minFilter: THREE.NearestFilter });
     this.post = new THREE.ShaderMaterial({
       vertexShader: postVertex, fragmentShader: postFragment,
-      uniforms: { ...moodUniforms, uExposure: { value: 1.7 }, uSaturation: { value: 1.18 }, uContrast: { value: 1 }, uWarm: { value: 1 }, uCool: { value: 1 }, uVignette: { value: 0.6 }, uLevels: { value: 48 }, uDither: { value: 0.5 }, uFaceDither: { value: 1 }, uOutline: { value: 0.45 }, uRim: { value: 0.55 }, uLut: { value: this.luts.day }, uPalette: { value: 1 }, uNightEdges: { value: 1 }, uShadowTint: { value: new THREE.Color(1, 1, 1) }, uLightTint: { value: new THREE.Color(1, 1, 1) }, tColor: { value: this.target.texture }, tDepth: { value: this.target.depthTexture }, uRes: { value: new THREE.Vector2(4, 4) }, uCave: { value: 0 }, uTime: { value: 0 }, uHurt: { value: 0 } },
+      uniforms: { ...moodUniforms, uExposure: { value: 1.7 }, uSaturation: { value: 1.18 }, uContrast: { value: 1 }, uWarm: { value: 1 }, uCool: { value: 1 }, uVignette: { value: 0.6 }, uLevels: { value: 48 }, uDither: { value: 0.5 }, uFaceDither: { value: 1 }, uDitherShift: { value: new THREE.Vector2() }, uOutline: { value: 0.45 }, uRim: { value: 0.55 }, uLut: { value: this.luts.day }, uPalette: { value: 1 }, uNightEdges: { value: 1 }, uShadowTint: { value: new THREE.Color(1, 1, 1) }, uLightTint: { value: new THREE.Color(1, 1, 1) }, tColor: { value: this.target.texture }, tDepth: { value: this.target.depthTexture }, uRes: { value: new THREE.Vector2(4, 4) }, uCave: { value: 0 }, uTime: { value: 0 }, uHurt: { value: 0 } },
       depthTest: false, depthWrite: false,
     });
     this.postScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.post));
@@ -549,6 +549,7 @@ export class WorldView {
     // sky keeps it, or its gradient falls into bands that curve across a wide lens.
     this.post.uniforms.uDither.value = this.style.dither * (1 - this.scenery);
     this.post.uniforms.uFaceDither.value = 1 - 0.7 * rig.perspShare;
+    if (rig.active === this.camera) this.post.uniforms.uDitherShift.value.copy(rig.ditherShift); else this.post.uniforms.uDitherShift.value.set(0, 0);
     styleUniforms.uGroundDetail.value = this.style.groundDetail * (1 - 0.55 * this.scenery);
     fieldUniforms.uFGround.value = this.scenery;
     // Region mood, moonlit vista, shadow softness, motes, shafts and mist (render/mood.ts).
