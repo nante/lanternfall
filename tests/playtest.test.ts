@@ -218,3 +218,17 @@ test('look at an item in reach says what it is, what it weighs and what it does'
   const other = place(e.createPlayer('Other'), 45, 34);
   assert.throws(() => e.action(p, { kind: 'look', at: p, item: e.equipped(other, 'weapon')!.id }), /cannot reach/);
 });
+
+// ---- the world runs with nobody online -------------------------------------------------------
+test('with every hero logged out, creatures respawn and corpses rot', () => {
+  const e = new Engine(map, balance);
+  const p = e.createPlayer('Tess');
+  e.action(p, { kind: 'logout' });
+  const rat = Object.values(e.state.monsters).find(m => m.kind === 'gutterRat')!;
+  e.dead(rat);
+  const corpse = Object.values(e.state.corpses)[0];
+  const [, s1, s2] = balance.world.corpseStages, until = Math.max(rat.respawnAt, corpse.expiresAt - (s1 + s2) * 1000);
+  while (e.state.time <= until) e.tick(1000);
+  assert.equal(rat.hp, balance.creatures.gutterRat.hp, 'respawned');
+  assert.equal(corpse.stage, 1, 'the corpse rotted');
+});

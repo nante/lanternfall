@@ -59,7 +59,8 @@ class TownRoom extends Room {
   client.send('result',result);this.sendView(client);this.flushNotices();}
  /** A Studio edit changed this character: show it to them at once. */
  edited(id:string){const p=engine.state.players[id];if(p?.connected)engine.note(p,'Your character was changed in the Studio.');for(const c of this.clients)if(this.bindings.get(c.sessionId)?.id===id)this.sendView(c);this.flushNotices();}
- tick(){if(!Object.values(engine.state.players).some(p=>p.connected||p.combatUntil>engine.state.time))return;const started=performance.now();try{transaction(()=>engine.tick(50),undefined,++ticks%40===0);if(ticks%2===0)for(const c of this.clients)this.sendView(c);this.flushNotices();}catch(error){console.error(JSON.stringify({event:'tick_rolled_back',error:String(error)}));}const elapsed=performance.now()-started;if(elapsed>50)console.warn(JSON.stringify({event:'tick_overrun',ms:Math.round(elapsed)}));}
+ /** The world runs whenever the server is up. With nobody online it is saved every 10 s instead of every 2 s: only respawns and rot are at stake. */
+ tick(){const online=Object.values(engine.state.players).some(p=>engine.present(p));const started=performance.now();try{transaction(()=>engine.tick(50),undefined,++ticks%(online?40:200)===0);if(ticks%2===0)for(const c of this.clients)this.sendView(c);this.flushNotices();}catch(error){console.error(JSON.stringify({event:'tick_rolled_back',error:String(error)}));}const elapsed=performance.now()-started;if(elapsed>50)console.warn(JSON.stringify({event:'tick_overrun',ms:Math.round(elapsed)}));}
 }
 let room:TownRoom|undefined;
 const PORT=Number(process.env.PORT??2567);
