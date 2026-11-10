@@ -151,6 +151,7 @@ export class SpriteSheet {
     this.color = tex(atlas.color, true); this.normal = tex(atlas.normal, false);
   }
   body() { return new SpriteBody(this, this.quad); }
+  dispose() { this.color.dispose(); this.normal.dispose(); }
 }
 
 /** One drawn figure: an upright (or, for the dead, flat) plane and its ground shadow. */

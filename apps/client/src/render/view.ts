@@ -2,7 +2,6 @@ import * as THREE from 'three';
 import { type MapData, type GameView, type Pos, type Effect, T, grounds, thingHidesSight } from '../../../../packages/game/src/model.ts';
 import { defaultBalance, defaultRules as rules } from '../../../../packages/game/src/default-balance.ts';
 import { buildFloor, SUN_DIR, styleUniforms, type FloorScene } from './terrain.ts';
-import { setActorPop } from './actors.ts';
 import { ActorLayer } from './actor-layer.ts';
 import type { RenderStyle } from '../../../../packages/game/src/content-schema.ts';
 import { defaultStyle } from '../../../../packages/game/src/style-presets.ts';
@@ -197,7 +196,6 @@ export class WorldView {
     }, { passive: false });
     new ResizeObserver(() => this.resize()).observe(host);
     this.resize();
-    setActorPop(0);
     this.actors = new ActorLayer(this.scene, labels, map, v => this.screen(v));
     this.spire = new Spire(map);
     this.ambience = new Ambience(map, this.spire.lantern); this.scene.add(this.ambience.group);
@@ -254,7 +252,6 @@ export class WorldView {
     styleUniforms.uGrid.value = style.grid; styleUniforms.uDapple.value = style.dapple;
     styleUniforms.uGrass.value = style.grass; styleUniforms.uGrassHeight.value = style.grassHeight;
     styleUniforms.uGroundBright.value = style.groundBrightness; styleUniforms.uGroundDetail.value = style.groundDetail;
-    setActorPop(0);
     this.labels.classList.toggle('names', style.alwaysNames);
     this.applyLights();
     this.resize();
@@ -341,7 +338,7 @@ export class WorldView {
     if (a) return a;
     // Shades carry no name or kind, only an id and a tile; they are clickable so you can fight back in the dark.
     const id = this.shades.pick(e.clientX, e.clientY, v => this.screen(v)), t = id ? this.shades.tile(id) : undefined;
-    return id && t ? { id, kind: 'monster' as const, name: 'Something', target: new THREE.Vector3(t.x, 0, t.y), position: new THREE.Vector3(t.x, 0, t.y), height: 0.6, visible: true } : undefined;
+    return id && t ? { id, kind: 'monster' as const, name: 'Something', target: new THREE.Vector3(t.x, 0, t.y), position: new THREE.Vector3(t.x, 0, t.y), height: 0.6, size: 1, visible: true } : undefined;
   }
   click(e: PointerEvent) {
     // In Scenery a click only returns to Play; it never walks or attacks.
@@ -493,7 +490,8 @@ export class WorldView {
     if (!REDUCED_MOTION) this.field()?.flicker(t);
     this.shades.frame();
     const me = this.view ? this.actors.get(this.view.self.id) : undefined;
-    const held = this.carried.some(c => c.id === 'torch:self') || this.lastSources.some(c => this.view && c.id === `torch:${this.view.self.id}`);
+    // A torch the hero wears is drawn in the figure's hand; this flame is only for the lab's carried light.
+    const held = this.carried.some(c => c.id === 'torch:self');
     this.flame.update(t, me && held ? me.position : null);
     const rayMat = (this.rays.children[0] as THREE.Mesh | undefined)?.material as THREE.ShaderMaterial | undefined;
     if (rayMat) rayMat.uniforms.uTime.value = t;
@@ -510,7 +508,7 @@ export class WorldView {
     else { this.center.x = 40 + Math.sin(t * 0.05) * 6; this.center.z = 31 + Math.cos(t * 0.04) * 3; }
     const target = this.view?.self.target ? this.actors.get(this.view.self.target) : undefined;
     // The ring marks the server's tile, not the gliding body.
-    if (target) this.targetRing.position.copy(target.target);
+    if (target) { this.targetRing.position.copy(target.target); this.targetRing.scale.setScalar(Math.max(1, target.size)); }
 
     // Stop transitions: pitch eases between Close and Play; Play and Scenery dolly between cameras.
     this.stopEase = Math.min(1, this.stopEase + dt / (this.sceneryGoal || this.fromStop.id === 'scenery' ? 0.9 : 0.25));

@@ -1,14 +1,14 @@
 import * as THREE from 'three';
 import { ACTOR_LAYER } from './figures/sprites.ts';
-import { type MapData, type GameView, type Pos, type Effect, grounds } from '../../../../packages/game/src/model.ts';
+import { type MapData, type GameView, type Pos, type Effect, type Worn, grounds } from '../../../../packages/game/src/model.ts';
 import { defaultBalance, defaultRules as rules } from '../../../../packages/game/src/default-balance.ts';
-import { human, creature, corpseMesh, type Rig } from './actors.ts';
+import { corpseMesh } from './actors.ts';
 import type { Key } from './clock-style.ts';
 import { stops } from './stops.ts';
-import { bake, frameIndex, type Atlas } from './figures/bake.ts';
+import { bake, BakeJob, frameIndex, type Atlas, type Sheet } from './figures/bake.ts';
 import { SpriteSheet, SpriteBody, setSpriteLight } from './figures/sprites.ts';
 import { STRIKE, type AnimName } from './figures/poses.ts';
-import type { FigureId } from './figures/kit.ts';
+import { creatures, creatureFigure, heroFigureOf, identityOf, isCreature, isTownsfolk, plainHero, selfIdentity, starterWorn, townsfolkFigure, type Figure } from './figures/kit.ts';
 import { Particles } from './particles.ts';
 import { stepSwing, strike, swingFrame, tuning, prefersReducedMotion, knockOffset, kickPixels, type Swing, type FeelLevel } from './feel.ts';
 
@@ -20,32 +20,47 @@ const PLAY_PITCH = stops.play.pitch;
 const SCENERY_PITCH = (9 * Math.PI) / 180;
 
 export type ActorKind = 'self' | 'player' | 'npc' | 'monster';
-/** What the view needs from an actor: the server's tile, where the feet are drawn, and how tall it is. */
-export type ActorHandle = { id: string; kind: ActorKind; name: string; target: THREE.Vector3; position: THREE.Vector3; height: number; visible: boolean };
+/** What the view needs from an actor: the server's tile, where the feet are drawn, how tall it is and how wide it stands (tiles). */
+export type ActorHandle = { id: string; kind: ActorKind; name: string; target: THREE.Vector3; position: THREE.Vector3; height: number; size: number; visible: boolean };
 /** Per-frame inputs. `key` is the current lighting keyframe (sun, sky, grade); `sunDir` points from the ground to the sun or moon. */
 export type FrameContext = { floor: number; selfTarget: string | null; hiddenByRoof: (x: number, y: number) => boolean; key: Key; sunDir: THREE.Vector3; time: number; serverTime: number; pitch: number; wide: boolean };
 
-/** Baked sprites, or the old box rigs for comparison. */
-export type Variant = 'baked' | 'boxes';
 /** Glide each step over the server's step time, or snap to each new tile. */
 export type Motion = 'glide' | 'snap';
-/** A display-only figure (the lab's line-up). Drawn like any actor; never part of a GameView. */
-export type Extra = { id: string; name: string; kind: 'npc' | 'monster'; look: string; x: number; y: number; z: number; facing: number };
+/** A display-only figure (the lab's line-up). Drawn like any actor; never part of a GameView. `worn` dresses a hero look. */
+export type Extra = { id: string; name: string; kind: 'npc' | 'monster'; look: string; worn?: Worn; x: number; y: number; z: number; facing: number };
 
-const baked: Record<string, FigureId> = { hero: 'hero', other: 'other', robe: 'robe', apron: 'apron', dress: 'dress', coat: 'coat', vest: 'vest', guard: 'guard', thornboar: 'thornboar', gutterRat: 'gutterRat' };
-const blobs: Partial<Record<FigureId, [number, number]>> = { thornboar: [0.42, 0.25], gutterRat: [0.2, 0.11] };
+/**
+ * What an actor is drawn as: the figure it should be, and the one in the base bake that stands in until that figure's
+ * own bake is ready. Walk cycles per step come from the creature table; people take two.
+ */
+type Look = { figure: Figure; stand?: string; cadence: number };
+function lookOf(kind: ActorKind, id: string, look: string, worn?: Worn): Look {
+  if (kind === 'self') return { figure: heroFigureOf(worn ?? {}, selfIdentity), stand: heroFigureOf(starterWorn, selfIdentity).id, cadence: 2 };
+  if (kind === 'player' || look === 'hero') return { figure: heroFigureOf(worn ?? {}, identityOf(id)), stand: plainHero().id, cadence: 2 };
+  if (isCreature(look)) return { figure: creatureFigure(look), stand: look in defaultBalance.creatures ? look : undefined, cadence: creatures[look].cadence };
+  return { figure: townsfolkFigure(isTownsfolk(look) ? look : 'vest'), stand: isTownsfolk(look) ? look : 'vest', cadence: 2 };
+}
 
-type Body = { kind: 'sprite'; sprite: SpriteBody; figure: FigureId } | { kind: 'rig'; rig: Rig };
+type Body = { sprite: SpriteBody; look: Look };
 type Actor = ActorHandle & {
-  look: string; body: Body; label?: HTMLDivElement; bar?: HTMLDivElement;
+  look: string; worn: string; body: Body; label?: HTMLDivElement; bar?: HTMLDivElement;
   from?: THREE.Vector3; startedAt?: number; stepMs: number; floorZ?: number; movingUntil: number;
   facing: number; hp: number; max: number; attackAt: number; foe: string | null;
   /** Animation clock (ms). Hit-stop holds it; nothing positional reads it. */
   clock: number; stopUntil: number; swing: Swing; walk: number; walkFrame: number; hurtAt: number; castAt: number;
-  knockAt: number; knockDir: THREE.Vector2; flash: boolean; seed: number; striking: boolean; rigSwing: number;
+  knockAt: number; knockDir: THREE.Vector2; flash: boolean; seed: number; striking: boolean;
 };
-type Corpse = { id: string; stage: number; x: number; y: number; z: number; figure?: FigureId; dir: number; born: number; collapse: boolean; landed: boolean; sprite?: SpriteBody; mesh?: THREE.Group };
+type Corpse = { id: string; stage: number; x: number; y: number; z: number; figure?: Figure; dir: number; born: number; collapse: boolean; landed: boolean; sprite?: SpriteBody; mesh?: THREE.Group };
+/** A figure baked on its own, after the base: an outfit, or a creature the base bake leaves out. Baked a few ms per frame. */
+type Lazy = { job?: BakeJob; atlas?: Atlas; sheet?: SpriteSheet; steps: number; worst: number; used: number };
+/** Bake work per frame for lazy figures, so a new outfit spreads over several frames; the stand-in shows meanwhile. */
+const BAKE_BUDGET_MS = 4;
+/** A lazy bake nobody has drawn for this long is dropped: each holds about 6 MB of textures. */
+const LAZY_KEEP_MS = 30_000;
 
+/** The contact shadow under a body `span` tiles wide: as wide as it stands, flattened by the view. */
+const blob = (span: number): [number, number] => [Math.max(0.18, span * 0.5), Math.max(0.1, span * 0.29)];
 const dirIndex = (facing: number) => ((Math.round(facing / (Math.PI / 4)) % 8) + 8) % 8;
 
 /**
@@ -57,41 +72,37 @@ export class ActorLayer {
   private readonly corpses = new Map<string, Corpse>();
   /** Camera kick in render pixels; the view adds it after pixel snapping and this layer decays it. */
   readonly kick = new THREE.Vector2();
-  readonly atlas?: Atlas;
-  private readonly sheet?: SpriteSheet;
+  readonly atlas: Atlas;
+  private readonly sheet: SpriteSheet;
   private low?: { atlas: Atlas; sheet: SpriteSheet };
+  private readonly lazy = new Map<string, Lazy>();
+  /** Lazy bakes as they finish, for the lab: which figure, at which pitch, ms of work, over how many frames. */
+  readonly bakes: { id: string; pitch: number; ms: number; steps: number; worst: number; phases: Atlas['phases'] }[] = [];
   private readonly particles = new Particles();
-  variant: Variant = 'baked';
   feel: FeelLevel = 'heavy';
   motion: Motion = 'glide';
   reduced = prefersReducedMotion();
   /** Counts for the lab: every strike frame drawn is checked against the moment its effect arrived. */
-  readonly log = { effects: 0, rigEffects: 0, restrikes: 0, strikes: 0, early: 0, windups: 0, relaxed: 0, collapses: 0 };
+  readonly log = { effects: 0, restrikes: 0, strikes: 0, early: 0, windups: 0, relaxed: 0, collapses: 0 };
   private extras: Extra[] = [];
   private clock = 0;
   private server = { time: 0, at: 0, rate: 1, seen: false };
   private kickAt = -1e9; private kickDir = new THREE.Vector2(); private kickAmount = 0;
-  private gone: { x: number; y: number; z: number; figure?: FigureId; facing: number; at: number }[] = [];
+  private gone: { x: number; y: number; z: number; facing: number; at: number }[] = [];
   private lastView?: GameView;
 
   constructor(readonly scene: THREE.Scene, readonly labels: HTMLElement, readonly map: MapData, readonly screen: (v: THREE.Vector3) => { x: number; y: number }) {
-    try {
-      this.atlas = bake(PLAY_PITCH);
-      // Bake the Scenery pitch in idle time after the first paint, so the first zoom-out never stalls.
-      const idle = (globalThis as { requestIdleCallback?: (f: () => void, o?: { timeout: number }) => void }).requestIdleCallback ?? ((f: () => void) => setTimeout(f, 1500));
-      idle(() => { if (!this.low && this.sheet) { const atlas = bake(SCENERY_PITCH); this.low = { atlas, sheet: new SpriteSheet(atlas) }; } }, { timeout: 4000 });
-      this.sheet = new SpriteSheet(this.atlas);
-      console.info(`figures: baked ${this.atlas.cells} frames (${this.atlas.width}×${this.atlas.height}) in ${this.atlas.ms.toFixed(0)} ms`);
-    } catch (e) {
-      console.error('figures: bake failed, drawing box rigs', e);
-      this.variant = 'boxes';
-    }
+    this.atlas = bake(PLAY_PITCH);
+    // Bake the Scenery pitch in idle time after the first paint, so the first zoom-out never stalls.
+    const idle = (globalThis as { requestIdleCallback?: (f: () => void, o?: { timeout: number }) => void }).requestIdleCallback ?? ((f: () => void) => setTimeout(f, 1500));
+    idle(() => { if (!this.low) { const atlas = bake(SCENERY_PITCH); this.low = { atlas, sheet: new SpriteSheet(atlas) }; } }, { timeout: 4000 });
+    this.sheet = new SpriteSheet(this.atlas);
+    console.info(`figures: baked ${this.atlas.cells} frames (${this.atlas.width}×${this.atlas.height}) in ${this.atlas.ms.toFixed(0)} ms`);
     this.particles.points.layers.set(ACTOR_LAYER); scene.add(this.particles.points);
   }
 
   get(id: string): ActorHandle | undefined { return this.actors.get(id); }
   hideAll() { for (const a of this.actors.values()) this.show(a, false); }
-  setVariant(v: Variant) { if (v === this.variant || (v === 'baked' && !this.sheet)) return; this.variant = v; this.clear(); if (this.lastView) this.sync(this.lastView, this.lastView.self.z); }
   setExtras(list: Extra[]) { this.extras = list; }
 
   /** Screen-space pick around each actor's drawn body. Returns the actor; callers act on its server tile. */
@@ -100,26 +111,51 @@ export class ActorLayer {
     for (const a of this.actors.values()) {
       if (a.kind === 'self' || !a.visible) continue;
       const foot = this.screen(a.position), head = this.screen(a.position.clone().add(new THREE.Vector3(0, a.height, 0)));
-      const cx = foot.x, cy = (foot.y + head.y) / 2, half = Math.abs(foot.y - head.y) / 2 + 8;
+      const side = this.screen(a.position.clone().add(new THREE.Vector3(a.size / 2, 0, 0)));
+      const cx = foot.x, cy = (foot.y + head.y) / 2, half = Math.abs(foot.y - head.y) / 2 + 8, halfW = Math.max(22, Math.abs(side.x - foot.x) + 6);
       const dx = Math.abs(clientX - cx), dy = Math.abs(clientY - cy);
-      if (dy < half + 6 && dx < 22) { const d = dx + dy * 0.3; if (d < bestD) { bestD = d; best = a; } }
+      if (dy < half + 6 && dx < halfW) { const d = dx * (22 / halfW) + dy * 0.3; if (d < bestD) { bestD = d; best = a; } }
     }
     return best;
   }
 
   private serverNow() { const s = this.server; return s.time + Math.min(performance.now() - s.at, 250) * s.rate; }
-  private figureFor(look: string) { return this.variant === 'baked' && this.sheet ? baked[look] : undefined; }
-  private makeBody(kind: ActorKind, look: string): Body {
-    const figure = this.figureFor(look);
-    if (figure) { const sprite = this.sheet!.body(); sprite.addTo(this.scene); return { kind: 'sprite', sprite, figure }; }
-    const rig = kind === 'monster' ? creature(look) : human(look);
-    const s = kind === 'monster' ? 1.15 : 1.25;
-    rig.root.scale.setScalar(s); rig.height *= s;
-    rig.root.traverse(o => o.layers.set(ACTOR_LAYER)); this.scene.add(rig.root);
-    return { kind: 'rig', rig };
+  private makeBody(look: Look): Body { const sprite = this.sheet.body(); sprite.addTo(this.scene); return { sprite, look }; }
+  private dropBody(b: Body) { b.sprite.dispose(); }
+  private show(a: Actor, on: boolean) { a.body.sprite.visible = on; }
+  /**
+   * The bake to draw `look` from at `pitch`: the base bake if it holds the figure, else the figure's own bake once it is
+   * done, else the stand-in from the base bake. Asking queues the figure's own bake.
+   */
+  private sheetFor(look: Look, pitch: number, base: { atlas: Atlas; sheet: SpriteSheet }): { atlas: Atlas; sheet: SpriteSheet; s: Sheet } | undefined {
+    const own = base.atlas.sheets.get(look.figure.id);
+    if (own) return { ...base, s: own };
+    const key = `${look.figure.id}@${pitch.toFixed(4)}`;
+    let l = this.lazy.get(key);
+    if (!l) { l = { job: new BakeJob([look.figure], pitch), steps: 0, worst: 0, used: 0 }; this.lazy.set(key, l); }
+    l.used = performance.now();
+    if (l.atlas && l.sheet) return { atlas: l.atlas, sheet: l.sheet, s: l.atlas.sheets.get(look.figure.id)! };
+    const stand = look.stand && base.atlas.sheets.get(look.stand);
+    return stand ? { ...base, s: stand } : undefined;
   }
-  private dropBody(b: Body) { if (b.kind === 'sprite') b.sprite.dispose(); else this.scene.remove(b.rig.root); }
-  private show(a: Actor, on: boolean) { if (a.body.kind === 'sprite') a.body.sprite.visible = on; else a.body.rig.root.visible = on; }
+  /** Advance the oldest unfinished lazy bake by one frame's budget, and drop bakes no one draws any more. */
+  private bakeStep() {
+    const now = performance.now();
+    for (const [key, l] of this.lazy) if (now - l.used > LAZY_KEEP_MS) { l.sheet?.dispose(); this.lazy.delete(key); }
+    for (const [key, l] of this.lazy) {
+      if (!l.job) continue;
+      l.steps++;
+      const t0 = performance.now(), atlas = l.job.step(BAKE_BUDGET_MS);
+      l.worst = Math.max(l.worst, performance.now() - t0);
+      if (atlas) {
+        l.atlas = atlas; l.sheet = new SpriteSheet(atlas); l.job = undefined;
+        const work = atlas.phases.setup + atlas.phases.render + atlas.phases.clean;
+        this.bakes.push({ id: key, pitch: atlas.pitch, ms: work, steps: l.steps, worst: l.worst, phases: atlas.phases });
+        console.info(`figures: baked ${key} (${atlas.cells} frames) in ${work.toFixed(1)} ms of work over ${l.steps} frames, longest frame ${l.worst.toFixed(1)} ms`);
+      }
+      return;
+    }
+  }
   private clear() {
     for (const a of this.actors.values()) { this.dropBody(a.body); a.label?.remove(); }
     for (const c of this.corpses.values()) this.dropCorpse(c);
@@ -134,19 +170,18 @@ export class ActorLayer {
     if (view.time !== sv.time || !sv.seen) { sv.time = view.time; sv.at = now; sv.seen = true; }
     const sNow = this.serverNow();
     const live = new Set<string>();
-    const put = (id: string, kind: ActorKind, name: string, look: string, p: Pos & { facing?: number }, hp: number, max: number, level = 1, attackAt = 0, foe: string | null = null) => {
+    const put = (id: string, kind: ActorKind, name: string, look: string, p: Pos & { facing?: number }, hp: number, max: number, level = 1, attackAt = 0, foe: string | null = null, worn?: Worn) => {
       live.add(id);
       let a = this.actors.get(id);
+      const wornKey = worn ? JSON.stringify(worn) : '';
+      if (a && a.worn !== wornKey) a.body.look = lookOf(kind, id, look, worn);
       if (!a) {
-        const body = this.makeBody(kind, look), target = new THREE.Vector3(p.x, 0, p.y);
-        const figure = body.kind === 'sprite' ? body.figure : undefined;
-        const height = figure ? this.atlas!.sheets.get(figure)!.height : body.kind === 'rig' ? body.rig.height : 1;
+        const body = this.makeBody(lookOf(kind, id, look, worn)), target = new THREE.Vector3(p.x, 0, p.y);
         a = {
-          id, kind, name, look, body, target, position: target.clone(), height, visible: true, stepMs: STEP_MS, movingUntil: 0,
+          id, kind, name, look, worn: wornKey, body, target, position: target.clone(), height: 1, size: 1, visible: true, stepMs: STEP_MS, movingUntil: 0,
           facing: p.facing ?? 0, hp, max, attackAt, foe, clock: 0, stopUntil: 0, swing: { phase: 'rest' }, walk: 0, walkFrame: -1,
-          hurtAt: -1e9, castAt: -1e9, knockAt: -1e9, knockDir: new THREE.Vector2(), flash: false, seed: (id.length * 977 + id.charCodeAt(0) * 131) % 1300, striking: false, rigSwing: 0,
+          hurtAt: -1e9, castAt: -1e9, knockAt: -1e9, knockDir: new THREE.Vector2(), flash: false, seed: (id.length * 977 + id.charCodeAt(0) * 131) % 1300, striking: false,
         };
-        if (body.kind === 'rig') { body.rig.root.position.copy(target); body.rig.root.rotation.y = a.facing; }
         if (kind !== 'self') {
           a.label = document.createElement('div'); a.label.className = `world-label ${kind}`;
           a.label.innerHTML = `<span class="name"></span><span class="hp"><i></i></span>`;
@@ -156,7 +191,7 @@ export class ActorLayer {
         }
         this.actors.set(id, a);
       }
-      a.hp = hp; a.max = max; a.attackAt = attackAt; a.foe = foe;
+      a.hp = hp; a.max = max; a.attackAt = attackAt; a.foe = foe; a.worn = wornKey;
       if (p.facing !== undefined) a.facing = p.facing;
       if (p.z !== floor) { this.show(a, false); a.visible = false; return; }
       a.visible = true;
@@ -176,13 +211,13 @@ export class ActorLayer {
       a.target.copy(next);
     };
     const self = view.self, lvl = (xp: number) => rules.level(xp);
-    put(self.id, 'self', self.name, 'hero', self, self.hp, rules.maxHP(lvl(self.xp)), lvl(self.xp), self.attackAt, self.target);
-    for (const p of view.players) put(p.id, 'player', p.name, 'other', p, p.hp, rules.maxHP(lvl(p.xp)), lvl(p.xp), p.attackAt, p.target);
+    put(self.id, 'self', self.name, 'hero', self, self.hp, rules.maxHP(lvl(self.xp)), lvl(self.xp), self.attackAt, self.target, self.worn);
+    for (const p of view.players) put(p.id, 'player', p.name, 'hero', p, p.hp, rules.maxHP(lvl(p.xp)), lvl(p.xp), p.attackAt, p.target, p.worn);
     for (const n of this.map.npcs) put(n.id, 'npc', n.name, n.look, { ...n, facing: 0 }, 1, 1);
     for (const m of view.monsters) put(m.id, 'monster', mobDefs[m.kind].name, m.kind, m, m.hp, mobDefs[m.kind].hp, 1, m.attackAt, m.target);
-    for (const x of this.extras) put(x.id, x.kind, x.name, x.look, x, 1, 1);
+    for (const x of this.extras) put(x.id, x.kind, x.name, x.look, x, 1, 1, 1, 0, null, x.worn);
     for (const [id, a] of this.actors) if (!live.has(id)) {
-      this.gone.push({ x: Math.round(a.target.x), y: Math.round(a.target.z), z: a.floorZ ?? floor, figure: a.body.kind === 'sprite' ? a.body.figure : undefined, facing: a.facing, at: this.clock });
+      this.gone.push({ x: Math.round(a.target.x), y: Math.round(a.target.z), z: a.floorZ ?? floor, facing: a.facing, at: this.clock });
       this.dropBody(a.body); a.label?.remove(); this.actors.delete(id);
     }
     this.gone = this.gone.filter(g => this.clock - g.at < 1500);
@@ -193,12 +228,12 @@ export class ActorLayer {
       if (old && old.stage === c.stage) continue;
       if (old) this.dropCorpse(old);
       const who = this.gone.find(g => g.x === c.x && g.y === c.y && g.z === c.z);
-      const figure = this.variant === 'baked' && this.sheet && c.stage < 2 ? (c.kind === 'hero' ? (c.owner === self.id ? 'hero' : 'other') : baked[c.kind]) : undefined;
+      const figure = c.stage >= 2 ? undefined : c.kind === 'hero' ? (c.owner === self.id ? heroFigureOf(starterWorn, selfIdentity) : plainHero()) : isCreature(c.kind) ? creatureFigure(c.kind) : undefined;
       const fresh = !old && view.time - (c.born ?? 0) < 600;
       const k: Corpse = { id: c.id, stage: c.stage, x: c.x, y: c.y, z: c.z, figure, dir: who ? dirIndex(who.facing) : (c.x * 7 + c.y) % 8, born: this.clock, collapse: fresh && tuning(this.feel, this.reduced).collapse, landed: !fresh };
       if (k.collapse) this.log.collapses++;
-      if (figure) { k.sprite = this.sheet!.body(); k.sprite.addTo(this.scene); }
-      else { k.mesh = corpseMesh(c.kind, c.stage); k.mesh.position.set(c.x, 0, c.y); k.mesh.rotation.y = (c.x * 7 + c.y) % 6; k.mesh.traverse(o => o.layers.set(ACTOR_LAYER)); this.scene.add(k.mesh); }
+      if (figure) { k.sprite = this.sheet.body(); k.sprite.addTo(this.scene); }
+      else { k.mesh = corpseMesh(c.kind); k.mesh.position.set(c.x, 0, c.y); k.mesh.rotation.y = (c.x * 7 + c.y) % 6; k.mesh.traverse(o => o.layers.set(ACTOR_LAYER)); this.scene.add(k.mesh); }
       this.corpses.set(c.id, k);
     }
     for (const [id, k] of this.corpses) {
@@ -218,11 +253,9 @@ export class ActorLayer {
     if (push.lengthSq() > 0) push.normalize();
     if ((e.kind === 'hit' || e.kind === 'miss' || e.kind === 'block') && attacker && attacker !== victim) {
       this.log.effects++;
-      if (attacker.body.kind === 'rig') this.log.rigEffects++;
       if (attacker.striking) this.log.restrikes++;
       attacker.swing = strike(attacker.clock, e.id);
       if (e.kind !== 'miss') attacker.stopUntil = this.clock + tun.hitStop;
-      if (attacker.body.kind === 'rig') attacker.rigSwing = 1;
     }
     if (victim && (e.kind === 'hit' || e.kind === 'block')) {
       const chest = new THREE.Vector3(victim.target.x - push.x * 0.25, 0.55, victim.target.z - push.y * 0.25);
@@ -232,7 +265,6 @@ export class ActorLayer {
       victim.hurtAt = victim.clock; victim.flash = tun.flash;
       victim.knockAt = victim.clock; victim.knockDir.copy(push);
       victim.stopUntil = this.clock + tun.hitStop;
-      if (victim.body.kind === 'rig') victim.rigSwing = -1;
       if (victim.kind === 'self' && e.value > 0) {
         this.kickAt = this.clock; this.kickDir.copy(push);
         this.kickAmount = e.value >= victim.max * 0.25 ? tun.kickBig : tun.kickHit;
@@ -244,8 +276,10 @@ export class ActorLayer {
   frame(dt: number, t: number, ctx: FrameContext) {
     const tun = tuning(this.feel, this.reduced), dms = dt * 1000 * this.server.rate, sNow = this.serverNow();
     // The Scenery bake is made the first time the wide view opens, then kept.
-    if (ctx.wide && !this.low && this.sheet) { const atlas = bake(SCENERY_PITCH); this.low = { atlas, sheet: new SpriteSheet(atlas) }; console.info(`figures: scenery bake ${atlas.cells} frames in ${atlas.ms.toFixed(0)} ms`); }
-    const useLow = ctx.wide && !!this.low, atlas = useLow ? this.low!.atlas : this.atlas!, sheet = useLow ? this.low!.sheet : this.sheet!, pitch = useLow ? SCENERY_PITCH : PLAY_PITCH;
+    if (ctx.wide && !this.low) { const atlas = bake(SCENERY_PITCH); this.low = { atlas, sheet: new SpriteSheet(atlas) }; console.info(`figures: scenery bake ${atlas.cells} frames in ${atlas.ms.toFixed(0)} ms`); }
+    const useLow = ctx.wide && !!this.low, atlas = useLow ? this.low!.atlas : this.atlas, sheet = useLow ? this.low!.sheet : this.sheet, pitch = useLow ? SCENERY_PITCH : PLAY_PITCH;
+    const base = { atlas, sheet };
+    this.bakeStep();
     this.clock += dms;
     setSpriteLight(ctx.key, ctx.sunDir, ctx.floor === 1, ctx.wide);
     const sunStrength = ctx.floor === 1 ? 0 : ctx.key.shadows * Math.min(1, ctx.key.sunI / 2.5);
@@ -267,14 +301,16 @@ export class ActorLayer {
       const shown = a.visible && !(a.kind !== 'self' && ctx.hiddenByRoof(Math.round(a.target.x), Math.round(a.target.z)));
       const moving = sNow < a.movingUntil;
 
-      if (a.body.kind === 'sprite') {
+      const drawn = this.sheetFor(a.body.look, pitch, base);
+      if (drawn) {
+        a.height = drawn.s.height; a.size = drawn.s.span;
         let anim: AnimName = 'idle', frame = 0;
         const sf = swingFrame(a.swing, a.clock);
         if (sf !== null) { anim = 'attack'; frame = sf; }
         else if (a.clock - a.hurtAt < 170) anim = 'hurt';
         else if (a.clock - a.castAt < 380) { anim = 'cast'; frame = a.clock - a.castAt < 160 ? 0 : 1; }
         else if (moving) {
-          anim = 'walk'; a.walk += dms / (a.stepMs / 2); frame = Math.floor(a.walk) % 4;
+          anim = 'walk'; a.walk += dms / (a.stepMs / a.body.look.cadence); frame = Math.floor(a.walk) % 4;
           if (frame !== a.walkFrame && frame % 2 === 0 && tun.dust && shown) this.particles.dust(pos, new THREE.Vector2(-Math.sin(a.facing), -Math.cos(a.facing)), 3);
         } else { a.walk = 0; frame = Math.floor((a.clock + a.seed) / 650) % 2; }
         a.walkFrame = anim === 'walk' ? frame : -1;
@@ -284,14 +320,14 @@ export class ActorLayer {
           if (a.swing.phase !== 'strike' || a.swing.effectAt > performance.now()) this.log.early++;
         }
         a.striking = striking;
-        a.body.sprite.use(sheet);
-        const rect = atlas.sheets.get(a.body.figure)!.frames[frameIndex(anim, frame, dirIndex(a.facing))];
+        a.body.sprite.use(drawn.sheet);
+        const rect = drawn.s.frames[frameIndex(anim, frame, dirIndex(a.facing))];
         const kb = knockOffset(a.clock - a.knockAt, tun.knock);
         const foot = new THREE.Vector3(pos.x + a.knockDir.x * kb, 0, pos.z + a.knockDir.y * kb);
-        a.body.sprite.set(rect, foot, { flat: false, flash: a.flash, dim: 0, sun: ctx.sunDir, sunStrength, blob: blobs[a.body.figure] ?? [0.26, 0.15], self: a.kind === 'self' ? 0.35 : 0 }, pitch);
+        a.body.sprite.set(rect, foot, { flat: false, flash: a.flash, dim: 0, sun: ctx.sunDir, sunStrength, blob: blob(a.size), self: a.kind === 'self' ? 0.35 : 0 }, pitch);
         a.flash = false;
         a.body.sprite.visible = shown;
-      } else this.animateRig(a, a.body.rig, dt, t, moving, shown);
+      } else a.body.sprite.visible = false;
 
       if (a.label) {
         const s = this.screen(pos.clone().add(new THREE.Vector3(0, a.height + 0.2, 0)));
@@ -301,33 +337,25 @@ export class ActorLayer {
         a.label.style.visibility = onScreen ? 'visible' : 'hidden';
         a.label.classList.toggle('targeted', ctx.selfTarget === a.id);
         a.label.classList.toggle('hurt', a.hp < a.max);
-        if (a.bar) a.bar.style.transform = `scaleX(${Math.max(0, a.hp / a.max)})`;
+        if (a.bar) {
+          a.bar.style.transform = `scaleX(${Math.max(0, a.hp / a.max)})`;
+          // The bar spans the body: a rat's is short, a troll's long.
+          const w = `${Math.round(Math.min(64, Math.max(18, a.size * 34)))}px`;
+          if (a.bar.parentElement!.style.width !== w) a.bar.parentElement!.style.width = w;
+        }
       }
     }
 
     for (const k of this.corpses.values()) {
-      if (!k.sprite || !k.figure) continue;
+      const drawn = k.figure && this.sheetFor({ figure: k.figure, cadence: 2 }, pitch, base);
+      if (!k.sprite || !drawn) continue;
       // The collapse plays the die frames once; the body lies flat from the third frame on.
       const frame = k.collapse ? Math.min(3, Math.floor((this.clock - k.born) / 110)) : 3;
       if (frame === 3 && !k.landed) { k.landed = true; if (!this.reduced) this.particles.collapse(new THREE.Vector3(k.x, 0, k.y), 0.8); }
-      k.sprite.use(sheet);
-      const rect = atlas.sheets.get(k.figure)!.frames[frameIndex('die', frame, k.dir)];
-      k.sprite.set(rect, new THREE.Vector3(k.x, 0, k.y), { flat: frame >= 2, flash: false, dim: k.stage ? 0.55 : 0, sun: ctx.sunDir, sunStrength, blob: blobs[k.figure] ?? [0.3, 0.16] }, pitch);
+      k.sprite.use(drawn.sheet);
+      const rect = drawn.s.frames[frameIndex('die', frame, k.dir)];
+      k.sprite.set(rect, new THREE.Vector3(k.x, 0, k.y), { flat: frame >= 2, flash: false, dim: k.stage ? 0.55 : 0, sun: ctx.sunDir, sunStrength, blob: blob(drawn.s.span * 1.1) }, pitch);
     }
   }
-
-  /** The box rigs of the Boxes variant, animated as before: swinging limbs, a lunge on attack, a shake when hit. */
-  private animateRig(a: Actor, rig: Rig, dt: number, t: number, moving: boolean, shown: boolean) {
-    rig.root.position.copy(a.position);
-    const walk = moving ? (a.walk += dt * 11) : (a.walk = 0);
-    let dr = a.facing - rig.root.rotation.y; dr = Math.atan2(Math.sin(dr), Math.cos(dr));
-    rig.root.rotation.y += dr * Math.min(1, dt * 14);
-    const swing = Math.sin(walk) * (moving ? 0.7 : 0);
-    rig.legs.forEach((l, i) => { l.rotation.x = rig.kind === 'human' ? (i % 2 ? swing : -swing) : Math.sin(walk * 1.6 + i) * (moving ? 0.6 : 0); });
-    rig.arms.forEach((l, i) => { l.rotation.x = (i % 2 ? -swing : swing) * 0.8; });
-    if (a.rigSwing > 0) { if (rig.arms[1]) rig.arms[1].rotation.x = -2.2 * a.rigSwing; rig.body.position.z = 0.12 * a.rigSwing; a.rigSwing = Math.max(0, a.rigSwing - dt * 4); }
-    else if (a.rigSwing < 0) { rig.body.position.x = Math.sin(a.rigSwing * 30) * 0.04; a.rigSwing = Math.min(0, a.rigSwing + dt * 4); } else rig.body.position.set(0, 0, 0);
-    rig.body.position.y = moving ? Math.abs(Math.sin(walk)) * 0.05 : a.kind === 'npc' ? Math.sin(t * 1.5 + a.position.x) * 0.008 : 0;
-    rig.root.visible = shown;
-  }
 }
+
