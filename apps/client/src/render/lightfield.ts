@@ -23,7 +23,11 @@ export const fieldUniforms = {
   uFTime: { value: 0 },
   /** Scenery: surfaces closer than this to the camera dissolve in a dither, so walls by the lens never fill the frame. */
   uFNear: { value: 0 },
-  /** Scenery only: raised forms nearer the lens than this (horizontal distance) fade out, so walls never wall off the vista. */
+  /**
+   * Scenery only: raised forms nearer the lens than this (horizontal distance) are cut away, so walls never wall off the
+   * vista. Upright faces are cut down to the ground: stubs left below a cut height drew lamp-lit noise along the frame's
+   * bottom edge.
+   */
   uFCut: { value: 0 },
   /** The Scenery view axis on the ground (x, z), and the half-width of the cleared corridor as a tangent. */
   uFAxis: { value: new THREE.Vector3(0, -1, 0.3) },
@@ -50,7 +54,10 @@ uniform sampler2D uFMask; uniform sampler2D uFAmb; uniform vec2 uFSize;
 uniform vec4 uFSrc[${MAX_SOURCES}]; uniform vec3 uFCol[${MAX_SOURCES}];
 uniform float uFOutdoor; uniform float uFGain; uniform float uFOn; uniform float uFCloud; uniform float uFTime; uniform float uFNear; uniform float uFBlocks; uniform float uFCut; uniform vec3 uFAxis; uniform float uFGround;
 varying vec3 vFPos; varying vec3 vFNrm;
-float fieldCurve(float lv) { return lv <= 0.0 ? 0.0 : pow(lv / 7.0, 1.7) * 2.6; }
+// Each level a readable step brighter than the last, so a pool falls off in rings and its edge still shows ground.
+float fieldCurve(float lv) { return lv <= 0.0 ? 0.0 : lv * (0.21 + lv * 0.007); }
+// The Lantern on upright stone: half strength, as saturated teal on grey stone snaps to scattered single teal pixels.
+float fHighWall = 1.0;
 // Returns light colour × intensity; lv receives the rule level the fragment shows (sources and interior hearth only).
 vec3 fieldAt(vec2 p, float dither, out float lv) {
   vec2 tile = floor(p + 0.5);
@@ -69,7 +76,7 @@ vec3 fieldAt(vec2 p, float dither, out float lv) {
     lv = max(lv, l);
     // The picture may pull a band edge outward by up to half a tile in a Bayer pattern; the rule level above is exact.
     float shown = s.z - ceil(d - dither - 1e-4);
-    if (shown > 0.0) col = max(col, uFCol[i] * fieldCurve(shown));
+    if (shown > 0.0) col = max(col, uFCol[i] * fieldCurve(shown) * (s.w > 0.5 ? fHighWall : 1.0));
   }
   // Roofed tiles keep a warm hearth glow when the sky is darker than they are.
   float amb = floor(texture2D(uFAmb, uv).r * 255.0 + 0.5);
@@ -112,38 +119,55 @@ float canopyShade() {
   float shade = step(0.3 + (b4[bi] / 16.0 - 0.5) * 0.18, canopy);
   return mix(1.0, mix(0.28, 1.15, fleck), shade);
 }
-// Painted blocks, as in the references: surfaces break into small rectangles of shifted value and hue, cool or warm.
-// Blocks are anchored to the world (they never swim) and double in size wherever one would fall under a screen pixel,
-// so the texture holds at every zoom stop and through perspective.
+// Painted stonework, as in the references: surfaces break into small blocks of shifted value and hue, cool or warm,
+// laid in courses on upright faces. Blocks are anchored to the world (they never swim) and come in four fixed sizes;
+// each size shows only while its blocks are a few screen pixels tall and fades out below that, so distance calms a
+// surface (haze takes over) instead of coarsening it into a mosaic. Returns a multiplier for the lit colour.
 float bHash(vec3 p) { return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453); }
-vec3 blockTone(vec3 albedo) {
-  if (uFBlocks <= 0.0) return albedo;
+// One size of brushwork: rows rowH units tall, split into blocks one to two and a half rows wide, staggered row to row.
+vec3 course(vec2 uv, float rowH, float plane, float amp, out float h) {
+  vec2 c = uv / rowH;
+  float row = floor(c.y);
+  float w = 1.0 + floor(bHash(vec3(row, plane, rowH * 3.1)) * 4.0) * 0.5;
+  float col = floor((c.x + bHash(vec3(row, plane, rowH * 7.7)) * 2.5) / w);
+  h = bHash(vec3(col, row, plane + rowH));
+  float g = bHash(vec3(row, col, plane - rowH));
+  vec3 tint = g < 0.33 ? vec3(0.88, 0.92, 1.12) : g > 0.7 ? vec3(1.1, 1.0, 0.86) : vec3(1.0);
+  return tint * (1.0 - amp * 0.5 + h * amp);
+}
+vec3 blockTone() {
+  if (uFBlocks <= 0.0) return vec3(1.0);
   vec3 n = abs(vFNrm);
-  // Pick the plane the surface lies in: ground (x,z), or a wall facing x or z (with y running up).
-  vec2 uv = n.y > 0.6 ? vFPos.xz : n.x > n.z ? vec2(vFPos.z, vFPos.y) : vec2(vFPos.x, vFPos.y);
-  float plane = n.y > 0.6 ? 0.0 : n.x > n.z ? 1.0 : 2.0;
-  float px = max(length(fwidth(vFPos)), 1.0 / 32.0) * 32.0;
-  float lod = exp2(ceil(log2(px)));
-  vec2 cell = uv * 32.0 / lod;
-  // Rows two pixels tall; each row splits into blocks two to five pixels wide, staggered row to row.
-  float row = floor(cell.y / 2.0);
-  float w = 2.0 + floor(bHash(vec3(row, plane, 3.1)) * 4.0);
-  float col = floor((cell.x + bHash(vec3(row, plane, 7.7)) * 5.0) / w);
-  float h = bHash(vec3(col, row, plane + lod));
-  float g = bHash(vec3(row, col, plane - lod));
-  vec3 cool = albedo * vec3(0.86, 0.9, 1.14), warm = albedo * vec3(1.12, 1.0, 0.84);
-  vec3 tinted = g < 0.33 ? cool : g > 0.7 ? warm : albedo;
-  // The ground takes half strength: walls and stone carry the painted blocks, the play field stays calm to read.
-  // The ground keeps its own painted tiles: blocks are for walls, stone and far land, where they read as brushwork.
-  // In Scenery the ground takes long horizontal strokes (ref-1's foreground), stronger than the walls' brickwork.
-  bool ground = n.y > 0.6 && vFPos.y < 0.3;
-  if (ground) return mix(albedo, tinted * (0.74 + h * 0.5), uFBlocks * uFGround);
-  // Walls: brickwork. In Scenery it is rougher (ref-1): more contrast from stone to stone, now and then a dark gap where
-  // one is lost and a pale one that catches the light. Only on upright faces, so roofs and wings stay clean.
-  float amp = mix(0.24, 0.4, uFGround);
-  vec3 wall = tinted * (1.0 - amp * 0.5 + h * amp);
-  if (n.y < 0.35) wall *= mix(1.0, h < 0.07 ? 0.6 : h > 0.93 ? 1.2 : 1.0, uFGround);
-  return mix(albedo, wall, uFBlocks * (n.y > 0.6 ? 0.5 : 1.0));
+  bool isUp = n.y > 0.6;
+  // The plane the surface lies in: ground (x,z), or a wall facing x or z (with y running up, so rows are courses).
+  vec2 uv = isUp ? vFPos.xz : n.x > n.z ? vec2(vFPos.z, vFPos.y) : vec2(vFPos.x, vFPos.y);
+  float plane = isUp ? 0.0 : n.x > n.z ? 1.0 : 2.0;
+  // The ground keeps its own painted tiles at Close and Play; in Scenery it takes long strokes (ref-1's foreground).
+  bool ground = isUp && vFPos.y < 0.3;
+  if (ground && uFGround <= 0.0) return vec3(1.0);
+  // World size of one screen pixel on this surface.
+  float pw = max(length(fwidth(vFPos)) * 0.75, 1e-4);
+  float amp = ground ? 0.5 : mix(0.24, 0.4, uFGround);
+  vec3 m = vec3(1.0); float hd = 0.5, wd = 0.0;
+  for (int k = 0; k < 4; k++) {
+    float rowH = exp2(float(k)) / 16.0, rows = rowH / pw;
+    // The largest size is a castle's courses seen from afar: quieter than brushwork.
+    float a = smoothstep(1.3, 2.6, rows) * (1.0 - smoothstep(4.5, 7.0, rows)) * (k == 3 ? 0.7 : 1.0);
+    if (a <= 0.0) continue;
+    float h;
+    vec3 c = course(ground ? uv * vec2(0.25, 1.0) : uv, rowH, plane, amp, h);
+    m *= mix(vec3(1.0), c, a);
+    if (a > wd) { wd = a; hd = h; }
+  }
+  // Rougher brickwork in Scenery (ref-1): now and then a dark gap where a stone is lost, and a pale one catching light.
+  if (!ground && n.y < 0.35) m *= mix(1.0, hd < 0.07 ? 0.65 : hd > 0.93 ? 1.18 : 1.0, uFGround * wd);
+  return mix(vec3(1.0), m, uFBlocks * (isUp && !ground ? 0.5 : 1.0));
+}
+// Brushwork shows where light falls and dies away in shade and at night, as a painter leaves dark passages quiet.
+vec3 blockLit(vec3 tone, vec3 lit, vec3 direct) {
+  float lum = dot(lit, vec3(0.3, 0.59, 0.11));
+  float share = dot(direct, vec3(0.3, 0.59, 0.11)) / (lum + 1e-4);
+  return mix(vec3(1.0), tone, smoothstep(0.015, 0.12, lum) * mix(0.3, 1.0, clamp(share, 0.0, 1.0)));
 }
 // Near the Scenery lens, walls and raised forms sink into a dark silhouette that frames the view, the way ref-2's nearest
 // trees and roofs do, instead of showing their texels magnified. The ground in front of the hero stays lit.
@@ -162,14 +186,31 @@ vec3 fieldRadiance() {
   int bi = int(mod(cell.x, 4.0)) + int(mod(cell.y, 4.0)) * 4;
   float bayer4[16] = float[16](0., 8., 2., 10., 12., 4., 14., 6., 3., 11., 1., 9., 15., 7., 13., 5.);
   float lv;
-  // The field is light on the ground the rule plays on: it climbs walls and trees, then falls away in dithered steps
-  // between three and four and a half units up, so a tall tower over a lamp keeps its own stone. After golden hour a
-  // quarter stays, a faint sheen of the lamp on the stone above it; in daylight teal on warm stone would read olive.
-  float sheen = 0.25 * clamp((5.0 - uFOutdoor) / 3.0, 0.0, 1.0);
-  float up = max(sheen, floor((1.0 - smoothstep(3.0, 4.5, vFPos.y)) * 4.0 + bayer4[bi] / 16.0) / 4.0);
+  // The field is light on the ground the rule plays on: it climbs the foot of walls and trees and fades out between
+  // one and three units up, so roofs and towers keep their own stone. After golden hour a faint sheen of the lamp stays
+  // on the stone above; in daylight teal on warm stone would read olive. The fade is smooth: a dithered fade scattered
+  // single teal pixels over the Spire's stone, and stronger light on roofs speckled them with the Lantern's teal.
+  float sheen = 0.12 * clamp((5.0 - uFOutdoor) / 3.0, 0.0, 1.0);
+  float up = max(sheen, 1.0 - smoothstep(1.2, 3.2, vFPos.y));
+  fHighWall = mix(0.45, 1.0, abs(vFNrm.y));
   return fieldAt(p, bayer4[bi] / 16.0 * 0.5, lv) * uFGain * up;
 }
 `;
+
+/** How much foliage stands over each tile, 0 to 1: trees and pines within two tiles, nearer counting more. */
+export function canopyAt(map: MapData, z: number): Float32Array {
+  const { width: w, height: h } = map, floor = map.floors[z], out = new Float32Array(w * h);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    let c = 0;
+    for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+      const tx = x + dx, ty = y + dy; if (tx < 0 || ty < 0 || tx >= w || ty >= h) continue;
+      const t = floor.thing[ty * w + tx];
+      if (t === T.tree || t === T.pine) c += Math.max(dx * dx, dy * dy) <= 1 ? 0.45 : 0.18;
+    }
+    out[y * w + x] = Math.min(1, c);
+  }
+  return out;
+}
 
 /** Add the field to any Lambert material, chaining its own onBeforeCompile. */
 const patched = new WeakSet<THREE.Material>();
@@ -186,7 +227,7 @@ export function withField(mat: THREE.Material) {
     prior(shader, renderer);
     Object.assign(shader.uniforms, fieldUniforms);
     shader.vertexShader = fieldVertex + shader.vertexShader.replace('#include <project_vertex>', '#include <project_vertex>\n' + fieldVertexMain);
-    shader.fragmentShader = fieldFragment + shader.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\n  if (uFCut > 0.0 && vFPos.y > 0.35) { vec2 rel = vFPos.xz - cameraPosition.xz; float dep = dot(rel, uFAxis.xy); if (dep < uFCut && (' + (frame ? 'abs(dot(rel, vec2(-uFAxis.y, uFAxis.x))) < dep * uFAxis.z + 0.9' : 'true') + ')) discard; }\n  diffuseColor.rgb = blockTone(diffuseColor.rgb);').replace('#include <lights_fragment_end>', '#include <lights_fragment_end>\n  reflectedLight.directDiffuse *= cloudShade() * canopyShade() * nearShade();\n  reflectedLight.indirectDiffuse += diffuseColor.rgb * fieldRadiance();\n  reflectedLight.indirectDiffuse *= nearShade();');
+    shader.fragmentShader = fieldFragment + shader.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\n  if (uFCut > 0.0 && (vFPos.y > 0.35 || (vFPos.y > 0.03 && vFNrm.y < 0.8))) { vec2 rel = vFPos.xz - cameraPosition.xz; float dep = dot(rel, uFAxis.xy); if (dep < uFCut && (' + (frame ? 'abs(dot(rel, vec2(-uFAxis.y, uFAxis.x))) < dep * uFAxis.z + 0.9' : 'true') + ')) discard; }\n  vec3 fBlock = blockTone();').replace('#include <lights_fragment_end>', '#include <lights_fragment_end>\n  reflectedLight.directDiffuse *= cloudShade() * canopyShade() * nearShade();\n  vec3 fRad = diffuseColor.rgb * fieldRadiance();\n  reflectedLight.indirectDiffuse += fRad;\n  reflectedLight.indirectDiffuse *= nearShade();').replace('#include <opaque_fragment>', 'outgoingLight *= blockLit(fBlock, outgoingLight, reflectedLight.directDiffuse + fRad);\n  #include <opaque_fragment>');
   };
 
   mat.needsUpdate = true;
@@ -212,18 +253,9 @@ export class LightField {
     this.amb = new Uint8Array(this.w * this.h * 4);
     this.ambTex = new THREE.DataTexture(this.amb, this.w, this.h, THREE.RGBAFormat);
     for (const t of [this.maskTex, this.ambTex]) { t.magFilter = t.minFilter = THREE.NearestFilter; t.flipY = false; t.needsUpdate = true; }
-    // Canopy density in the ambient texture's green channel: how much foliage stands over each tile (trees and pines
-    // within two tiles, nearer counting more). The picture breaks sunlight into flecks there; the rule never reads it.
-    const floor = map.floors[z];
-    for (let y = 0; y < this.h; y++) for (let x = 0; x < this.w; x++) {
-      let c = 0;
-      for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
-        const tx = x + dx, ty = y + dy; if (tx < 0 || ty < 0 || tx >= this.w || ty >= this.h) continue;
-        const t = floor.thing[ty * this.w + tx];
-        if (t === T.tree || t === T.pine) c += Math.max(dx * dx, dy * dy) <= 1 ? 0.45 : 0.18;
-      }
-      this.amb[(y * this.w + x) * 4 + 1] = Math.round(Math.min(1, c) * 255);
-    }
+    // Canopy density in the ambient texture's green channel. The picture breaks sunlight into flecks there; the rule
+    // never reads it.
+    canopyAt(map, z).forEach((c, i) => { this.amb[i * 4 + 1] = Math.round(c * 255); });
   }
   /** Bind this floor's textures to the shared uniforms. */
   /** Bind this floor's textures and its own source table: the uniforms are shared, so a floor change must re-upload them. */

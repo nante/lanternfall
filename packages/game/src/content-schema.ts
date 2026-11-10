@@ -189,3 +189,52 @@ export const RenderStyle = z.object({
   chrome: ChromeLayout.optional(),
 }).strict();
 export type RenderStyle = z.infer<typeof RenderStyle>;
+
+/**
+ * How each part of the map feels at the same hour: content/moods.json. Every value is layered on the clock's keyframe
+ * (render/clock-style.ts): multipliers are 1 for no change and tints are multipliers where #cccccc is 1. A mood claims
+ * map places by name; the picture blends moods across borders, so a view that straddles two shows both.
+ */
+const hex = z.string().regex(/^#[0-9a-fA-F]{6}$/);
+const MoodLook = z.object({
+  /** Brightness of the picture there. */
+  ambient: z.number().min(0.3).max(2),
+  /** Leans dark pixels (shadowTint) and lit pixels (lightTint) on top of the clock's own split tone. */
+  shadowTint: hex, lightTint: hex,
+  saturation: z.number().min(0).max(2),
+  /** Ground mist: a tint on the clock's haze colour, and how thick it lies (0 none). */
+  haze: hex, hazeDensity: z.number().min(0).max(0.6),
+  vignette: z.number().min(0).max(3),
+  /** Floating motes and dust. */
+  particles: z.number().min(0).max(3),
+  /** Sun shafts while the sun is up (0 none, 1 golden hour's). */
+  shafts: z.number().min(0).max(1),
+}).strict();
+export const RegionMood = MoodLook.extend({
+  label: z.string().min(1).max(40),
+  /** Map place names (town.ts `places`) this mood covers. */
+  places: z.array(z.string()),
+  /** Replaces any of the values above after dark, blended in as night falls. */
+  night: MoodLook.partial().strict().optional(),
+  /** Replaces any of the values above at dawn and dusk. */
+  twilight: MoodLook.partial().strict().optional(),
+}).strict();
+export type RegionMood = z.infer<typeof RegionMood>;
+export const MAX_MOODS = 8;
+export const RegionMoods = z.object({
+  /** For tiles no place claims. */
+  fallback: z.string(),
+  /** For the whole underground floor. */
+  underground: z.string(),
+  /** For river and pond tiles, whatever place they lie in. */
+  water: z.string().optional(),
+  /** Dense tree canopy pulls towards this mood wherever it stands. */
+  canopy: z.string().optional(),
+  moods: z.record(z.string(), RegionMood),
+}).strict().superRefine((m, ctx) => {
+  if (Object.keys(m.moods).length > MAX_MOODS) ctx.addIssue({ code: 'custom', path: ['moods'], message: `At most ${MAX_MOODS} moods.` });
+  for (const k of ['fallback', 'underground', 'water', 'canopy'] as const) {
+    const id = m[k]; if (id !== undefined && !(id in m.moods)) ctx.addIssue({ code: 'custom', path: [k], message: `No mood named ${id}.` });
+  }
+});
+export type RegionMoods = z.infer<typeof RegionMoods>;

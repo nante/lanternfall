@@ -70,7 +70,7 @@ function dirt(t: Tile) {
 }
 
 function sand(t: Tile) {
-  clusters(t, [R.earth[4], R.earth[5], R.earth[5], R.bone[0]], 7, 3);
+  clusters(t, [R.earth[4], R.earth[5], R.earth[5], RR.soil[5]], 7, 3);
   for (let y = 3; y < GS; y += 8) for (let x = 0; x < GS; x++) if (((x + y * 3) % 13) < 7) t.set(x, y + Math.round(Math.sin((x + y) * 0.3)), R.earth[4]);
 }
 
