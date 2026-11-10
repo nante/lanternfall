@@ -86,6 +86,25 @@ function rubble(map: MapData, gr: (x: number, y: number) => number, at: (x: numb
   return [instanced(geo, lambert('#ffffff', { flatShading: true }), stones), instanced(box, lambert('#ffffff'), litter, false)];
 }
 
+/**
+ * Where a town house's windows go: every other wall tile along each of its four faces, off the corners, where the face
+ * looks onto open ground. `ry` turns a pane that faces +z onto its face; `gate` is the share of night it waits for, so
+ * a street lights unevenly.
+ */
+export function windowSpots(map: MapData) {
+  const { width: w, height: h } = map, th = (x: number, y: number) => (x < 0 || y < 0 || x >= w || y >= h ? T.none : map.floors[0].thing[y * w + x]);
+  const spots: { x: number; z: number; ry: number; gate: number }[] = [];
+  for (const b of map.buildings) {
+    if (b.name === 'South gate') continue;
+    const faces: [number, number, number, number, number, number][] = [[b.x0 + 1, b.y1, 1, 0, 0, 1], [b.x0 + 1, b.y0, 1, 0, 0, -1], [b.x1, b.y0 + 1, 0, 1, 1, 0], [b.x0, b.y0 + 1, 0, 1, -1, 0]];
+    for (const [sx, sy, dx, dy, nx, nz] of faces) for (let x = sx, y = sy; dx ? x < b.x1 : y < b.y1; x += dx * 2, y += dy * 2) {
+      if (th(x, y) !== T.wall || th(x + nx, y + nz) !== T.none) continue;
+      spots.push({ x: x + nx * 0.505, z: y + nz * 0.505, ry: Math.atan2(nx, nz), gate: 0.15 + hash2(x * 3, y * 5) * 0.8 });
+    }
+  }
+  return spots;
+}
+
 export type Lamp = { pos: THREE.Vector3; color: THREE.Color; strength: number; flicker: number };
 export type FloorScene = {
   group: THREE.Group; uniforms: { uTime: { value: number } }; lamps: Lamp[];

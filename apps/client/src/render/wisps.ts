@@ -1,10 +1,11 @@
 import * as THREE from 'three';
-import { type MapData, T } from '../../../../packages/game/src/model.ts';
+import type { MapData } from '../../../../packages/game/src/model.ts';
 import { BLUE_MINUTE, CYCLE_MINUTES, RIPPLE_MS_PER_TILE, lampDistance, lamps, type LightSource, type WorldLight } from '../../../../packages/game/src/light.ts';
 import { hash2 } from '../../../../packages/game/src/town.ts';
 import { PX } from './stops.ts';
 import { ramps } from './palette.ts';
 import type { Key } from './clock-style.ts';
+import { windowSpots } from './terrain.ts';
 
 // Pixel art for the small lights, drawn as character grids. '.' is transparent.
 const art = {
@@ -64,16 +65,7 @@ export class Ambience {
     this.lantern = pixelSprite(art.glow, 0.9); this.lantern.position.copy(this.shrine); this.group.add(this.lantern);
     this.keeper = pixelSprite(art.wispDim); this.group.add(this.keeper);
 
-    // Windows on south walls, the side the camera sees. Each has its own dusk threshold so a street lights unevenly.
-    const spots: THREE.Matrix4[] = [];
-    for (const b of map.buildings) {
-      if (b.name === 'South gate') continue;
-      for (let x = b.x0 + 1; x < b.x1; x += 2) {
-        if (map.floors[0].thing[b.y1 * map.width + x] !== T.wall) continue;
-        spots.push(new THREE.Matrix4().makeTranslation(x, 1.15, b.y1 + 0.505));
-        this.windowGate.push(0.15 + hash2(x * 3, b.y1 * 5) * 0.8);
-      }
-    }
+    const spots = windowSpots(map).map(s => { this.windowGate.push(s.gate); return new THREE.Matrix4().makeRotationY(s.ry).setPosition(s.x, 1.15, s.z); });
     const win = new THREE.PlaneGeometry(8 / PX, 10 / PX);
     this.windows = new THREE.InstancedMesh(win, new THREE.MeshBasicMaterial({ color: '#ffffff', fog: false }), Math.max(1, spots.length));
     this.windows.count = spots.length;

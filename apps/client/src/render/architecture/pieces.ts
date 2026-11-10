@@ -48,14 +48,20 @@ export function townHouse(m: Mason, lit: Mason, y: number, w: number, d: number,
   const storeys = Math.max(1, Math.round(h / 2.1));
   m.block(wall, 0, y - 1.5, y + h, 0, w, d);
   for (let s = 1; s < storeys; s++) m.block(TOWN.timber, 0, y + (s * h) / storeys - 0.1, y + (s * h) / storeys + 0.1, 0, w + 0.14, d + 0.14);
-  const bays = clamp(Math.floor(w / 1.2), 1, 4);
-  for (let s = 0; s < Math.min(storeys, 4); s++) for (let b = 0; b < bays; b++) {
-    const wx = ((b + 0.5) / bays) * w - w / 2, wy = y + ((s + 0.55) * h) / storeys;
-    // The first bay of the ground floor is the door.
-    if (s === 0 && b === 0) { m.put(prim.pane(), TOWN.timber, wx, y + 0.6, d / 2 + 0.03, { sx: 0.6, sy: 1.2 }); continue; }
-    if (rnd(i * 7 + s, b) > 0.82) continue;
-    (rnd(i * 13 + s * 3, b + 9) < 0.3 ? lit : m).put(prim.pane(), TOWN.void, wx, wy, d / 2 + 0.03, { sx: 0.42, sy: 0.72 });
-  }
+  // Windows on all four faces: the street front (+z) with its door, the back with a back door now and then, and the
+  // gable ends with fewer bays. A pane faces +z; `ry` turns it onto its face.
+  const faces: [number, number, number][] = [[w, d / 2, 0], [w, d / 2, Math.PI], [d, w / 2, Math.PI / 2], [d, w / 2, -Math.PI / 2]];
+  faces.forEach(([span, out, ry], f) => {
+    const bays = clamp(Math.floor(span / (f < 2 ? 1.2 : 1.5)), 1, 4), door = f === 0 || (f === 1 && rnd(i, 41) < 0.4);
+    for (let s = 0; s < Math.min(storeys, 4); s++) for (let b = 0; b < bays; b++) {
+      const u = ((b + 0.5) / bays) * span - span / 2, wy = y + ((s + 0.55) * h) / storeys, k = i * 7 + f * 101 + s;
+      const at = (v: number) => [Math.cos(ry) * v + Math.sin(ry) * (out + 0.03), -Math.sin(ry) * v + Math.cos(ry) * (out + 0.03)];
+      if (s === 0 && b === 0 && door) { const [px, pz] = at(u); m.put(prim.pane(), TOWN.timber, px, y + 0.6, pz, { sx: 0.6, sy: 1.2, ry }); continue; }
+      if (rnd(k, b) > (f < 2 ? 0.82 : 0.6)) continue;
+      const [px, pz] = at(u);
+      (rnd(i * 13 + f * 17 + s * 3, b + 9) < 0.3 ? lit : m).put(prim.pane(), TOWN.void, px, wy, pz, { sx: 0.42, sy: 0.72, ry });
+    }
+  });
   const along = w >= d, span = Math.min(w, d), rise = span * (1.0 + rnd(i, 4) * 0.7);
   m.put(prim.gable(), roof, 0, y + h, 0, { sx: (along ? w : d) + 0.5, sy: rise, sz: span + 0.5, ry: along ? 0 : Math.PI / 2 });
   if (rnd(i, 21) < 0.55) m.block(TOWN.stone, (rnd(i, 22) - 0.5) * w * 0.6, y + h + rise * 0.3, y + h + rise + 0.55, (rnd(i, 23) - 0.5) * d * 0.4, 0.5, 0.5);
