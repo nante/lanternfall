@@ -190,9 +190,18 @@ The map is 104 tiles wide instead of 84 (`packages/game/src/town.ts`). The origi
 
 `render/stops.ts` is one table of six stops: Top-down, Close and Tilt (orthographic, pixel-locked, north-up), Third person and First person (perspective lenses that turn in 45° steps on Q and E, with movement keys walking where the camera looks), and the Vista (V, or its button; open sky only; a click returns to play). The wheel and `-` / `=` walk Top-down, Close, Tilt, Third, First. `render/camera.ts` owns both cameras: an orthographic stop is treated as a 1° lens far enough away to frame what the orthographic camera frames, so any stop eases into any other by interpolating lenses, and the orthographic camera takes over again when a transition ends on one.
 
-Through a lens the scene fog closes 20 tiles from the hero, before the server's 22-tile actor window runs out, and fades out with height (`fogBand`, patched into three's fog chunks), so the keep and the spires stand over the mist; above the band the land keeps the Vista's haze. The corridor cut (`uFCut`) follows the lens in Third person; figures between the lens and the hero are drawn as a checkerboard. In First person the hero is not drawn, nothing is cut, and the roof of the building you are in stays drawn as the ceiling. Underground there is no sky, no far land and the fog is black.
+Through a lens the scene fog is a low mist, not a wall: it starts 9 tiles from the hero, reaches half strength at 38, and fades out between 0.3 and 7 units up (`fogBand`, patched into three's fog chunks; `stops.ts` `fog`). The town reads through it and the keep and spires stand clear above. A fog that closed fully at 20 tiles, to hide the edge of the server's 22-tile actor window, was tried and drew a pale slab across the town. Underground the fog is black at every height.
 
 Figures come from a bake cache keyed by pitch. Bakes are 64 MB of atlas on each of CPU and GPU, so the three orthographic stops share Tilt's bake (a 3/4 sprite over a steeper map, as top-down pixel RPGs draw it) and the three lenses share the 9° bake. Each figure's sprite direction is its facing relative to the camera's yaw, and its baked normals turn with the yaw. Lab: `stop=top|close|play|third|first|scenery`, `yaw=<degrees>`; shots `view-<stop>-<scene>` and `view-<third|first>-bridge-yaw<0|90|180>`.
+
+## 16. The world pass
+
+- **The dragon** (`architecture/dragon.ts`) supersedes 12b and 12d: a deep chest, a segmented neck with spines, a wedge skull with a hanging jaw and three pairs of horns, claws hooked over the wall, and two-layer wings with bone fingers and a scalloped, torn trailing edge, so each wing has a lit and a shaded side. Still one mesh.
+- **Props** (`render/props.ts`): every thing kind is a model split by material and instanced per part, with a few variants each. Stumps have roots and rings; lamps a footing, a scrolled arm and a caged lantern.
+- **Gate and wall** (`terrain.ts` `gateTower`, `gateArch`, `ramparts`): towers with a battered foot, slits, a corbelled parapet, a slate roof and banners. The arch and portcullis are `lowOnly`: they dither out once the view is steeper than about 35°, so the orthographic stops never hide anyone inside the gate.
+- **Ground**: kinds meet along a ragged line pushed by noise, with blades reaching over paths (this supersedes the hard tile edges). The river has shallows, a broken foam line, a wet bank and reeds.
+- **Trees** (`trees.ts`): four crown shapes and varied pines. Trees inside the map keep their old height range so play hides nothing new; a grove of giants stands on the north bank as one data entry (`architecture/scene.ts`).
+- **Landmarks**: the keep, cathedral and Spire carry window rows, corbels, buttresses, crockets, tracery and banners; ruins are coursed `ashlar()` (`architecture/pieces.ts`).
 
 ## What gameplay keeps
 

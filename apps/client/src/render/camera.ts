@@ -34,7 +34,8 @@ THREE.ShaderChunk.fog_fragment = /* glsl */`
   #else
     float fogFactor = smoothstep( fogNear, fogFar, vFogDepth );
   #endif
-  if (fogBand.y > fogBand.x) fogFactor *= 1.0 - smoothstep(fogBand.x, fogBand.y, vFogY);
+  // Banded fog is mist, not a wall: it never fully hides the town behind it.
+  if (fogBand.y > fogBand.x) fogFactor *= 0.5 * (1.0 - smoothstep(fogBand.x, fogBand.y, vFogY));
   if (fogBand.w > fogBand.z) fogFactor = max(fogFactor, smoothstep(fogBand.z, fogBand.w, vFogDepth));
   gl_FragColor.rgb = mix( gl_FragColor.rgb, fogColor, fogFactor );
 #endif`;

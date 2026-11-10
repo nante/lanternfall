@@ -44,11 +44,11 @@ export const stops = {
   play: { id: 'play', label: 'Tilt', projection: 'ortho', pitch: TILT, figures: TILT, zoomStep: 0, chunk: 1, picking: true, yaw: 'fixed', vista: false },
   third: {
     id: 'third', label: 'Third person', projection: 'persp', figures: LOW, zoomStep: 0, chunk: 1, picking: true, yaw: 'free', vista: false,
-    eye: { back: 5, up: 2.3, ahead: 1.5, look: 1.3, fov: 52 }, fog: { near: 7, far: 20, top: [0.5, 9] },
+    eye: { back: 5, up: 2.3, ahead: 1.5, look: 1.3, fov: 52 }, fog: { near: 9, far: 38, top: [0.3, 7] },
   },
   first: {
     id: 'first', label: 'First person', projection: 'persp', figures: LOW, zoomStep: 0, chunk: 1, picking: true, yaw: 'free', vista: false,
-    eye: { back: 0.6, up: 1.25, ahead: 8, look: 0.5, fov: 70 }, fog: { near: 7, far: 20, top: [0.5, 9] },
+    eye: { back: 0.6, up: 1.25, ahead: 8, look: 0.5, fov: 70 }, fog: { near: 9, far: 38, top: [0.3, 7] },
   },
   scenery: {
     id: 'scenery', label: 'Vista', projection: 'persp', figures: LOW, zoomStep: 0, chunk: 1.5, picking: false, yaw: 'fixed', vista: true,
