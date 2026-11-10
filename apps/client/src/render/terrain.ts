@@ -69,6 +69,12 @@ function rubble(map: MapData, gr: (x: number, y: number) => number, at: (x: numb
         stones.push({ x: x + wx * 0.36 + (b - 0.5) * (wx ? 0.25 : 0.8), y: s * 0.45, z: y + wz * 0.36 + (a - 0.5) * (wz ? 0.25 : 0.8), sx: s, sy: s * 0.75, sz: s * 1.1, ry: a * 6, rx: b, color: stoneTones[Math.floor(b * stoneTones.length)] });
       }
     }
+    // Pebbles scatter round a boulder, so rocks lie in groups.
+    const nearRock = at(x - 1, y) === T.rock || at(x + 1, y) === T.rock || at(x, y - 1) === T.rock || at(x, y + 1) === T.rock;
+    if (nearRock && r2 > 0.3) for (let i = 0; i < 3; i++) {
+      const a = hash2(x * 5 + i, y * 3 - i), b = hash2(x * 3 - i, y * 7 + i), s = 0.05 + a * 0.07;
+      stones.push({ x: x + (a - 0.5) * 0.8, y: s * 0.4, z: y + (b - 0.5) * 0.8, sx: s, sy: s * 0.7, sz: s * 1.2, ry: a * 6, rx: b, color: stoneTones[Math.floor(b * stoneTones.length)] });
+    }
     if ((nearWall ? r3 > 0.45 : r3 > 0.93) && g !== G.cobble && g !== G.flagstone) {
       for (let i = 0; i < 5; i++) {
         const a = hash2(x * 3 + i * 7, y * 19), b = hash2(x * 23, y * 3 + i * 5);
@@ -97,6 +103,9 @@ uniform vec3 uSkyTint; uniform vec3 uGlint; uniform sampler2D uMap; uniform samp
 varying vec3 vGroundPos;
 float h21(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
 vec3 toLinear(vec3 c){ return pow(c, vec3(2.2)); }
+float vn(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f); return mix(mix(h21(i), h21(i + vec2(1.0, 0.0)), f.x), mix(h21(i + vec2(0.0, 1.0)), h21(i + vec2(1.0, 1.0)), f.x), f.y); }
+float kindAt(vec2 c){ return floor(texture2D(uMap, (c + 0.5) / uSize).r * 255.0 + 0.5); }
+bool grassy(float k){ return k == 1.0 || k == 2.0; }
 `;
 
 function groundMaterial(map: MapData, z: number) {
@@ -140,15 +149,35 @@ function groundMaterial(map: MapData, z: number) {
       .replace('#include <map_fragment>', /* glsl */`
         vec2 wp = vGroundPos.xz;
         vec2 px = floor(wp * 32.0) / 32.0 + 1.0 / 64.0;
-        vec2 blk = floor(px * 4.0);
-        vec2 jit = (vec2(h21(blk), h21(blk + 17.0)) - 0.5) * 0.5;
-        vec2 cell = floor(px + 0.5 + jit);
-        float kind = floor(texture2D(uMap, (cell + 0.5) / uSize).r * 255.0 + 0.5);
-        float own = floor(texture2D(uMap, (floor(px + 0.5) + 0.5) / uSize).r * 255.0 + 0.5);
-        if (own == 7.0 || kind == 7.0 || own == 0.0 || kind == 0.0) kind = own;
+        // Ground kinds meet along a ragged line: two octaves of noise on a two-pixel grid push each pixel's lookup
+        // about, so edges wander instead of stepping in tile or block stairs.
+        vec2 pq = floor(wp * 16.0) / 16.0;
+        vec2 disp = (vec2(vn(pq * 1.1), vn(pq * 1.1 + 17.3)) - 0.5) * 0.62 + (vec2(vn(pq * 3.3 + 5.1), vn(pq * 3.3 + 41.7)) - 0.5) * 0.26;
+        float own = kindAt(floor(px + 0.5));
+        float kind = kindAt(floor(px + 0.5 + disp));
+        // Grass reaches over the edge of a path in blades: a lookup pushed down by a different amount in every pixel
+        // column, so grass below a path pokes up into it.
+        float blade = h21(vec2(floor(px.x * 32.0), 7.0)) * h21(vec2(floor(px.x * 32.0), 11.0));
+        float kb = kindAt(floor(px + 0.5 + disp + vec2(0.0, blade * 0.2)));
+        if (grassy(kb) && !grassy(kind)) kind = kb;
+        // Water wanders less, and the bridge deck and the dark keep their exact tiles.
+        vec2 wdisp = disp * 0.75;
+        if (own == 7.0 || kind == 7.0) kind = kindAt(floor(px + 0.5 + wdisp));
+        if (own == 0.0 || own == 5.0 || kind == 0.0 || kind == 5.0) kind = own;
+        // How far the shore is, in pixels (water side and land side alike).
+        float shore = 99.0;
+        if (uCave < 0.5) for (int i = 1; i <= 6; i++) {
+          float d = float(i) * 2.0 / 32.0;
+          bool w0 = kind == 7.0;
+          bool hit = (kindAt(floor(px + 0.5 + wdisp + vec2(d, 0.0))) == 7.0) != w0 || (kindAt(floor(px + 0.5 + wdisp - vec2(d, 0.0))) == 7.0) != w0
+                  || (kindAt(floor(px + 0.5 + wdisp + vec2(0.0, d))) == 7.0) != w0 || (kindAt(floor(px + 0.5 + wdisp - vec2(0.0, d))) == 7.0) != w0;
+          if (hit) { shore = float(i) * 2.0; break; }
+        }
         vec2 a = fract(px / 2.0);
         // The atlas is an sRGB texture, so sampling already returns linear colour.
         vec3 col = texture2D(uAtlas, vec2((kind + a.x) / uKinds, a.y)).rgb;
+        // A path's top edge sits in the shadow of the grass above it.
+        if (!grassy(kind) && kind != 7.0 && grassy(kindAt(floor(px + 0.5 + disp - vec2(0.0, 2.0 / 32.0))))) col *= 0.72;
         vec3 glint = vec3(0.0);
         if (kind == 7.0) {
           float wave = sin(px.x * 2.3 + uTime * 0.9 + sin(px.y * 1.7 + uTime * 0.5) * 1.5) + sin(px.y * 3.1 - uTime * 0.7);
@@ -160,7 +189,12 @@ function groundMaterial(map: MapData, z: number) {
           col = mix(col, uSkyTint, 0.3 * (1.0 - uCave));
           // Glints are a light ripple of the water's own colour, not white points (which read as stars).
           glint = mix(col * 0.9, uGlint * 0.35, 0.5) * sparkle * (1.0 - uCave);
-        }
+          // Shallows lighten towards the bank; a broken foam line laps at the edge.
+          if (shore < 13.0) col = mix(col, toLinear(vec3(0.36, 0.52, 0.5)), 0.32 * (1.0 - shore / 14.0));
+          float lap = sin(uTime * 1.3 + px.x * 5.0 + px.y * 3.0 + vn(px * 3.0) * 6.0);
+          if (shore <= 2.0 && lap > -0.5) col = toLinear(vec3(0.72, 0.8, 0.78));
+          else if (shore <= 4.0 && lap > 0.55 && h21(floor(px * 32.0)) > 0.5) col = mix(col, toLinear(vec3(0.62, 0.72, 0.7)), 0.6);
+        } else if (shore < 13.0 && kind != 0.0 && kind != 5.0) col = mix(col, col * toLinear(vec3(0.55, 0.5, 0.46)), shore <= 4.0 ? 0.9 : shore <= 8.0 ? 0.55 : 0.25);
         if (kind != 7.0) col = mix(uMean[int(kind)], col, uGroundDetail) * uGroundBright;
         if (kind == 0.0) col = vec3(0.0);
         float ao = texture2D(uAo, (wp + 0.5) / uSize).r;
@@ -408,9 +442,21 @@ export function buildFloor(map: MapData, z: number, doorsOpen: Record<string, bo
 
   // Pixel tufts: tall clumps in the meadow, a few short ones in town grass, flowers where the map has them.
   if (z === 0) {
-    const spots: Record<TuftKind, { x: number; z: number }[]> = { tall: [], short: [], daisy: [], bloom: [] };
+    const spots: Record<TuftKind, { x: number; z: number }[]> = { tall: [], short: [], daisy: [], bloom: [], reed: [] };
+    const near = (x: number, y: number, f: (x: number, y: number) => boolean) => f(x - 1, y) || f(x + 1, y) || f(x, y - 1) || f(x, y + 1);
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
       const g = gr(x, y), t = at(x, y);
+      // Reeds stand along the banks, on the side that meets the water.
+      if (t === T.none && g !== G.water && g !== G.plank && near(x, y, (a, b) => gr(a, b) === G.water)) {
+        const wz = gr(x, y - 1) === G.water ? -0.3 : gr(x, y + 1) === G.water ? 0.3 : 0, wx = wz ? 0 : gr(x - 1, y) === G.water ? -0.3 : 0.3;
+        for (let i = 0; i < 2; i++) if (hash2(x * 3.7 + i, y * 5.1) > 0.45) spots.reed.push({ x: x + wx + (hash2(x + i, y * 2) - 0.5) * (wz ? 0.8 : 0.2), z: y + wz + (hash2(x * 2, y + i) - 0.5) * (wx ? 0.8 : 0.2) });
+      }
+      // Flowers and grass gather round the flower beds and bushes the map has, so they cluster instead of standing alone.
+      if ((g === G.grass || g === G.meadow) && t === T.none) {
+        const rr = hash2(x * 9.1, y * 4.3);
+        if (near(x, y, (a, b) => at(a, b) === T.flowers) && rr > 0.55) spots[rr > 0.78 ? 'daisy' : 'bloom'].push({ x: x - 0.3 + hash2(x, y * 7) * 0.6, z: y - 0.3 + hash2(x * 7, y) * 0.6 });
+        if (near(x, y, (a, b) => at(a, b) === T.bush) && rr > 0.4) spots.short.push({ x: x - 0.3 + hash2(x * 3, y) * 0.6, z: y - 0.3 + hash2(x, y * 3) * 0.6 });
+      }
       if (g !== G.grass && g !== G.meadow) continue;
       if (t !== T.none && t !== T.flowers) continue;
       const r1 = hash2(x * 13, y * 7), r2 = hash2(x * 5, y * 11), r3 = hash2(x + 17, y + 29);

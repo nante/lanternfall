@@ -6,6 +6,7 @@ import { ramps } from './palette.ts';
 const legend: Record<string, string> = {
   a: ramps.olive[4], e: ramps.olive[3], b: ramps.moss[9], c: ramps.moss[7], d: ramps.moss[4],
   f: ramps.bone[1], i: ramps.fire[6], g: ramps.fire[5], h: ramps.dusk[3],
+  r: ramps.earth[4], s: ramps.earth[6], k: ramps.olive[2], l: ramps.olive[1],
 };
 export const tuftArt = {
   tall: [
@@ -63,6 +64,21 @@ export const tuftArt = {
     '....cccbbbccc...',
     '....ccdcccdcc...',
     '.....dddddddd...',
+  ],
+  // Reeds at the water's edge: thin stalks, bulrush heads, leaves bending out.
+  reed: [
+    '.....s..........',
+    '.....r....s.....',
+    '..s..r....r.....',
+    '..r..r..e.r.....',
+    '..r..k..e.r..e..',
+    '..k..k.e..k..e..',
+    '..k.ek.e..k.e...',
+    '.ek.ek.e.ek.e...',
+    '.ekeek.eaeke....',
+    '..kekkekkekk.a..',
+    '..klkkklkkklka..',
+    '...lllllllll....',
   ],
 };
 export type TuftKind = keyof typeof tuftArt;
