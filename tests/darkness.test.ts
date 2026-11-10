@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Engine, groundKey } from '../packages/game/src/engine.ts';
 import { defaultBalance } from '../packages/game/src/default-balance.ts';
-import { equipSlots, key, T, type Hero, type Pos } from '../packages/game/src/model.ts';
+import { equipSlots, key, T, type GameView, type Hero, type Pos } from '../packages/game/src/model.ts';
 import { buildTown } from '../packages/game/src/town.ts';
 import { darknessOffScenario } from './fixtures/darkness-off-scenario.ts';
 import baseline from './fixtures/darkness-off-baseline.json' with { type: 'json' };
@@ -254,7 +254,9 @@ test('disabled darkness matches recorded views from the engine at HEAD', () => {
     if (value !== null && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, restoreUndefined(entry)]));
     return value;
   };
-  const views = darknessOffScenario();
+  // The baseline predates `worn` (tests/worn.test.ts covers it); everything else must match.
+  const unworn = ({ worn: _w, ...hero }: GameView['self']) => hero;
+  const views = darknessOffScenario().map(v => ({ ...v, self: unworn(v.self), players: v.players.map(unworn) }));
   assert.equal(views.length, 300);
   assert.ok(views.some(view => view.effects.some(effect => effect.kind === 'hit')));
   assert.ok(views.some(view => view.corpses.length > 0));

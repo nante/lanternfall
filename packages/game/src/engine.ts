@@ -1,5 +1,5 @@
 import {
-  type Action, type State, type Hero, type Mob, type Pos, type GameItem, type ItemKind, type Notice, type GameView, type MapData, type Effect, type NpcSpawn, type SpellId, type Shade,
+  type Action, type State, type Hero, type Mob, type Pos, type GameItem, type ItemKind, type Notice, type GameView, type MapData, type Effect, type NpcSpawn, type SpellId, type Shade, type PublicHero, type Worn,
   key, distance, equipSlots, stackMax, T, G,
 } from './model.ts';
 import { Geography } from './world.ts';
@@ -250,6 +250,7 @@ export class Engine {
     return p;
   }
   stats(p: Hero) { const r = this.rules, l = r.level(p.xp); return { level: l, maxHp: r.maxHP(l), maxMana: r.maxMana(l), cap: r.capacity(l), melee: r.melee(p.melee).level, shielding: r.shielding(p.shielding).level, magic: r.magic(p.magic).level }; }
+  worn(p: Hero): Worn { return Object.fromEntries(this.children(`equip:${p.id}`).map(i => [equipSlots[i.slot], i.kind])); }
   armor(p: Hero) { return this.children(`equip:${p.id}`).reduce((n, i) => n + (this.rules.item(i.kind).armor ?? 0), 0); }
   gainXp(p: Hero, xp: number) {
     const r = this.rules, before = r.level(p.xp);
@@ -692,7 +693,7 @@ export class Engine {
   }
 
   view(p: Hero): GameView {
-    const safe = (h: Hero) => { const { token: _t, path: _p, ...rest } = h; return rest; };
+    const safe = (h: Hero): PublicHero => { const { token: _t, path: _p, ...rest } = h; return { ...rest, worn: this.worn(h) }; };
     const near = (q: Pos) => distance(p, q) < 22;
     const view: GameView = {
       revision: this.state.revision, time: this.state.time, self: safe(p), route: p.path,

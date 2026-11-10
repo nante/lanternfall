@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { LightSource } from './light.ts';
-import { grounds, things, itemKinds, mobKinds, spellIds, type GroundKind, type ThingKind, type MobKind, type NpcRole } from './ids.ts';
+import { grounds, things, itemKinds, mobKinds, spellIds, type GroundKind, type ThingKind, type MobKind, type NpcRole, type EquipSlot, type ItemKind } from './ids.ts';
 export { grounds, things, equipSlots, itemKinds, mobKinds, spellIds, npcRoles, type GroundKind, type ThingKind, type EquipSlot, type ItemKind, type MobKind, type SpellId, type NpcRole } from './ids.ts';
 
 export const Position = z.object({ x: z.number().int(), y: z.number().int(), z: z.number().int().min(0).max(1) });
@@ -69,7 +69,9 @@ export type Action = z.infer<typeof Command>;
 export const Envelope = z.object({ requestId: z.string().uuid(), epoch: z.number().int(), seq: z.number().int().positive(), action: Command });
 export type Notice = { player: string; text: string; kind: 'info' | 'combat' | 'error' | 'npc' | 'level' | 'loot'; at: number; npc?: string };
 export type Effect = { id: number; kind: 'hit' | 'miss' | 'heal' | 'mana' | 'ember' | 'burst' | 'block' | 'xp' | 'level'; at: Pos; value: number; time: number; from?: Pos };
-export type PublicHero = Omit<Hero, 'token' | 'path'>;
+/** What a hero visibly wears and holds, by slot. A torch shines only from the shield slot, so `shield: 'torch'` is a lit torch. */
+export type Worn = Partial<Record<EquipSlot, ItemKind>>;
+export type PublicHero = Omit<Hero, 'token' | 'path'> & { worn: Worn };
 export type Shade = Pos & { id: string; facing: number; size: 1 | 2 | 3 };
 export type GameView = { revision: number; time: number; self: PublicHero; route: Pos[]; players: PublicHero[]; monsters: Mob[]; corpses: Body[]; items: GameItem[]; ground: GameItem[]; doors: Record<string, boolean>; effects: Effect[]; shades?: Shade[]; lights?: LightSource[]; world?: { dayMs: number; dayOffset: number; darkness: boolean } };
 
