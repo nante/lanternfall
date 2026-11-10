@@ -196,14 +196,14 @@ function gableRoof(b: Building, tex: THREE.Texture) {
     const zm = (z0 + z1) / 2;
     quad([x0, base, z1], [x1, base, z1], [x1, base + rise, zm], [x0, base + rise, zm], len, slope);
     quad([x1, base, z0], [x0, base, z0], [x0, base + rise, zm], [x1, base + rise, zm], len, slope);
-    tri([x0 + ox, base, z0 + ox], [x0 + ox, base, z1 - ox], [x0 + ox, base + rise - 0.2, zm]);
-    tri([x1 - ox, base, z1 - ox], [x1 - ox, base, z0 + ox], [x1 - ox, base + rise - 0.2, zm]);
+    tri([x0 + ox, base, z0 + ox], [x0 + ox, base, z1 - ox], [x0 + ox, base + rise - 0.02, zm]);
+    tri([x1 - ox, base, z1 - ox], [x1 - ox, base, z0 + ox], [x1 - ox, base + rise - 0.02, zm]);
   } else {
     const xm = (x0 + x1) / 2;
     quad([x0, base, z0], [x0, base, z1], [xm, base + rise, z1], [xm, base + rise, z0], len, slope);
     quad([x1, base, z1], [x1, base, z0], [xm, base + rise, z0], [xm, base + rise, z1], len, slope);
-    tri([x0 + ox, base, z1 - ox], [x1 - ox, base, z1 - ox], [xm, base + rise - 0.2, z1 - ox]);
-    tri([x1 - ox, base, z0 + ox], [x0 + ox, base, z0 + ox], [xm, base + rise - 0.2, z0 + ox]);
+    tri([x0 + ox, base, z1 - ox], [x1 - ox, base, z1 - ox], [xm, base + rise - 0.02, z1 - ox]);
+    tri([x1 - ox, base, z0 + ox], [x0 + ox, base, z0 + ox], [xm, base + rise - 0.02, z0 + ox]);
   }
   g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
   g.setAttribute('uv', new THREE.Float32BufferAttribute(U, 2));
@@ -212,15 +212,44 @@ function gableRoof(b: Building, tex: THREE.Texture) {
   const mesh = new THREE.Mesh(g, roofMat);
   mesh.castShadow = true; mesh.receiveShadow = true;
   const group = new THREE.Group(); group.add(mesh);
-  const ridge = new THREE.Mesh(box, lambert('#2a2420'));
-  if (alongX) { ridge.scale.set(len + 0.05, 0.12, 0.16); ridge.position.set((x0 + x1) / 2, base + rise + 0.02, (z0 + z1) / 2); }
-  else { ridge.scale.set(0.16, 0.12, len + 0.05); ridge.position.set((x0 + x1) / 2, base + rise + 0.02, (z0 + z1) / 2); }
-  ridge.castShadow = true; group.add(ridge);
-  // Chimney on clay roofs.
+  // Timber that gives the roof its edges: fascia boards on the eaves, bargeboards up the gable rakes, ridge tiles and
+  // finials; on long clay and slate roofs, dormers on the slope that faces the town. All of it hides with the roof.
+  const trim = new Mason(), cx = (x0 + x1) / 2, cz = (z0 + z1) / 2, S = span / 2, L = len / 2;
+  const timber = '#3b2819', tile = ({ clay: '#8e4630', slate: '#2e3a66', teal: '#24524e', thatch: '#6e5a34' } as Record<string, string>)[b.roof] ?? '#3a3040';
+  const roofTone = ({ clay: '#b05a3a', slate: '#3e4c81', teal: '#2f6762', thatch: '#9a7e4a' } as Record<string, string>)[b.roof] ?? '#6a5a50';
+  trim.within(cx, 0, cz, alongX ? 0 : Math.PI / 2, () => {
+    for (const f of [-1, 1]) {
+      trim.block(timber, 0, base - 0.12, base + 0.02, f * (S + 0.02), len + 0.04, 0.07);
+      for (const e of [-1, 1]) trim.beam(timber, new THREE.Vector3(e * (L + 0.02), base - 0.04, f * (S + 0.03)), new THREE.Vector3(e * (L + 0.02), base + rise + 0.06, 0), 0.08, 0.11);
+    }
+    trim.block(tile, 0, base + rise - 0.04, base + rise + 0.1, 0, len + 0.06, 0.2);
+    for (let u = -L + 0.25; u < L; u += 0.5) trim.block(roofTone, u, base + rise + 0.1, base + rise + 0.14, 0, 0.3, 0.16);
+    for (const e of [-1, 1]) trim.block(timber, e * (L + 0.02), base + rise, base + rise + 0.34, 0, 0.07, 0.07);
+    if ((b.roof === 'clay' || b.roof === 'slate') && len >= 5) {
+      const n = Math.floor(len / 3.5), zz = S * 0.5, yb = base + rise * (1 - zz / S);
+      for (let i = 0; i < n; i++) {
+        const u = -L + (i + 0.5) * (len / n);
+        trim.block('#d2c3a2', u, yb - 0.2, yb + 0.5, zz - 0.3, 0.62, 0.8);
+        trim.block('#1c1816', u, yb + 0.02, yb + 0.36, zz + 0.11, 0.26, 0.02);
+        trim.block(timber, u, yb - 0.02, yb + 0.02, zz + 0.12, 0.34, 0.04);
+        trim.put(prim.gable(), roofTone, u, yb + 0.5, zz - 0.3, { sx: 0.86, sy: 0.34, sz: 0.78, ry: Math.PI / 2 });
+        trim.put(prim.gable(), timber, u, yb + 0.49, zz + 0.11, { sx: 0.06, sy: 0.38, sz: 0.84, ry: Math.PI / 2 });
+      }
+    }
+  });
+  const trimMesh = trim.build(lambert('#ffffff', { vertexColors: true })); trimMesh.castShadow = true; trimMesh.receiveShadow = true;
+  group.add(trimMesh);
+  // Chimney on clay roofs, with a corbelled cap and a dark flue.
   if (b.roof === 'clay' || b.wall === 'timber') {
     const ch = new THREE.Mesh(box, worldMapped(wallTexture('stone'), '#c9bfb0'));
-    ch.scale.set(0.45, 1.1, 0.45); ch.position.set(alongX ? x1 - 1.6 : (x0 + x1) / 2 + 0.6, base + rise * 0.7 + 0.3, alongX ? (z0 + z1) / 2 - 0.5 : z0 + 1.5);
+    const chx = alongX ? x1 - 1.6 : (x0 + x1) / 2 + 0.6, chz = alongX ? (z0 + z1) / 2 - 0.5 : z0 + 1.5, chy = base + rise * 0.7 + 0.3;
+    ch.scale.set(0.45, 1.1, 0.45); ch.position.set(chx, chy, chz);
     ch.castShadow = true; group.add(ch);
+    const cap = new Mason();
+    cap.block('#b8afa2', chx, chy + 0.5, chy + 0.6, chz, 0.56, 0.56);
+    cap.block('#1a1614', chx, chy + 0.6, chy + 0.64, chz, 0.3, 0.3);
+    for (const dx of [-0.12, 0.12]) cap.block('#8a6050', chx + dx, chy + 0.6, chy + 0.76, chz, 0.1, 0.1);
+    group.add(cap.build(lambert('#ffffff', { vertexColors: true })));
   }
   return group;
 }
