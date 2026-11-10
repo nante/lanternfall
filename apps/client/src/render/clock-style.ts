@@ -62,7 +62,7 @@ const golden: Key = {
   sunElev: 12, sunAzim: 150, sun: '#ffd49a', sunI: 6.0, shadows: 1, shadowI: 0.55,
   sky: '#8088b8', ground: '#4a3a2a', ambI: 3.0,
   exposure: 1.2, saturation: 0.95, contrast: 1.15, warm: 0, cool: 0, vignette: 0.45,
-  shafts: 1, dust: 1, dust_c: '#ffd29a', windows: 0.3, haze: '#98a2a2',
+  shafts: 1, dust: 1, dust_c: '#ffd29a', windows: 0.3, haze: '#b4a29c',
   // ref-2's sky: slate cloud over a pale cream-gold glow, with warm rims.
   zenith: '#2a3646', horizon: '#f0d49c', stars: 0, moon: 0, clouds: 1, cloudLit: '#f2c88c', cloudShade: '#3b4553',
   shadowTint: '#a8b4cc', lightTint: '#f8d8a4',
