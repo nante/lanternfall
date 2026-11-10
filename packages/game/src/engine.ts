@@ -9,6 +9,7 @@ import { grounds, things } from './ids.ts';
 import { clockAt, lightLevel, lightPasses, perceive, sourceLevelAt, staticSources, type LightSource } from './light.ts';
 
 const uid = () => crypto.randomUUID();
+const greeting = /^(?:hi|hello|hey|greetings)\b[\s,!.]*(.*?)[\s!.?]*$/;
 export class GameError extends Error {}
 /** Items lying on a tile have the parent "ground:x,y,z". */
 export const groundKey = (p: Pos) => `ground:${p.x},${p.y},${p.z}`;
@@ -278,11 +279,25 @@ export class Engine {
     const list = this.map.npcs.filter(n => n.z === p.z && distance(n, p) <= 3 && (!id || n.id === id));
     return list.sort((a, b) => distance(p, a) - distance(p, b))[0];
   }
+  /** Who a line is spoken to: the NPC already in conversation, or one the line greets (by name or as the nearest in sight). */
+  addressee(p: Hero, text: string) {
+    const hello = greeting.exec(text);
+    if (!hello) return p.talking ? this.npcNear(p, p.talking) : undefined;
+    const name = hello[1];
+    const greeted = (n: NpcSpawn) => !name || n.name.toLowerCase() === name || n.name.toLowerCase().split(' ').includes(name);
+    return this.map.npcs.filter(n => n.z === p.z && distance(n, p) <= 3 && greeted(n) && this.geo.sight(p, n))
+      .sort((a, b) => distance(p, a) - distance(p, b))[0];
+  }
+  /** Every present hero within earshot on the speaker's floor hears the line. */
+  speak(p: Hero, line: string) {
+    const text = `${p.name}: ${line}`, at = this.state.time;
+    for (const h of Object.values(this.state.players)) if ((h.id === p.id || this.present(h)) && distance(h, p) <= 9) this.notices.push({ player: h.id, text, kind: 'say', at, from: p.id });
+  }
   talk(p: Hero, npc: NpcSpawn, text: string): void {
     const def = this.balance.merchants[npc.role];
     const say = (line: string) => this.note(p, line, 'npc', npc.id);
     if (/\b(bye|farewell)\b/.test(text)) { say('Safe roads.'); p.talking = null; return; }
-    if (p.talking !== npc.id || /\b(hi|hello|greetings)\b/.test(text)) { p.talking = npc.id; say(def.greeting); if (!/\b(hi|hello|greetings)\b/.test(text)) return this.talk(p, npc, text); return; }
+    if (p.talking !== npc.id || greeting.test(text)) { p.talking = npc.id; say(def.greeting); if (!greeting.test(text)) return this.talk(p, npc, text); return; }
     if (/\btrade\b/.test(text)) { say(def.sells.length || def.buys.length ? 'Have a look.' : 'I have nothing to sell, friend.'); return; }
     if (npc.role === 'shrine' && /\bheal\b/.test(text)) {
       const s = this.stats(p);
@@ -302,7 +317,7 @@ export class Engine {
       }
       return say('You have done enough for the shrine. The lanterns thank you.');
     }
-    for (const [topic, line] of Object.entries(def.topics)) if (line && text.includes(topic.replace(/s$/, ''))) return say(line);
+    for (const [topic, line] of Object.entries(def.topics)) if (line && new RegExp(`\\b${topic.replace(/s$/, '')}s?\\b`).test(text)) return say(line);
     say(def.sells.length || def.buys.length ? 'Ask me to "trade", or about something you have heard.' : 'Hm. Ask me about something else.');
   }
 
@@ -339,11 +354,11 @@ export class Engine {
       }
       case 'say': {
         const text = a.text.trim().toLowerCase();
+        this.speak(p, a.text.trim());
         const spell = Object.entries(this.balance.spells).find(([, s]) => s.words === text);
         if (spell) { this.cast(p, spell[0] as SpellId); break; }
-        const npc = this.npcNear(p, p.talking) ?? this.npcNear(p);
-        if (npc) { this.note(p, `${p.name}: ${a.text}`, 'info'); this.talk(p, npc, text); }
-        else this.note(p, `${p.name}: ${a.text}`);
+        const npc = this.addressee(p, text);
+        if (npc) this.talk(p, npc, text);
         break;
       }
       case 'talk': {

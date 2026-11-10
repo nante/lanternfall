@@ -67,7 +67,7 @@ export const Command = z.discriminatedUnion('kind', [
 ]);
 export type Action = z.infer<typeof Command>;
 export const Envelope = z.object({ requestId: z.string().uuid(), epoch: z.number().int(), seq: z.number().int().positive(), action: Command });
-export type Notice = { player: string; text: string; kind: 'info' | 'combat' | 'error' | 'npc' | 'level' | 'loot'; at: number; npc?: string };
+export type Notice = { player: string; text: string; kind: 'info' | 'combat' | 'error' | 'npc' | 'level' | 'loot' | 'say'; at: number; npc?: string; from?: string };
 export type Effect = { id: number; kind: 'hit' | 'miss' | 'heal' | 'mana' | 'ember' | 'burst' | 'block' | 'xp' | 'level'; at: Pos; value: number; time: number; from?: Pos };
 /** What a hero visibly wears and holds, by slot. A torch shines only from the shield slot, so `shield: 'torch'` is a lit torch. */
 export type Worn = Partial<Record<EquipSlot, ItemKind>>;
