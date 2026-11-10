@@ -120,7 +120,7 @@ float canopyShade() {
   return mix(1.0, mix(0.28, 1.15, fleck), shade);
 }
 // Painted stonework, as in the references: surfaces break into small blocks of shifted value and hue, cool or warm,
-// laid in courses on upright faces. Blocks are anchored to the world (they never swim) and come in four fixed sizes;
+// laid in courses on upright faces. Blocks are anchored to the world (they never swim) and come in five fixed sizes;
 // each size shows only while its blocks are a few screen pixels tall and fades out below that, so distance calms a
 // surface (haze takes over) instead of coarsening it into a mosaic. Returns a multiplier for the lit colour.
 float bHash(vec3 p) { return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453); }
@@ -149,10 +149,11 @@ vec3 blockTone() {
   float pw = max(length(fwidth(vFPos)) * 0.75, 1e-4);
   float amp = ground ? 0.5 : mix(0.24, 0.4, uFGround);
   vec3 m = vec3(1.0); float hd = 0.5, wd = 0.0;
-  for (int k = 0; k < 4; k++) {
+  for (int k = 0; k < 5; k++) {
     float rowH = exp2(float(k)) / 16.0, rows = rowH / pw;
-    // The largest size is a castle's courses seen from afar: quieter than brushwork.
-    float a = smoothstep(1.3, 2.6, rows) * (1.0 - smoothstep(4.5, 7.0, rows)) * (k == 3 ? 0.7 : 1.0);
+    // The largest sizes are a castle's courses seen from afar: quieter than brushwork, but enough that a far wall is
+    // not one flat value (the palette would snap it to a single dull colour).
+    float a = smoothstep(1.0, 2.2, rows) * (1.0 - smoothstep(4.5, 7.0, rows)) * (k == 4 ? 0.55 : k == 3 ? 0.75 : 1.0);
     if (a <= 0.0) continue;
     float h;
     vec3 c = course(ground ? uv * vec2(0.25, 1.0) : uv, rowH, plane, amp, h);

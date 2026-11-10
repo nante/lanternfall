@@ -26,16 +26,20 @@ Each time-of-day keyframe (`render/clock-style.ts`) carries a `shadowTint` and a
 
 Depth outlines are kept faint (0.15): the references draw form with value and hue, not ink.
 
-## 3. Painted blocks, anchored to the world
+## 3. Painted stonework, anchored to the world
 
-Every lit Lambert surface (terrain, walls, trees, far land, architecture) runs `blockTone` (`render/lightfield.ts`): the surface is split into rows two render pixels tall and blocks two to five pixels wide, staggered row to row. Each block shifts value by up to ±12% and leans cool (blue-violet) or warm (peach). This is the rectangular brushwork of ref-1.
+Every lit Lambert surface (terrain, walls, trees, far land, architecture) takes `blockTone` (`render/lightfield.ts`): the surface is split into rows (courses, on upright faces) and blocks one to two and a half rows wide, staggered row to row. Each block shifts value and leans cool (blue-violet) or warm (peach). This is the rectangular brushwork of ref-1.
 - **Anchored:** blocks are computed from world position on the surface's plane, so they never swim as the camera moves.
-- **Scales with distance:** the block size doubles wherever one block would fall under a screen pixel (`fwidth` of world position), so distant surfaces keep coherent blocks instead of shimmering noise.
-- **Calmer on the ground:** up-facing surfaces take half strength, so the play field stays easy to read.
+- **Five fixed sizes, faded by distance:** rows are 1/16, 1/8, 1/4, 1/2 and 1 unit tall, the two largest quieter. A size shows only while its rows are between about 1 and 7 render pixels tall (`fwidth` of world position), so a near wall shows brushwork, the castle shows small courses, and the farthest stone is calm and left to the haze. A wall with no variation at all snapped to one dull palette colour, so the largest size stays on at castle distance. The old rule doubled the block size with distance, which drew far walls as a mosaic of big random rectangles.
+- **Quiet in shade and at night:** the tone is applied to the lit colour and fades with its brightness and with the share of direct light (sun, moon, lamp), so dark passages stay calm instead of showing only the mosaic.
+- **Ground:** Close and Play keep their hand-painted tiles; in Scenery the ground takes long horizontal strokes (ref-1's foreground).
 
 ## 4. Sky
 
-`render/sky.ts`: gradient, sun and an oversized moon, stars, and clouds sampled on a plane above the land (so they hold their place as pitch changes), stretched into horizontal streaks, in three tones: a body darker where dense, and a rim on the side facing the sun in elevation. Tops are lit when the sun is high (ref-1), undersides when it is low (ref-2).
+`render/sky.ts`: gradient, sun and an oversized moon, stars, and cumulus in direction space.
+- **Moon:** a cratered face in four values (maria, crater floors, rims lit up and left, highlands, a darker limb). It follows a path over the northern sky (`moonAt` in `clock-style.ts`): it rises low at dusk as a warm harvest moon (ref-5), climbs pale towards midnight (ref-4) and sinks before dawn. Its glow is a few flat steps with an ordered dither between them, so the palette shows a dithered halo, not hard concentric bands (the sun's glow is drawn the same way).
+- **Stars:** three brightnesses, faintly warm or cool; the brightest twinkle and throw a one-pixel cross; none in the moon's glow.
+- **Clouds:** four tones lit from the light that rules the sky. By day tops are lit and bases shaded (ref-1); with the sun low, or under the moon, the side facing the light catches it, most strongly near the moon (ref-2, ref-4, ref-5). Clouds part around the moon.
 
 ## 5. Block size per stop
 
@@ -55,7 +59,7 @@ The Scenery stop ends 30 tiles behind the hero and 4.4 up, looking at a point 7.
 
 ## 8b. Open foreground, framed by trees
 
-In Scenery, whatever stands between the lens and the hero is cut away (`uFCut`, `uFAxis` in `render/lightfield.ts`, set in `view.ts`): walls and roofs across the whole width, trees only down a corridor in the middle (`material.userData.frame`). Trees outside the corridor stay and fall into dark silhouette (`nearShade`), framing the view like ref-2's bottom corners. Close and Play are untouched.
+In Scenery, whatever stands between the lens and the hero is cut away (`uFCut`, `uFAxis` in `render/lightfield.ts`, set in `view.ts`): walls and roofs across the whole width, trees only down a corridor in the middle (`material.userData.frame`). Trees outside the corridor stay and fall into dark silhouette (`nearShade`), framing the view like ref-2's bottom corners. Upright faces are cut all the way to the ground: stubs left below the old 0.35-unit cut height drew lamp-lit noise along the frame's bottom edge. Close and Play are untouched.
 
 In Scenery the ground also takes long horizontal painted strokes (`uFGround`, `blockTone`) over a flatter ground texture (`uGroundDetail`), after ref-1's foreground; Play keeps its hand-painted tiles.
 
@@ -65,7 +69,9 @@ Humans are about four heads tall (`render/figures/kit.ts`): long legs, a head sc
 
 ## 10. Light stays on the ground
 
-The light field is light on the ground the rule plays on. It climbs walls and trees, then falls away in dithered steps between 3 and 4.5 units up, so the Lantern Spire keeps its own stone instead of turning lamp-coloured. After golden hour a quarter stays, a faint teal sheen on the stone; in daylight teal on warm stone would read olive.
+The light field is light on the ground the rule plays on. It climbs the foot of walls and trees and fades out smoothly between 1.2 and 3.2 units up, so roofs and the Lantern Spire keep their own stone. After golden hour a faint sheen (12%) stays above. The Lantern's teal is half strength on upright stone. A dithered fade and stronger light on roofs both scattered single teal pixels over the Spire and the shrine quarter, because saturated teal on grey stone snaps between two far-apart palette colours.
+
+Each rule level is a readable step brighter than the last (`fieldCurve`: level × (0.21 + 0.007 × level)), so a torch pool falls off in rings and its edge still shows the ground. A tile's brightness reads as its level whether the light is the moon (outdoor night is level 1) or a lamp.
 
 ## 11. Roofs and rubble
 
@@ -87,7 +93,7 @@ A warmer golden-hour grade (sun #ffb25a, saturation 1.25, shadow tint #98a8e0, l
 
 ## 12d. Sun through leaves, and a dragon with mass
 
-Canopy light (ref-4): the light field's ambient texture carries canopy density in its green channel (trees and pines within two tiles). On sunlit ground under it, `canopyShade()` in `render/lightfield.ts` lays solid leaf shade with a dithered rim, broken by flecks of sun on the 32 px grid that drift a little with the wind. Visual only; the rule never reads it.
+Canopy light (ref-4): the light field's ambient texture carries canopy density in its green channel (`canopyAt`: trees and pines within two tiles). On sunlit ground under it, by day only, `canopyShade()` in `render/lightfield.ts` lays solid leaf shade with a dithered rim, broken by flecks of sun on the 32 px grid that drift a little with the wind. Visual only; the rule never reads it.
 
 The dragon's vertex colours carry form and rim (`architecture/dragon.ts`): tops lighter, undersides darker, and faces turned side-on to the town take a pale rim, so it reads as a mass against the sky.
 
@@ -125,7 +131,20 @@ Each amber light's colour steps between three strengths on its own beat (`LightF
 
 ## 13. Underground dark
 
-Underground the dark is earth, not sky: below ground, shadows lean warm-neutral and unlit stone rests on a warm near-black instead of the night's indigo (`render/view.ts` post pass, `uCave`), after the flashlight reference's cellar. Outside the torch it is still black.
+Underground the dark is earth, not sky: below ground, shadows lean warm-neutral and unlit stone rests on a warm near-black instead of the night's indigo (`render/post.ts`, `uCave`), after the flashlight reference's cellar. Past the torch the cave's wall edges still catch a faint warm line, so the cave's shape can be found without lighting it.
+
+## 13a. Night is moonlight
+
+Outdoor night reads as moonlight (ref-4, ref-5): deep teal-blue fill, a cool moon key standing high on the camera's side so the faces the view sees are lit, and soft moon shadows (`shadowI` 0.5), so walls do not end in black slabs and the town's shapes and the ground read in blues. Lamps and windows pool warm. This is the rule's picture: outdoor night is level 1, where the server sends creatures as shades, and the terrain may be seen; nothing the rule hides is drawn. Sun flecks under the canopy and cloud shadows run only while the sun is up (`Mood.frame`); under the moon the flecks read as stray star-shaped marks.
+
+## 13d. Time of day, without muddy minutes
+
+`clock-style.ts` has seven keys: night, predawn, dawn, day, golden, dusk and blue hour, each with its own light direction, light and shadow hue, sky and shadow softness. Predawn and dusk carry almost no directional light, so the light can turn from sun to moon unseen. Colours blend in OKLCh along the shorter hue arc and the blend between keys is eased, so a blend of two saturated keys stays saturated instead of passing through grey. Scrubbing the market in quarter hours across dusk shows golden, a rose afterglow, a calm blue hour, then teal night; across dawn, teal night, indigo predawn, lilac, then rose-gold.
+
+## 13e. Region moods
+
+The same hour feels different by place (`render/mood.ts`, `content/moods.json`, validated by `RegionMoods` in `content-schema.ts`). Each mood is a row of multipliers and tints layered on the clock key: ambient, shadow tint, light tint, saturation, mist tint and density, vignette, motes and sun shafts, with optional `night` and `twilight` values that blend in. Moods claim map places by name; river tiles take the water mood and dense canopy pulls towards the wood mood. Per-tile weights are blurred over about six tiles and drawn as two textures; the post pass reconstructs each pixel's world position from depth and blends the moods there, so a view that straddles the meadow and the wood shows both, and walking across a border never pops. Vignette, motes, shafts and Scenery fog follow the blend at the hero.
+- meadow: wide, warm, bright; market: neutral, lively; wood: green-filtered, dimmer, cool teal shadow, sun shafts and motes; river and bridge: cool, mist at dawn and dusk; shrine and Spire: a teal cast that grows at night; fallen chapel: desaturated, grey mist, close vignette; underground: warm earth, close vignette.
 
 ## Measured against the references
 
@@ -159,7 +178,7 @@ Clouds are cumulus built from rounded lumps in direction space (`render/sky.ts`)
 
 In Scenery, upright walls take rougher brickwork (`blockTone` in `render/lightfield.ts`): more contrast from stone to stone, an occasional dark gap and pale stone.
 
-At night in Scenery the moon lights the land (`view.ts`): the river, the road, the ruins and the town's roofs read in deep blue. Play keeps the full dark, where the darkness rule lives.
+At night every stop is moonlit (13a); Scenery adds a little more moon and sky light (`Mood.frame`), as it is a view for looking.
 
 ## 14. The east reach (map)
 
@@ -167,4 +186,4 @@ The map is 104 tiles wide instead of 84 (`packages/game/src/town.ts`). The origi
 
 ## What gameplay keeps
 
-Nothing here touches the rules. After the restyle: 84 tests pass; the light field still equals the rule (verify: 0 mismatches); the walking darkness probe finds 0 picture/server disagreements (with the rule on, on the surface at night and in the undercroft with and without a torch); Play frames cost 0.7 ms and Scenery 0.5 ms at 1920×1080 (limit 4 ms).
+Nothing here touches the rules. After the light pass (moonlit night, region moods, calmer stonework): 85 tests pass; the light field still equals the rule (verify: 0 mismatches at market night, undercroft with a torch, shrine at blue hour, meadow at night with a torch; floor round trip 0); the walking darkness probe finds 0 picture/server disagreements and 0 field/rule mismatches in the meadow at night and the undercroft with a torch. The night is brighter in the picture only: outdoor night stays level 1 in the rule, where creatures are sent as shades. `labBench()` medians on a machine shared with other work: base 2.6 ms Play night and 2.5 ms Scenery noon, after 2.7 and 2.9 ms, within the 1 to 3 ms spread one build shows between runs.
