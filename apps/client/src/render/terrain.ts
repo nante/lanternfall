@@ -86,6 +86,25 @@ function rubble(map: MapData, gr: (x: number, y: number) => number, at: (x: numb
   return [instanced(geo, lambert('#ffffff', { flatShading: true }), stones), instanced(box, lambert('#ffffff'), litter, false)];
 }
 
+/**
+ * Where a town house's windows go: every other wall tile along each of its four faces, off the corners, where the face
+ * looks onto open ground. `ry` turns a pane that faces +z onto its face; `gate` is the share of night it waits for, so
+ * a street lights unevenly.
+ */
+export function windowSpots(map: MapData) {
+  const { width: w, height: h } = map, th = (x: number, y: number) => (x < 0 || y < 0 || x >= w || y >= h ? T.none : map.floors[0].thing[y * w + x]);
+  const spots: { x: number; z: number; ry: number; gate: number }[] = [];
+  for (const b of map.buildings) {
+    if (b.name === 'South gate') continue;
+    const faces: [number, number, number, number, number, number][] = [[b.x0 + 1, b.y1, 1, 0, 0, 1], [b.x0 + 1, b.y0, 1, 0, 0, -1], [b.x1, b.y0 + 1, 0, 1, 1, 0], [b.x0, b.y0 + 1, 0, 1, -1, 0]];
+    for (const [sx, sy, dx, dy, nx, nz] of faces) for (let x = sx, y = sy; dx ? x < b.x1 : y < b.y1; x += dx * 2, y += dy * 2) {
+      if (th(x, y) !== T.wall || th(x + nx, y + nz) !== T.none) continue;
+      spots.push({ x: x + nx * 0.505, z: y + nz * 0.505, ry: Math.atan2(nx, nz), gate: 0.15 + hash2(x * 3, y * 5) * 0.8 });
+    }
+  }
+  return spots;
+}
+
 export type Lamp = { pos: THREE.Vector3; color: THREE.Color; strength: number; flicker: number };
 export type FloorScene = {
   group: THREE.Group; uniforms: { uTime: { value: number } }; lamps: Lamp[];
@@ -242,13 +261,20 @@ function gableRoof(b: Building, tex: THREE.Texture) {
   g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
   g.setAttribute('uv', new THREE.Float32BufferAttribute(U, 2));
   g.computeVertexNormals();
-  const roofMat = lambert('#ffffff', { map: tex, side: THREE.DoubleSide });
+  const roofMat = lambert('#ffffff', { map: tex });
   const mesh = new THREE.Mesh(g, roofMat);
   mesh.castShadow = true; mesh.receiveShadow = true;
   const group = new THREE.Group(); group.add(mesh);
+  // Underneath, the slopes and gables are boarded, not tiled: what a lens sees from under the eaves or from inside.
+  const under = new THREE.BufferGeometry(), flipped: number[] = [];
+  for (let t = 0; t < P.length; t += 9) flipped.push(...P.slice(t, t + 3), ...P.slice(t + 6, t + 9), ...P.slice(t + 3, t + 6));
+  under.setAttribute('position', new THREE.Float32BufferAttribute(flipped, 3));
+  under.setAttribute('uv', new THREE.Float32BufferAttribute(flipped.map((v, i) => (i % 3 === 1 ? 0 : v)).filter((_, i) => i % 3 !== 1), 2));
+  under.computeVertexNormals();
+  group.add(new THREE.Mesh(under, worldMapped(plankTexture(), '#c8b49a')));
   // Timber that gives the roof its edges: fascia boards on the eaves, bargeboards up the gable rakes, ridge tiles and
   // finials; on long clay and slate roofs, dormers on the slope that faces the town. All of it hides with the roof.
-  const trim = new Mason(), cx = (x0 + x1) / 2, cz = (z0 + z1) / 2, S = span / 2, L = len / 2;
+  const cream = new THREE.Color('#d2c3a2'), trim = new Mason(), cx = (x0 + x1) / 2, cz = (z0 + z1) / 2, S = span / 2, L = len / 2;
   const timber = '#3b2819', tile = ({ clay: '#8e4630', slate: '#2e3a66', teal: '#24524e', thatch: '#6e5a34' } as Record<string, string>)[b.roof] ?? '#3a3040';
   const roofTone = ({ clay: '#b05a3a', slate: '#3e4c81', teal: '#2f6762', thatch: '#9a7e4a' } as Record<string, string>)[b.roof] ?? '#6a5a50';
   trim.within(cx, 0, cz, alongX ? 0 : Math.PI / 2, () => {
@@ -256,6 +282,10 @@ function gableRoof(b: Building, tex: THREE.Texture) {
       trim.block(timber, 0, base - 0.12, base + 0.02, f * (S + 0.02), len + 0.04, 0.07);
       for (const e of [-1, 1]) trim.beam(timber, new THREE.Vector3(e * (L + 0.02), base - 0.04, f * (S + 0.03)), new THREE.Vector3(e * (L + 0.02), base + rise + 0.06, 0), 0.08, 0.11);
     }
+    // Rafters under each slope, their tails showing under the eaves, a ridge beam, and tie beams across the walls.
+    for (let u = -L + 0.35; u < L - 0.2; u += 0.9) for (const f of [-1, 1]) trim.beam(timber, new THREE.Vector3(u, base - 0.08, f * (S - 0.04)), new THREE.Vector3(u, base + rise - 0.12, 0), 0.08, 0.1);
+    trim.block(timber, 0, base + rise - 0.3, base + rise - 0.1, 0, len - 0.1, 0.14);
+    for (let u = -L + ox + 1.2; u < L - ox - 0.6; u += 2.6) trim.block(timber, u, WALL_H - 0.3, WALL_H - 0.14, 0, 0.16, span - 2 * ox - 0.1);
     trim.block(tile, 0, base + rise - 0.04, base + rise + 0.1, 0, len + 0.06, 0.2);
     for (let u = -L + 0.25; u < L; u += 0.5) trim.block(roofTone, u, base + rise + 0.1, base + rise + 0.14, 0, 0.3, 0.16);
     for (const e of [-1, 1]) trim.block(timber, e * (L + 0.02), base + rise, base + rise + 0.34, 0, 0.07, 0.07);
@@ -263,7 +293,10 @@ function gableRoof(b: Building, tex: THREE.Texture) {
       const n = Math.floor(len / 3.5), zz = S * 0.5, yb = base + rise * (1 - zz / S);
       for (let i = 0; i < n; i++) {
         const u = -L + (i + 0.5) * (len / n);
-        trim.block('#d2c3a2', u, yb - 0.2, yb + 0.5, zz - 0.3, 0.62, 0.8);
+        // The dormer's front and cheeks stand on the slope, so nothing of it hangs below the ceiling inside.
+        const zf = zz + 0.1, yf = base + rise * (1 - zf / S) - 0.02, yt = yb + 0.5, zr = S * (1 - (yt - base) / rise), V = (a: number, b2: number, c: number) => new THREE.Vector3(a, b2, c);
+        trim.face(V(u - 0.31, yf, zf), V(u + 0.31, yf, zf), V(u + 0.31, yt, zf), cream).face(V(u - 0.31, yf, zf), V(u + 0.31, yt, zf), V(u - 0.31, yt, zf), cream);
+        for (const sx of [-0.31, 0.31]) trim.face(V(u + sx, yf, zf), V(u + sx, yt, zf), V(u + sx, yt, zr), cream).face(V(u + sx, yf, zf), V(u + sx, yt, zr), V(u + sx, yt, zf), cream);
         trim.block('#1c1816', u, yb + 0.02, yb + 0.36, zz + 0.11, 0.26, 0.02);
         trim.block(timber, u, yb - 0.02, yb + 0.02, zz + 0.12, 0.34, 0.04);
         trim.put(prim.gable(), roofTone, u, yb + 0.5, zz - 0.3, { sx: 0.86, sy: 0.34, sz: 0.78, ry: Math.PI / 2 });
@@ -277,7 +310,9 @@ function gableRoof(b: Building, tex: THREE.Texture) {
   if (b.roof === 'clay' || b.wall === 'timber') {
     const ch = new THREE.Mesh(box, worldMapped(wallTexture('stone'), '#c9bfb0'));
     const chx = alongX ? x1 - 1.6 : (x0 + x1) / 2 + 0.6, chz = alongX ? (z0 + z1) / 2 - 0.5 : z0 + 1.5, chy = base + rise * 0.7 + 0.3;
-    ch.scale.set(0.45, 1.1, 0.45); ch.position.set(chx, chy, chz);
+    // The stack stops at the roof's surface under its lower edge, so from inside it does not hang below the ceiling.
+    const off = alongX ? Math.abs(chz - (z0 + z1) / 2) : Math.abs(chx - (x0 + x1) / 2), foot = base + rise * (1 - (off + 0.23) / (span / 2)) - 0.02;
+    ch.scale.set(0.45, chy + 0.55 - foot, 0.45); ch.position.set(chx, (chy + 0.55 + foot) / 2, chz);
     ch.castShadow = true; group.add(ch);
     const cap = new Mason();
     cap.block('#b8afa2', chx, chy + 0.5, chy + 0.6, chz, 0.56, 0.56);
@@ -329,6 +364,9 @@ function gateTower(b: Building, h: number, wall: THREE.Material) {
   // Slits on the field face (south) and the faces that flank the road.
   for (const x of [cx - 0.75, cx + 0.75]) slit(m, x, 0.8, z1, 0, 1);
   slit(m, cx, 2.0, z1, 0, 1, 0.5);
+  // The town face and the face away from the road keep watch too.
+  slit(m, cx, 1.9, z0, 0, -1, 0.5);
+  for (const z of [cz - 0.8, cz + 0.9]) slit(m, b.x0 < 40 ? x0 : x1, 1.9, z, b.x0 < 40 ? -1 : 1, 0, 0.5);
   const road = b.x0 < 40 ? 1 : -1, rx = road > 0 ? x1 : x0;
   for (const z of [cz - 0.8, cz + 0.9]) slit(m, rx, 1.9, z, road, 0, 0.5);
   // The roof: a slate pyramid inside the parapet, a finial and a pennant on a pole.
@@ -419,6 +457,14 @@ function ramparts(at: (x: number, y: number) => number, w: number, h: number, wa
         m.block(STONE.face, x + nx * 0.6, 0, 1.9, y + nz * 0.6, along ? 0.46 : 0.24, along ? 0.24 : 0.46);
         m.put(prim.box(), STONE.light, x + nx * 0.6, 1.95, y + nz * 0.6, { sx: along ? 0.48 : 0.26, sy: 0.12, sz: along ? 0.26 : 0.48, rx: along ? nz * 0.6 : 0, rz: along ? 0 : -nx * 0.6 });
       } else if (k % 5 === 2) slit(m, x + nx * 0.5, 0.9, y + nz * 0.5, nx, nz);
+    }
+    // The town side: a corbelled lip under the wall walk, a low rear parapet, and putlog holes from the scaffolding.
+    for (const [nx, nz] of [[0, 1], [0, -1], [1, 0], [-1, 0]] as const) {
+      if (outs.some(([ox, oz]) => ox === nx && oz === nz) || at(x + nx, y + nz) === T.rampart) continue;
+      const along = nx === 0, k = along ? x : y, fx = (a: number) => (along ? 1.0 : a), fz = (a: number) => (along ? a : 1.0);
+      m.block(STONE.light, x + nx * 0.53, H - 0.16, H - 0.02, y + nz * 0.53, fx(0.08), fz(0.08));
+      m.block(STONE.face, x + nx * 0.43, H, H + 0.34, y + nz * 0.43, fx(0.14), fz(0.14));
+      if (k % 3 === 1) m.block(STONE.slit, x + nx * 0.505, 1.6, 1.74, y + nz * 0.505, along ? 0.14 : 0.02, along ? 0.02 : 0.14);
     }
   }
   const mesh = m.build(tinted(wall)); mesh.castShadow = true; mesh.receiveShadow = true;
@@ -566,8 +612,10 @@ export function buildFloor(map: MapData, z: number, doorsOpen: Record<string, bo
         leaf.scale.set(horizontal ? 0.9 : 0.14, 1.65, horizontal ? 0.14 : 0.9);
         leaf.position.set(horizontal ? 0.45 : 0, 0.83, horizontal ? 0 : 0.45);
         pivot.add(leaf);
-        const lintel = new THREE.Mesh(box, wallMat('timber')); lintel.scale.set(horizontal ? 1 : 0.9, WALL_H - 1.7, horizontal ? 0.9 : 1); lintel.position.set(x, 1.7 + (WALL_H - 1.7) / 2, y); lintel.castShadow = true;
-        group.add(pivot, lintel);
+        const lintel = new THREE.Mesh(box, wallMat('timber')); lintel.scale.set(horizontal ? 1 : 0.9, WALL_H - 1.64, horizontal ? 0.9 : 1); lintel.position.set(x, 1.64 + (WALL_H - 1.64) / 2, y); lintel.castShadow = true;
+        // A door belongs to its building's walls, so it lowers with them when the roof is cut away.
+        const host = roofs.find(r => x >= r.building.x0 && x <= r.building.x1 && y >= r.building.y0 && y <= r.building.y1)?.walls ?? group;
+        host.add(pivot, lintel);
         pivot.userData.horizontal = horizontal;
         pivot.rotation.y = doorsOpen[`${x},${y},${z}`] ? (horizontal ? -Math.PI / 2 : Math.PI / 2) : 0;
         doors.set(`${x},${y},${z}`, pivot);
