@@ -42,6 +42,8 @@ export const farScene: SetPiece[] = [
   { kind: 'grove', x0: -150, x1: 240, z0: -12, z1: -22, trees: 120, seed: 1, broadleaf: 0.75, size: [1.2, 2.0] },
   { kind: 'grove', x0: -150, x1: 240, z0: -22, z1: -30, trees: 70, seed: 2, broadleaf: 0.5, size: [1.5, 2.4] },
   { kind: 'grove', x0: -150, x1: 240, z0: -56, z1: -66, trees: 150, seed: 3, broadleaf: 0.35, size: [1.8, 2.8] },
+  // Giants along the north bank: old trees three times a house's height, for scale against the figures on the bridge.
+  { kind: 'grove', x0: -40, x1: 130, z0: -9.5, z1: -13, trees: 16, seed: 4, broadleaf: 1, size: [3.4, 4.6] },
 ];
 
 export const pieceOf = <K extends SetPiece['kind']>(kind: K) => farScene.find(p => p.kind === kind) as Extract<SetPiece, { kind: K }>;
