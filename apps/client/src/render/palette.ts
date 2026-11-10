@@ -67,9 +67,22 @@ export const lutColors: string[] = (() => {
  */
 export const LOW_SUN_GREENS = ['#385318', '#283f0f'];
 
-/** 32³ lookup: display-referred sRGB in, nearest palette colour out (OKLab distance). `extra` adds colours to the set. */
-export function paletteLut(size = 32, extra: string[] = []): THREE.Data3DTexture {
-  const pal = [...lutColors, ...extra].map(h => { const [r, g, b] = rgb(h); return { lab: oklab(r, g, b), rgb: [r, g, b] }; });
+/**
+ * Underground the references' darks are the flashlight cellar's maroons, a step apart too wide to show stone: a wall a
+ * little lit and a wall a little less lit snapped to the same red-black, or dithered between it and a dark olive. These
+ * warm earth and ochre steps give torch-lit stone its value range.
+ */
+export const CAVE_TONES = [ramps.earth[0], ramps.earth[1], ramps.earth[2], ramps.earth[3], ramps.ochre[1], ramps.ochre[2], ramps.ochre[3], ramps.soil[0], ramps.soil[1]];
+
+/** The forest's olive darks: under a torch they speckle brown stone green. */
+export const CAVE_DROPS = ['#130e04', '#141c07', '#2c2b19', '#313d29', '#212624'];
+
+/**
+ * 32³ lookup: display-referred sRGB in, nearest palette colour out (OKLab distance). `extra` adds colours to the set,
+ * `drop` leaves some out.
+ */
+export function paletteLut(size = 32, extra: string[] = [], drop: string[] = []): THREE.Data3DTexture {
+  const pal = [...lutColors.filter(h => !drop.includes(h)), ...extra].map(h => { const [r, g, b] = rgb(h); return { lab: oklab(r, g, b), rgb: [r, g, b] }; });
   const data = new Uint8Array(size * size * size * 4);
   for (let b = 0; b < size; b++) for (let g = 0; g < size; g++) for (let r = 0; r < size; r++) {
     const [L, A, B] = oklab(r / (size - 1), g / (size - 1), b / (size - 1));

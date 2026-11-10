@@ -6,7 +6,7 @@ import { ActorLayer } from './actor-layer.ts';
 import type { RenderStyle } from '../../../../packages/game/src/content-schema.ts';
 import { defaultStyle } from '../../../../packages/game/src/style-presets.ts';
 import { glowTexture } from './textures.ts';
-import { paletteLut, LOW_SUN_GREENS } from './palette.ts';
+import { paletteLut, LOW_SUN_GREENS, CAVE_TONES, CAVE_DROPS } from './palette.ts';
 import { stops, stopOrder, pixelLock, stepFromView, type Stop, type StopFog, type StopId } from './stops.ts';
 import { CameraRig, fogBand } from './camera.ts';
 import { keyAt, type Key } from './clock-style.ts';
@@ -279,11 +279,11 @@ export class WorldView {
     this.applyLights();
     this.resize();
   }
-  private readonly luts = { day: paletteLut(), lowSun: paletteLut(32, LOW_SUN_GREENS) };
+  private readonly luts = { day: paletteLut(), lowSun: paletteLut(32, LOW_SUN_GREENS), cave: paletteLut(32, CAVE_TONES, CAVE_DROPS) };
   private applyLights() {
     const k = this.key, cave = this.floor === 1;
     // With the sun low (dawn, golden hour) the palette keeps ref-3's field greens; at noon and at night it leaves them out.
-    this.post.uniforms.uLut.value = !cave && k.sunElev < 20 && k.sunI > 1.5 ? this.luts.lowSun : this.luts.day;
+    this.post.uniforms.uLut.value = cave ? this.luts.cave : k.sunElev < 20 && k.sunI > 1.5 ? this.luts.lowSun : this.luts.day;
     const el = THREE.MathUtils.degToRad(Math.max(k.sunElev, 4)), az = THREE.MathUtils.degToRad(k.sunAzim);
     SUN_DIR.set(Math.cos(el) * Math.cos(az), Math.sin(el), Math.cos(el) * Math.sin(az)).normalize();
     this.sun.intensity = cave ? 0 : k.sunI;

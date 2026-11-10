@@ -70,7 +70,9 @@ void main(){
   float sil = step(0.002, max(max(dl, dr), max(du, dd)) - d) * step(d, 0.9999);
   // Edges only at Close and Play; in Scenery they would draw distant forests as wireframe.
   // Underground the edges are a little stronger: past the torch the cave's walls still catch a faint line.
-  c = max(c, mix(mix(vec3(0.0037, 0.0048, 0.013), vec3(0.0052, 0.0044, 0.0036), uCave), mix(vec3(0.0052, 0.0068, 0.0190), vec3(0.012, 0.0095, 0.007), uCave), sil * uNightEdges));
+  // Underground nothing stands above the walls: the void there is the vault's black, with no floor to dither against.
+  float vault = uCave * step(0.9999, d);
+  c = max(c, (1.0 - vault) * mix(mix(vec3(0.0037, 0.0048, 0.013), vec3(0.0012, 0.001, 0.0008), uCave), mix(vec3(0.0052, 0.0068, 0.0190), vec3(0.012, 0.0095, 0.007), uCave), sil * uNightEdges));
   c = mix(c, c * vec3(1.14, 0.97, 0.74), smoothstep(0.32, 0.9, l) * (1.0 - uCave) * uWarm);
   c = mix(vec3(luma(c)), c, uSaturation * mood.sat);
   // Ground mist, a little thicker and thinner in drifting patches.

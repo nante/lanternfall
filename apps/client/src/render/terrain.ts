@@ -502,7 +502,7 @@ export function buildFloor(map: MapData, z: number, doorsOpen: Record<string, bo
     if (at(x, y) !== T.cavewall) continue;
     let edge = false;
     for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (open(x + dx, y + dy)) edge = true;
-    if (edge) { const r = hash2(x * 1.3, y * 2.9); cave.push({ x, y: 0.8 + r * 0.3, z: y, sx: 1.02, sy: 1.6 + r * 0.6, sz: 1.02, color: r > 0.5 ? '#9a948a' : '#8a847a' }); }
+    if (edge) { const r = hash2(x * 1.3, y * 2.9); cave.push({ x, y: 0.8 + r * 0.3, z: y, sx: 1.02, sy: 1.6 + r * 0.6, sz: 1.02, color: r > 0.5 ? '#f4ece0' : '#e0d8cc' }); }
   }
   const wallRing = ramparts(at, w, h, worldMapped(wallTexture('rampart')));
   if (wallRing) group.add(wallRing);

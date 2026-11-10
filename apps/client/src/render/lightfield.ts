@@ -191,8 +191,11 @@ vec3 fieldRadiance() {
   // one and three units up, so roofs and towers keep their own stone. After golden hour a faint sheen of the lamp stays
   // on the stone above; in daylight teal on warm stone would read olive. The fade is smooth: a dithered fade scattered
   // single teal pixels over the Spire's stone, and stronger light on roofs speckled them with the Lantern's teal.
+  // Underground (the only place the outdoor level is 0) there are no roofs to keep clear: a torch lights the cellar
+  // wall to its top, as a lens at head height sees mostly wall.
   float sheen = 0.12 * clamp((5.0 - uFOutdoor) / 3.0, 0.0, 1.0);
-  float up = max(sheen, 1.0 - smoothstep(1.2, 3.2, vFPos.y));
+  float climb = uFOutdoor < 0.5 ? 2.4 : 1.2;
+  float up = max(sheen, 1.0 - smoothstep(climb, climb + 2.0, vFPos.y));
   fHighWall = mix(0.45, 1.0, abs(vFNrm.y));
   return fieldAt(p, bayer4[bi] / 16.0 * 0.5, lv) * uFGain * up;
 }
