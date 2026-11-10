@@ -6,7 +6,7 @@ import { ActorLayer } from './actor-layer.ts';
 import type { RenderStyle } from '../../../../packages/game/src/content-schema.ts';
 import { defaultStyle } from '../../../../packages/game/src/style-presets.ts';
 import { glowTexture } from './textures.ts';
-import { paletteLut, LOW_SUN_GREENS } from './palette.ts';
+import { paletteLut, LOW_SUN_GREENS, CAVE_TONES, CAVE_DROPS, NIGHT_DROPS } from './palette.ts';
 import { stops, stopOrder, pixelLock, stepFromView, type Stop, type StopFog, type StopId } from './stops.ts';
 import { CameraRig, fogBand } from './camera.ts';
 import { keyAt, type Key } from './clock-style.ts';
@@ -180,7 +180,7 @@ export class WorldView {
     this.target = new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType, depthTexture: new THREE.DepthTexture(4, 4), magFilter: THREE.NearestFilter, minFilter: THREE.NearestFilter });
     this.post = new THREE.ShaderMaterial({
       vertexShader: postVertex, fragmentShader: postFragment,
-      uniforms: { ...moodUniforms, uExposure: { value: 1.7 }, uSaturation: { value: 1.18 }, uContrast: { value: 1 }, uWarm: { value: 1 }, uCool: { value: 1 }, uVignette: { value: 0.6 }, uLevels: { value: 48 }, uDither: { value: 0.5 }, uOutline: { value: 0.45 }, uRim: { value: 0.55 }, uLut: { value: this.luts.day }, uPalette: { value: 1 }, uNightEdges: { value: 1 }, uShadowTint: { value: new THREE.Color(1, 1, 1) }, uLightTint: { value: new THREE.Color(1, 1, 1) }, tColor: { value: this.target.texture }, tDepth: { value: this.target.depthTexture }, uRes: { value: new THREE.Vector2(4, 4) }, uCave: { value: 0 }, uTime: { value: 0 }, uHurt: { value: 0 } },
+      uniforms: { ...moodUniforms, uExposure: { value: 1.7 }, uSaturation: { value: 1.18 }, uContrast: { value: 1 }, uWarm: { value: 1 }, uCool: { value: 1 }, uVignette: { value: 0.6 }, uLevels: { value: 48 }, uDither: { value: 0.5 }, uFaceDither: { value: 1 }, uOutline: { value: 0.45 }, uRim: { value: 0.55 }, uLut: { value: this.luts.day }, uPalette: { value: 1 }, uNightEdges: { value: 1 }, uShadowTint: { value: new THREE.Color(1, 1, 1) }, uLightTint: { value: new THREE.Color(1, 1, 1) }, tColor: { value: this.target.texture }, tDepth: { value: this.target.depthTexture }, uRes: { value: new THREE.Vector2(4, 4) }, uCave: { value: 0 }, uTime: { value: 0 }, uHurt: { value: 0 } },
       depthTest: false, depthWrite: false,
     });
     this.postScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.post));
@@ -279,11 +279,11 @@ export class WorldView {
     this.applyLights();
     this.resize();
   }
-  private readonly luts = { day: paletteLut(), lowSun: paletteLut(32, LOW_SUN_GREENS) };
+  private readonly luts = { day: paletteLut(), lowSun: paletteLut(32, LOW_SUN_GREENS), cave: paletteLut(32, CAVE_TONES, CAVE_DROPS), night: paletteLut(32, [], NIGHT_DROPS) };
   private applyLights() {
     const k = this.key, cave = this.floor === 1;
     // With the sun low (dawn, golden hour) the palette keeps ref-3's field greens; at noon and at night it leaves them out.
-    this.post.uniforms.uLut.value = !cave && k.sunElev < 20 && k.sunI > 1.5 ? this.luts.lowSun : this.luts.day;
+    this.post.uniforms.uLut.value = cave ? this.luts.cave : k.sunElev < 20 && k.sunI > 1.5 ? this.luts.lowSun : k.moon > 0.5 ? this.luts.night : this.luts.day;
     const el = THREE.MathUtils.degToRad(Math.max(k.sunElev, 4)), az = THREE.MathUtils.degToRad(k.sunAzim);
     SUN_DIR.set(Math.cos(el) * Math.cos(az), Math.sin(el), Math.cos(el) * Math.sin(az)).normalize();
     this.sun.intensity = cave ? 0 : k.sunI;
@@ -544,8 +544,11 @@ export class WorldView {
       fogBand.x = band?.[0] ?? 0; fogBand.y = band?.[1] ?? 0;
       fogBand.z = haze ? from + haze[0] : 0; fogBand.w = haze ? from + haze[1] : 0;
     } else this.scene.fog = null;
-    // Vista: no dither (clean bands, as in the references) and flatter ground under painted strokes.
+    // Vista: no dither (clean bands, as in the references) and flatter ground under painted strokes. Through a lens
+    // large faces fill the frame, and a full dither drew them as checkerboard noise, worst on dark walls at night; the
+    // sky keeps it, or its gradient falls into bands that curve across a wide lens.
     this.post.uniforms.uDither.value = this.style.dither * (1 - this.scenery);
+    this.post.uniforms.uFaceDither.value = 1 - 0.7 * rig.perspShare;
     styleUniforms.uGroundDetail.value = this.style.groundDetail * (1 - 0.55 * this.scenery);
     fieldUniforms.uFGround.value = this.scenery;
     // Region mood, moonlit vista, shadow softness, motes, shafts and mist (render/mood.ts).

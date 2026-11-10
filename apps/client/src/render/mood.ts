@@ -151,7 +151,8 @@ export class Mood {
     v.post.uniforms.uVignette.value = k.vignette * here.vignette * (1 - 0.5 * vista);
     const dm = v.dust.material as THREE.PointsMaterial;
     dm.opacity = Math.min(0.6, 0.35 * k.dust * here.particles);
-    v.dust.visible = dm.opacity > 0.01;
+    // Through a lens underground the motes hang against the vault's black and read as stars.
+    v.dust.visible = dm.opacity > 0.01 && !(cave && (camera as THREE.PerspectiveCamera).isPerspectiveCamera);
     // Shafts by day where the mood has them (the wood's sun through leaves), and golden hour's everywhere.
     const daylight = cave ? 0 : THREE.MathUtils.smoothstep(k.sunI, 1.5, 4) * THREE.MathUtils.smoothstep(k.sunElev, 4, 14);
     const shafts = cave ? 0 : Math.max(k.shafts, here.shafts * daylight);
