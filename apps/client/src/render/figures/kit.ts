@@ -95,8 +95,9 @@ export type Skeleton = 'human' | 'boar' | 'rat' | 'beetle' | 'grub';
 /**
  * A bakeable figure. `scale` multiplies the whole model; cells, shadows, labels and hit areas follow from the baked
  * bounds. `hold` fixes joint rotations in every frame but hurt and die: a raised torch, a shield carried in front.
+ * `stance` adds to every frame: a troll's hunch.
  */
-export type Figure = { id: string; label: string; skeleton: Skeleton; joints: JointDef[]; parts: PartDef[]; scale: number; hold?: Record<string, Vec3> };
+export type Figure = { id: string; label: string; skeleton: Skeleton; joints: JointDef[]; parts: PartDef[]; scale: number; hold?: Record<string, Vec3>; stance?: Record<string, Vec3> };
 
 // Primitives. All return geometry in the joint's space; `place` moves and turns it there.
 const SEG = 10;
@@ -293,7 +294,7 @@ function humanParts(o: Outfit): PartDef[] {
       add(`hand${s}`, o.skin, blob(0.06, 0.065, 0.06, [0, -0.02, 0]));
       if (o.pauldrons) add(`shoulder${s}`, o.pauldrons, blob(0.11, 0.08, 0.11, [side * 0.02, 0.02, 0]));
       if (o.brute) {
-        add(`shoulder${s}`, o.brute, blob(0.13, 0.09, 0.12, [side * 0.02, 0.05, -0.02]));
+        add(`shoulder${s}`, o.skin, blob(0.13, 0.11, 0.13, [side * 0.03, 0.0, 0]));
         add(`hand${s}`, o.skin, blob(0.085, 0.08, 0.085, [0, -0.04, 0]));
         add(`elbow${s}`, o.skin, limb(0.08, 0.07, 0.15));
       }
@@ -333,7 +334,9 @@ function humanParts(o: Outfit): PartDef[] {
     if (o.bun && o.hair) add('head', o.hair, blob(0.1, 0.1, 0.1, [0, 0.36, -0.2]));
     if (o.beard) add('head', o.beard, wedge(0.3, 0.16, 0.14, 0.06, 0.16, [0, 0.07, 0.1], [0.5, 0, 0]));
     if (o.brute) {
-      add('head', o.brute, blob(0.27, 0.12, 0.2, [0, 0.31, -0.06]));
+      // Moss grows down the back of the head and over the shoulders like a mane.
+      add('spine', o.brute, lathe([[0.3, 0.14], [0.3, 0.24], [0.25, 0.33], [0.14, 0.4], [0, 0.42]], { arc: [Math.PI / 2, Math.PI], sz: 0.9 }));
+      add('head', o.brute, blob(0.25, 0.14, 0.22, [0, 0.3, -0.08]));
       add('head', o.skin, wedge(0.4, 0.06, 0.36, 0.05, 0.12, [0, 0.25, 0.1]));
       for (const x of [-0.1, 0.1]) add('head', 'tusk', cone(0.035, 0.12, [x, 0.06, 0.17], [0.3, 0, -x * 2], 5));
     }
@@ -584,7 +587,7 @@ const grubParts = () => parts(add => {
  * 1.55 tiles tall): the rat is ankle-high, the grub low and long, the beetle knee-high, the boar shoulder-high and heavier
  * than a man. `cadence` is walk cycles per step: small things skitter. A new giant is one more row.
  */
-type Creature = { label: string; skeleton: Skeleton; joints: JointDef[]; parts: () => PartDef[]; scale: number; cadence: number };
+type Creature = { label: string; skeleton: Skeleton; joints: JointDef[]; parts: () => PartDef[]; scale: number; cadence: number; stance?: Record<string, Vec3> };
 export const creatures = {
   gutterRat: { label: 'Gutter rat', skeleton: 'rat', joints: ratJoints, parts: ratParts, scale: 0.8, cadence: 4 },
   mireGrub: { label: 'Mire grub', skeleton: 'grub', joints: grubJoints, parts: grubParts, scale: 1.1, cadence: 1.5 },
@@ -592,6 +595,7 @@ export const creatures = {
   thornboar: { label: 'Thornboar', skeleton: 'boar', joints: boarJoints, parts: boarParts, scale: 1.4, cadence: 2 },
   /** Display only: no mob kind uses it. It proves a giant is a row, at two and a half times a person. */
   barrowTroll: { label: 'Barrow troll', skeleton: 'human', joints: humanJoints, scale: 2.5, cadence: 1.5,
+    stance: { spine: [0.38, 0, 0], neck: [-0.2, 0, 0], head: [-0.25, 0, 0], shoulderR: [-0.15, 0, -0.2], shoulderL: [-0.1, 0, 0.25], hipR: [-0.15, 0, 0], hipL: [-0.15, 0, 0], kneeR: [0.3, 0, 0], kneeL: [0.3, 0, 0] },
     parts: () => humanParts({ skin: 'trollHide', top: 'trollHide', sleeve: 'trollHide', legs: 'trollHide', boots: 'trollHide', skirt: { mat: 'wool', to: 0.3, flare: 0.22 }, brute: 'moss', hand: 'club' }) },
 } satisfies Record<MobKind | 'barrowTroll', Creature>;
 export type CreatureKind = keyof typeof creatures;
@@ -600,7 +604,7 @@ export const isTownsfolk = (k: string) => k in townsfolk;
 
 const cache = new Map<string, Figure>();
 const memo = (id: string, make: () => Figure) => { let f = cache.get(id); if (!f) { f = make(); cache.set(id, f); } return f; };
-export const creatureFigure = (k: CreatureKind) => memo(k, () => { const c = creatures[k]; return { id: k, label: c.label, skeleton: c.skeleton, joints: c.joints, parts: c.parts(), scale: c.scale }; });
+export const creatureFigure = (k: CreatureKind) => memo(k, () => { const c: Creature = creatures[k]; return { id: k, label: c.label, skeleton: c.skeleton, joints: c.joints, parts: c.parts(), scale: c.scale, stance: c.stance }; });
 export const townsfolkFigure = (look: string) => memo(look, () => human(look, townsfolk[look][0], townsfolk[look][1]));
 export const heroFigureOf = (worn: Worn, who: Identity) => memo(heroKey(worn, who), () => heroFigure(worn, who));
 /** The plain hero: no gear, a brown cape. Stands in while a hero's own outfit bakes, and lies as a hero's corpse. */

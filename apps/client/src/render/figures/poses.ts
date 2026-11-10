@@ -56,8 +56,9 @@ const human: Record<AnimName, Pose[]> = {
       r: { spine: [-0.12, -0.38, 0], head: [0, 0.25, 0], shoulderR: [2.25, 0, -0.25], elbowR: [-0.6, 0, 0], shoulderL: [-0.45, 0, 0.3], elbowL: [-0.6, 0, 0], hipR: [0.25, 0, 0], kneeR: [0.3, 0, 0], footR: [-0.3, 0, 0], hipL: [-0.35, 0, 0], kneeL: [0.25, 0, 0], cloak: [0.1, 0, 0] },
     },
     {
-      t: { root: [0, 0, -0.08], pelvis: [0, -0.07, 0] },
-      r: { spine: [-0.2, -0.5, 0], head: [0.05, 0.3, 0], shoulderR: [2.7, 0, -0.2], elbowR: [-0.95, 0, 0], shoulderL: [-0.6, 0, 0.35], elbowL: [-0.7, 0, 0], hipR: [0.35, 0, 0], kneeR: [0.45, 0, 0], footR: [-0.4, 0, 0], hipL: [-0.45, 0, 0], kneeL: [0.4, 0, 0], cloak: [0.05, 0, 0] },
+      // The hold: coiled lower and further back than the wind-up, so the two frames read as a draw and not a pause.
+      t: { root: [0, 0, -0.11], pelvis: [0, -0.1, 0] },
+      r: { spine: [-0.26, -0.62, 0], head: [0.08, 0.38, 0], shoulderR: [2.85, 0, -0.3], elbowR: [-1.05, 0, 0], shoulderL: [-0.7, 0, 0.4], elbowL: [-0.75, 0, 0], hipR: [0.45, 0, 0], kneeR: [0.6, 0, 0], footR: [-0.45, 0, 0], hipL: [-0.55, 0, 0], kneeL: [0.55, 0, 0], cloak: [0.0, 0, 0] },
     },
     {
       t: { root: [0, 0, 0.12], pelvis: [0, -0.07, 0] }, smear: true,

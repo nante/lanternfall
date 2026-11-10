@@ -32,7 +32,7 @@ function jointMatrices(fig: Figure, pose: Pose, dir: number, held: boolean) {
   const e = new THREE.Euler(), q = new THREE.Quaternion(), one = new THREE.Vector3(1, 1, 1);
   for (const j of fig.joints) {
     const r = [0, 0, 0], t = [...j.at];
-    for (const p of [base, pose]) { const pr = p.r?.[j.name], pt = p.t?.[j.name]; if (pr) for (let i = 0; i < 3; i++) r[i] += pr[i]; if (pt) for (let i = 0; i < 3; i++) t[i] += pt[i]; }
+    for (const p of [base, { r: fig.stance }, pose]) { const pr = p.r?.[j.name], pt = p.t?.[j.name]; if (pr) for (let i = 0; i < 3; i++) r[i] += pr[i]; if (pt) for (let i = 0; i < 3; i++) t[i] += pt[i]; }
     const h = hold?.[j.name]; if (h) for (let i = 0; i < 3; i++) r[i] = h[i];
     const local = new THREE.Matrix4().compose(new THREE.Vector3(t[0], t[1], t[2]), q.setFromEuler(e.set(r[0], r[1], r[2])), one);
     if (pose.roll && j.name === rollJoint[fig.skeleton]) local.multiply(new THREE.Matrix4().makeRotationZ(fallSide(dir) * pose.roll));

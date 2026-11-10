@@ -15,6 +15,8 @@ export const places: Record<string, Place> = {
   wood: { at: { x: 91, y: 44, z: 0 }, label: 'Whisperwood' },
   chapel: { at: { x: 93, y: 27, z: 0 }, label: 'Fallen chapel' },
   undercroft: { at: { x: 57, y: 46, z: 1 }, prey: 'gutterRat', label: 'Undercroft' },
+  beetles: { at: { x: 34, y: 45, z: 1 }, prey: 'caveBeetle', label: 'Beetle hollow' },
+  grubs: { at: { x: 20, y: 25, z: 1 }, prey: 'mireGrub', label: 'Grub mire' },
 };
 
 export function startLab(map: MapData, placeId: string, opts: { hunt: boolean; tickMs?: number }, out: (v: GameView, e: Engine, hero: Hero) => void) {
