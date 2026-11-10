@@ -63,7 +63,8 @@ export const Command = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('talk'), npc: z.string().nullable() }),
   z.object({ kind: z.literal('logout') }),
   z.object({ kind: z.literal('mode'), fight: z.enum(['offensive', 'balanced', 'defensive']).optional(), chase: z.boolean().optional() }),
-  z.object({ kind: z.literal('look'), at: Position, actor: z.string().max(64).optional() }),
+  z.object({ kind: z.literal('look'), at: Position, actor: z.string().max(64).optional(), item: z.string().max(64).optional() }),
+  z.object({ kind: z.literal('push'), id: z.string().max(64), to: Position }),
 ]);
 export type Action = z.infer<typeof Command>;
 export const Envelope = z.object({ requestId: z.string().uuid(), epoch: z.number().int(), seq: z.number().int().positive(), action: Command });

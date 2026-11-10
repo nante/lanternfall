@@ -83,3 +83,122 @@ test('a greeting needs the NPC within three tiles and in sight', () => {
   assert.deepEqual(npcLines(e), []);
   assert.equal(p.talking, null);
 });
+
+// ---- A6 push ---------------------------------------------------------------------------------
+const pair = () => {
+  const e = new Engine(map, balance);
+  const ann = place(e.createPlayer('Ann'), 40, 34), bob = place(e.createPlayer('Bob'), 41, 34);
+  return { e, ann, bob };
+};
+
+test('a hero pushes another hero one tile, then must recover', () => {
+  const { e, ann, bob } = pair();
+  bob.path = [{ x: 42, y: 35, z: 0 }];
+  e.action(ann, { kind: 'push', id: bob.id, to: { x: 42, y: 34, z: 0 } });
+  assert.deepEqual([bob.x, bob.y, bob.path], [42, 34, []]);
+  assert.equal(ann.moveAt, e.state.time + 1000);
+  assert.ok(bob.moveAt > e.state.time, 'the pushed hero does not step again at once');
+  assert.throws(() => e.action(ann, { kind: 'push', id: bob.id, to: { x: 43, y: 34, z: 0 } }), /Move closer/);
+  place(ann, 41, 34);
+  assert.throws(() => e.action(ann, { kind: 'push', id: bob.id, to: { x: 43, y: 34, z: 0 } }), /still recovering/);
+  e.tick(1000);
+  e.action(ann, { kind: 'push', id: bob.id, to: { x: 43, y: 34, z: 0 } });
+  assert.deepEqual([bob.x, bob.y], [43, 34]);
+});
+
+test('a push needs a free tile next to the body, and never moves an NPC', () => {
+  const { e, ann, bob } = pair();
+  const push = (x: number, y: number) => () => e.action(ann, { kind: 'push', id: bob.id, to: { x, y, z: 0 } });
+  assert.throws(push(40, 34), /no room/, 'not onto the pusher');
+  assert.throws(push(43, 34), /no room/, 'only one tile');
+  place(e.createPlayer('Cara'), 42, 34);
+  assert.throws(push(42, 34), /no room/, 'not onto another body');
+  place(ann, 22, 27); place(bob, 21, 26);
+  assert.throws(push(20, 26), /no room/, 'not into the shrine wall');
+  place(ann, 47, 48);
+  assert.throws(() => e.action(ann, { kind: 'push', id: 'pell', to: { x: 47, y: 49, z: 0 } }), /cannot push/);
+  assert.throws(() => e.action(ann, { kind: 'push', id: ann.id, to: { x: 48, y: 48, z: 0 } }), /cannot push/);
+  assert.deepEqual([bob.x, bob.y, ann.moveAt], [21, 26, 0], 'refused pushes move nothing and cost nothing');
+});
+
+test('pushing an idle creature makes it turn on the pusher', () => {
+  const { e, ann } = pair();
+  const rat = Object.values(e.state.monsters).find(m => m.kind === 'gutterRat')!;
+  Object.assign(rat, { x: 41, y: 35, z: 0, home: { x: 41, y: 35, z: 0 }, target: null });
+  e.action(ann, { kind: 'push', id: rat.id, to: { x: 42, y: 36, z: 0 } });
+  assert.deepEqual([rat.x, rat.y, rat.target], [42, 36, ann.id]);
+});
+
+test('walking into a body that cannot be passed says there is not enough room, once a second', () => {
+  const { e, ann } = pair();
+  e.notices = [];
+  for (let t = 0; t < 8; t++) { e.action(ann, { kind: 'walk', dx: 1, dy: 0 }); e.tick(100); }
+  assert.deepEqual([ann.x, ann.y], [40, 34]);
+  assert.deepEqual(e.notices.filter(n => n.player === ann.id && n.kind === 'error').map(n => n.text), ['There is not enough room.']);
+});
+
+// ---- corpses block and stack (amendment 1) ---------------------------------------------------
+const corpses = () => {
+  const { e, ann, bob } = pair();
+  const tile = { x: 41, y: 35, z: 0 };
+  place(bob, tile.x, tile.y); e.kill(bob);
+  const body = Object.values(e.state.corpses).find(c => c.owner === bob.id)!;
+  const rat = Object.values(e.state.monsters).find(m => m.kind === 'gutterRat')!;
+  e.tick(100);
+  Object.assign(rat, { ...tile, home: { ...tile }, hp: 1 });
+  e.hurt(ann, rat, 5);
+  const ratBody = Object.values(e.state.corpses).find(c => c.kind === 'gutterRat')!;
+  return { e, ann, bob, body, ratBody, rat, tile };
+};
+
+test('only the top corpse of a tile can be reached: a rat on a hero corpse hides it until moved', () => {
+  const { e, ann, bob, body, ratBody } = corpses();
+  place(bob, 40, 35); bob.moveAt = 0;
+  const reach = (id: string) => e.view(bob).items.some(i => i.parent === id);
+  assert.equal(reach(body.id), false, 'the rat lies on top');
+  assert.equal(reach(ratBody.id), true);
+  assert.equal(e.access(bob, body.id), false);
+  assert.throws(() => e.action(bob, { kind: 'push', id: body.id, to: { x: 42, y: 35, z: 0 } }), /on top of it/);
+  e.action(bob, { kind: 'push', id: ratBody.id, to: { x: 42, y: 35, z: 0 } });
+  assert.deepEqual([ratBody.x, ratBody.y], [42, 35]);
+  assert.equal(bob.moveAt, e.state.time + 1000);
+  assert.equal(reach(body.id), true, 'the hero corpse is uncovered');
+  assert.ok(ann);
+});
+
+test('a corpse moved onto another lands on top, and keeps its own decay', () => {
+  const { e, bob, body, ratBody } = corpses();
+  place(bob, 40, 36);
+  e.action(bob, { kind: 'push', id: ratBody.id, to: { x: 40, y: 35, z: 0 } });
+  assert.equal(e.access(bob, body.id), true);
+  e.tick(5000);
+  e.action(bob, { kind: 'push', id: ratBody.id, to: { x: 41, y: 35, z: 0 } });
+  assert.equal(e.access(bob, ratBody.id), true, 'back on top of the hero corpse');
+  assert.equal(e.access(bob, body.id), false);
+  const [s0] = balance.world.corpseStages, made = ratBody.expiresAt - balance.world.corpseStages.reduce((a, b) => a + b, 0) * 1000;
+  while (e.state.time < made + (s0 + 1) * 1000) e.tick(1000);
+  assert.equal(ratBody.stage, 1, 'moving it did not reset its rot');
+});
+
+test('a corpse under a living creature or another hero cannot be opened', () => {
+  const { e, ann, bob, ratBody, tile } = corpses();
+  place(bob, 40, 35);
+  const boar = Object.values(e.state.monsters).find(m => m.kind === 'thornboar')!;
+  Object.assign(boar, { ...tile, home: { ...tile } });
+  assert.equal(e.access(bob, ratBody.id), false, 'a creature stands on it');
+  Object.assign(boar, { x: 10, y: 60, home: { x: 10, y: 60, z: 0 } });
+  place(ann, tile.x, tile.y);
+  assert.equal(e.access(bob, ratBody.id), false, 'another hero stands on it');
+  assert.equal(e.access(ann, ratBody.id), true, 'the hero standing on it can');
+});
+
+test('a corpse can only be moved to a tile a body could stand on', () => {
+  const { e, ann, ratBody } = corpses();
+  place(ann, 40, 35);
+  assert.throws(() => e.action(ann, { kind: 'push', id: ratBody.id, to: { x: 43, y: 35, z: 0 } }), /no room/, 'one tile at most');
+  ratBody.x = 21; ratBody.y = 26; place(ann, 22, 27);
+  assert.throws(() => e.action(ann, { kind: 'push', id: ratBody.id, to: { x: 20, y: 26, z: 0 } }), /no room/, 'not into a wall');
+  assert.throws(() => e.action(ann, { kind: 'push', id: ratBody.id, to: { x: 22, y: 25, z: 0 } }), /no room/, 'not into a closed door');
+  e.action(ann, { kind: 'push', id: ratBody.id, to: { x: 22, y: 26, z: 0 } });
+  assert.deepEqual([ratBody.x, ratBody.y], [22, 26]);
+});

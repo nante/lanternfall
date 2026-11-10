@@ -1,5 +1,5 @@
 import {
-  type Action, type State, type Hero, type Mob, type Pos, type GameItem, type ItemKind, type Notice, type GameView, type MapData, type Effect, type NpcSpawn, type SpellId, type Shade, type PublicHero, type Worn,
+  type Action, type State, type Hero, type Mob, type Body, type Pos, type GameItem, type ItemKind, type Notice, type GameView, type MapData, type Effect, type NpcSpawn, type SpellId, type Shade, type PublicHero, type Worn,
   key, distance, equipSlots, stackMax, T, G,
 } from './model.ts';
 import { Geography } from './world.ts';
@@ -38,6 +38,7 @@ export class Engine {
   private torchCache?: { time: number; carriers: string[] };
   /** Light level per tile, shared by every viewer within a tick; keyed on the carriers' positions so a step mid-tick refreshes it. */
   private lightMemo?: { key: string; levels: Map<number, number> };
+  private roomNoticeAt = new Map<string, number>();
   constructor(readonly map: MapData, balance: Balance, public state: State = emptyState()) {
     this.balance = balance;
     this.rules = createRules(balance);
@@ -76,8 +77,15 @@ export class Engine {
     if (root === `equip:${p.id}`) return true;
     if (root === `vault:${p.id}`) return distance(p, this.map.vault) <= 2;
     const corpse = this.state.corpses[root];
-    if (corpse) return corpse.stage < 2 && distance(p, corpse) <= 1 && (corpse.owner === p.id || this.state.time >= corpse.protectedUntil);
+    if (corpse) return corpse.stage < 2 && distance(p, corpse) <= 1 && (corpse.owner === p.id || this.state.time >= corpse.protectedUntil)
+      && this.topCorpse(corpse) === corpse && !this.occupied(corpse, p.id);
     return false;
+  }
+  /** Corpses on one tile stack: the one that landed last (latest `born`, then greatest id) lies on top. */
+  topCorpse(at: Pos) {
+    let top: Body | undefined;
+    for (const c of Object.values(this.state.corpses)) if (distance(c, at) === 0 && (!top || c.born > top.born || (c.born === top.born && c.id > top.id))) top = c;
+    return top;
   }
   access(p: Hero, id: string) { const item = this.state.items[id]; return this.canReach(p, item ? this.root(item) : id); }
   freeSlot(parent: string) { const max = this.capacityOf(parent), used = new Set(this.children(parent).map(i => i.slot)); for (let i = 0; i < max; i++) if (!used.has(i)) return i; return -1; }
@@ -380,8 +388,40 @@ export class Engine {
         if (a.chase !== undefined) { p.chase = a.chase; if (!a.chase && !p.manual) p.path = []; }
         break;
       case 'look': this.note(p, this.describe(p, a.at, a.actor), 'info'); break;
+      case 'push': this.push(p, a.id, a.to); break;
       default: { const exhaustive: never = a; return exhaustive; }
     }
+  }
+  /** Push a hero, a creature or the top corpse of a tile one tile on. Pushing tires the pusher like a step. */
+  push(p: Hero, id: string, to: Pos) {
+    const now = this.state.time, corpse = this.state.corpses[id], mob = this.state.monsters[id], hero = this.state.players[id];
+    const creature = mob && mob.hp > 0 ? mob : undefined, other = hero && hero.id !== p.id && this.present(hero) ? hero : undefined;
+    const body = corpse ?? creature ?? other;
+    if (!body) throw new GameError('You cannot push that.');
+    if (distance(p, body) > 1) throw new GameError('Move closer to push that.');
+    if (p.moveAt > now) throw new GameError('You are still recovering.');
+    if (distance(body, to) !== 1) throw new GameError('There is no room there.');
+    if (corpse) {
+      if (this.topCorpse(corpse) !== corpse) throw new GameError('Something lies on top of it.');
+      if (this.geo.blocked(to, this.state) || this.map.links[key(to)]) throw new GameError('There is no room there.');
+      const under = this.topCorpse(to);
+      corpse.born = Math.max(now, under ? under.born + 1 : 0); corpse.x = to.x; corpse.y = to.y;
+    } else {
+      if (distance(p, to) === 0 || !this.geo.stepAllowed(body, to, this.state, true) || this.occupied(to, body.id) || (creature && this.geo.pz(to))) throw new GameError('There is no room there.');
+      if (this.geo.door(to)) this.state.doors[key(to)] = true;
+      body.x = to.x; body.y = to.y;
+      const ground = grounds[this.geo.ground(to)];
+      if (creature) {
+        creature.moveAt = Math.max(creature.moveAt, now + this.rules.creatureStepMs(this.balance.creatures[creature.kind].step, ground, false));
+        if (creature.target === null) creature.target = p.id;
+      } else if (other) {
+        other.path = []; other.manual = false;
+        other.moveAt = Math.max(other.moveAt, now + this.rules.stepMs(this.rules.heroSpeed(this.stats(other).level), ground, false));
+        const link = this.map.links[key(other)];
+        if (link) this.travel(other, link);
+      }
+    }
+    p.moveAt = now + 1000;
   }
   travel(p: Hero, to: Pos) {
     const spot = this.geo.near(to, q => this.occupied(q, p.id));
@@ -538,6 +578,9 @@ export class Engine {
           const alt = distance(p, goal) > 1 && !(avoidPz && this.geo.pz(goal)) ? this.geo.path(p, goal, this.state, 2500, q => this.occupied(q, p.id) || (avoidPz && this.geo.pz(q))) : [];
           p.path = alt.length && !this.occupied(alt[0], p.id) ? alt : [];
           p.moveAt = now + 150;
+          if (!p.path.length && p.manual && this.occupied(next, p.id) && (this.roomNoticeAt.get(p.id) ?? -Infinity) <= now - 1000) {
+            this.roomNoticeAt.set(p.id, now); this.note(p, 'There is not enough room.', 'error');
+          }
         }
       }
       if (p.target && this.geo.pz(p)) { this.dropTarget(p); this.note(p, 'You may not attack from a protection zone.', 'error'); }
@@ -568,7 +611,8 @@ export class Engine {
   decay(now: number) {
     for (const c of Object.values(this.state.corpses)) {
       const st = c.kind === 'hero' ? this.balance.world.heroCorpseStages : this.balance.world.corpseStages;
-      const age = (now - c.born) / 1000, stage = age < st[0] ? 0 : age < st[0] + st[1] ? 1 : 2;
+      // Counted back from expiry, not from `born`: moving a corpse re-stacks it by `born` without resetting its rot.
+      const left = (c.expiresAt - now) / 1000, stage = left > st[1] + st[2] ? 0 : left > st[2] ? 1 : 2;
       if (now >= c.expiresAt || stage === 2) for (const i of Object.values(this.state.items)) if (this.state.items[i.id] && this.root(i) === c.id) delete this.state.items[i.id];
       if (now >= c.expiresAt) { delete this.state.corpses[c.id]; continue; }
       if (stage !== c.stage) {
