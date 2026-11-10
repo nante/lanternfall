@@ -24,6 +24,21 @@ npm run build
 npm run desktop
 ```
 
+## Host for a friend
+
+```sh
+npm run host         # builds the client, then serves page and world on http://0.0.0.0:2567
+```
+
+It prints the addresses to share: `same Wi-Fi` (your LAN IP) and, if Tailscale is running on this Mac, `Tailscale` (a `100.x` address). Your friend opens that address in a browser, picks a name, and is in your town. Set `PORT=…` to use another port. Stop with Ctrl+C. The world is the same `.local/lanternfall.sqlite` that `npm run dev` uses, so don't run both at once.
+
+- **Same Wi-Fi:** share the `same Wi-Fi` URL.
+- **Over the internet:** both of you install [Tailscale](https://tailscale.com) and join the same tailnet (or share this Mac to your friend's tailnet), then share the `Tailscale` URL.
+- The first time, macOS may ask whether to allow incoming connections for `node`. Allow it, or your friend can't connect.
+- There are no accounts. Your friend's hero is tied to a token in their browser's storage for that address: clearing site data, or switching browser or address, loses it.
+- Anyone who can reach the address can join. The Studio's admin routes stay local-only.
+- A tunnel (ngrok, Cloudflare) serves the page from a different host; the hosted build follows the page's own address (`wss` on `https`), but this is untested. To point the client somewhere else, build with `VITE_WORLD_URL=wss://…`.
+
 ## Play
 
 | Input | Action |

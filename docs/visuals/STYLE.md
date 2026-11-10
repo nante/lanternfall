@@ -221,6 +221,17 @@ The lenses turn, so the far land rings the map (`render/farland.ts`, `architectu
 - **Tufts** are cards that face the camera, so Top-down sees the drawn tuft; through a lens they keep the taller Tilt stretch.
 - Cost: about 1.33× the triangles of the build before (labInfo, third person at the market, any yaw), with far trees cheaper (low-detail crowns, no shadow) and draw calls up by about 30.
 
+## 19. Motion on the pixel grid
+
+Four rules keep the orthographic stops steady while the hero walks. Each fixed a twitch that was measured in the real game against the real server.
+
+- **One clock.** Figures are placed from the client's reading of server time (`actor-layer.ts` `serverNow`). Updates arrive up to tens of ms early or late, so the clock is nudged by each one and never reset to it, and its rate is read across the last few seconds of updates. A clock reset on every update moved every walking figure back or forward by that much.
+- **The hero walks its own route.** The view carries the hero's route and the time its current step ends (`moveAt`), so the next step starts at that moment (`leadStep`) instead of when the server's update arrives, up to two ticks later. The server still decides: if it does not take the step, the hero walks back.
+- **The camera stands whole pixels from the hero** (`camera.ts` `lag`). Sprite and ground both round to the pixel grid; with a fractional lag they rounded on different frames and the hero flickered one pixel against the ground.
+- **Dither and palette bands belong to the world** (`post.ts` `uDitherShift`; vignette after the palette snap).
+
+What is left is the grid itself: the world scrolls a whole number of render pixels per frame, so a walk of 0.8 px a frame holds one frame in five. Sliding the finished image by the leftover fraction was tried and makes the world smooth but the hero saw-tooth by a render pixel, which is worse.
+
 ## What gameplay keeps
 
 Nothing here touches the rules. After the light pass (moonlit night, region moods, calmer stonework): 85 tests pass; the light field still equals the rule (verify: 0 mismatches at market night, undercroft with a torch, shrine at blue hour, meadow at night with a torch; floor round trip 0); the walking darkness probe finds 0 picture/server disagreements and 0 field/rule mismatches in the meadow at night and the undercroft with a torch. The night is brighter in the picture only: outdoor night stays level 1 in the rule, where creatures are sent as shades. `labBench()` medians on a machine shared with other work: base 2.6 ms Play night and 2.5 ms Scenery noon, after 2.7 and 2.9 ms, within the 1 to 3 ms spread one build shows between runs.

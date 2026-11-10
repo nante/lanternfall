@@ -7,7 +7,7 @@ import type { RenderStyle } from '../../../../packages/game/src/content-schema.t
 import { defaultStyle } from '../../../../packages/game/src/style-presets.ts';
 import { glowTexture } from './textures.ts';
 import { paletteLut, LOW_SUN_GREENS, CAVE_TONES, CAVE_DROPS, NIGHT_DROPS } from './palette.ts';
-import { PX, stops, stopOrder, pixelLock, stepFromView, type Stop, type StopFog, type StopId } from './stops.ts';
+import { stops, stopOrder, pixelLock, stepFromView, type Stop, type StopFog, type StopId } from './stops.ts';
 import { CameraRig, fogBand } from './camera.ts';
 import { keyAt, type Key } from './clock-style.ts';
 import { LightField, patchTree, fieldUniforms } from './lightfield.ts';
@@ -329,13 +329,8 @@ export class WorldView {
   /** Pixel lock: the buffer is host / k, shown at exactly k physical pixels per buffer pixel; any remainder is cropped. */
   resize() {
     const dpr = window.devicePixelRatio || 1;
-    // One render pixel of margin on every side, hidden by the host, covers the edge while the image slides by a fraction
-    // of a pixel (CameraRig.subpixel).
-    const fit = pixelLock(this.host.clientWidth, this.host.clientHeight, dpr, this.stop), edge = fit.k / dpr;
-    const L = (this.lock = { ...fit, bufW: fit.bufW + 2, bufH: fit.bufH + 2, cssW: fit.cssW + 2 * edge, cssH: fit.cssH + 2 * edge, viewW: (fit.bufW + 2) / PX, viewH: (fit.bufH + 2) / PX });
+    const L = (this.lock = pixelLock(this.host.clientWidth, this.host.clientHeight, dpr, this.stop));
     this.pixel = L.k;
-    this.host.style.overflow = 'hidden';
-    this.renderer.domElement.style.margin = `${-edge}px`;
     this.renderer.setSize(L.bufW, L.bufH, false);
     const cv = this.renderer.domElement;
     cv.style.width = `${L.cssW}px`; cv.style.height = `${L.cssH}px`;
@@ -521,14 +516,14 @@ export class WorldView {
     });
 
     const self = this.view ? this.actors.get(this.view.self.id) : undefined;
-    if (self) this.center.lerp(self.position, Math.min(1, dt * 8));
+    if (self) this.center.lerp(self.position, 1 - Math.exp(-8 * dt));
     else { this.center.x = 40 + Math.sin(t * 0.05) * 6; this.center.z = 31 + Math.cos(t * 0.04) * 3; }
     const target = this.view?.self.target ? this.actors.get(this.view.self.target) : undefined;
     // The ring marks the server's tile, not the gliding body.
     if (target) { this.targetRing.position.copy(target.target); this.targetRing.scale.setScalar(Math.max(1, target.size)); }
 
     if (this.stop.vista && !this.canScenery()) this.setStop(this.beforeVista);
-    rig.place(this.center, this.lock.viewH, this.target.width, this.target.height, this.actors.kick, dt);
+    rig.place(this.center, this.lock.viewH, this.target.width, this.target.height, this.actors.kick, dt, self?.position);
     const lens = rig.active === this.persp, cave = this.floor === 1;
     // Shades are upright cards: they turn with the view.
     for (const r of this.shades.group.children) r.rotation.y = rig.yaw;
@@ -555,11 +550,6 @@ export class WorldView {
     this.post.uniforms.uDither.value = this.style.dither * (1 - this.scenery);
     this.post.uniforms.uFaceDither.value = 1 - 0.7 * rig.perspShare;
     if (rig.active === this.camera) this.post.uniforms.uDitherShift.value.copy(rig.ditherShift); else this.post.uniforms.uDitherShift.value.set(0, 0);
-    {
-      const steady = rig.active === this.camera, step = this.pixel / (window.devicePixelRatio || 1);
-      const tx = steady ? rig.subpixel.x * step : 0, ty = steady ? -rig.subpixel.y * step : 0;
-      this.renderer.domElement.style.transform = `translate(${tx.toFixed(3)}px, ${ty.toFixed(3)}px)`;
-    }
     styleUniforms.uGroundDetail.value = this.style.groundDetail * (1 - 0.55 * this.scenery);
     fieldUniforms.uFGround.value = this.scenery;
     // Region mood, moonlit vista, shadow softness, motes, shafts and mist (render/mood.ts).

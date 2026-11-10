@@ -110,6 +110,8 @@ const net = new Net({
 });
 /** Where actions go: the server, or the local engine in the Studio preview. */
 let send: (a: Action) => void = a => { net.send(a); };
+// Dev builds expose the view and the action sender, so a probe can drive and measure the real game.
+if (import.meta.env.DEV) Object.assign(window, { __game: { world, send: (a: Action) => send(a) } });
 
 // ---------------------------------------------------------------- chrome: the HUD frame (layout picked in the Studio's Look tab)
 const panels: Record<string, PanelDef> = {

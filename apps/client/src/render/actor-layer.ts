@@ -71,7 +71,12 @@ function lookOf(kind: ActorKind, id: string, look: string, worn?: Worn): Look {
 type Body = { sprite: SpriteBody; look: Look; held?: Look };
 type Actor = ActorHandle & {
   look: string; worn: string; body: Body; label?: HTMLDivElement; bar?: HTMLDivElement;
-  from?: THREE.Vector3; startedAt?: number; stepMs: number; glideMs: number; floorZ?: number; movingUntil: number;
+  from?: THREE.Vector3; startedAt?: number; stepMs: number; glideMs: number;
+  /** Where the figure is drawn walking to. The server's tile is `target`; they differ only while our hero walks a step ahead. */
+  goal: THREE.Vector3;
+  /** Our hero has started the next step of its route at the moment it fell due, before the server's update says so. */
+  lead?: { x: number; z: number; until: number };
+  stepTime?: (to: THREE.Vector3, from: THREE.Vector3) => number; floorZ?: number; movingUntil: number;
   facing: number; hp: number; max: number; attackAt: number; foe: string | null;
   /** Animation clock (ms). Hit-stop holds it; nothing positional reads it. */
   clock: number; stopUntil: number; swing: Swing; walk: number; walkFrame: number; hurtAt: number; castAt: number;
@@ -136,7 +141,12 @@ export class ActorLayer {
   readonly log = { effects: 0, restrikes: 0, strikes: 0, early: 0, windups: 0, relaxed: 0, collapses: 0 };
   private extras: Extra[] = [];
   private clock = 0;
-  private server = { time: 0, at: 0, rate: 1, seen: false };
+  /**
+   * The server's clock as this client reads it: `base` at local time `at`, running at `rate`. Each update nudges it; none
+   * resets it. Positions are a function of this clock, so a clock that jumped to every update (they arrive up to tens of
+   * ms early or late) moved every walking figure back or forward by that much.
+   */
+  private server = { base: 0, at: 0, rate: 1, last: 0, lastAt: 0, samples: 0, seen: [] as [time: number, at: number][] };
   private kickAt = -1e9; private kickDir = new THREE.Vector2(); private kickAmount = 0;
   private gone: { x: number; y: number; z: number; facing: number; at: number }[] = [];
   private lastView?: GameView;
@@ -172,7 +182,8 @@ export class ActorLayer {
     const along = (px * hx + pz * hz) / len, side = Math.abs(px * hz - pz * hx) / len;
     return along > 0 && along < len - 0.5 && side < 0.8;
   }
-  private serverNow() { const s = this.server; return s.time + Math.min(performance.now() - s.at, 250) * s.rate; }
+  /** Runs on for at most 400 ms past the last update, so a stalled connection does not walk figures on. */
+  private serverNow(now = performance.now()) { const s = this.server; return s.base + (Math.min(now, s.lastAt + 400) - s.at) * s.rate; }
   private makeBody(look: Look): Body { const sprite = this.sheet.body(); sprite.addTo(this.scene); return { sprite, look }; }
   private dropBody(b: Body) { b.sprite.dispose(); }
   private show(a: Actor, on: boolean) { a.body.sprite.visible = on; }
@@ -293,6 +304,24 @@ export class ActorLayer {
     const e = cam.matrixWorldInverse.elements, depth = -(e[2] * p.x + e[6] * p.y + e[10] * p.z + e[14]);
     return scale / Math.max(0.05, depth);
   }
+  /**
+   * Our hero's route and step times are known here, so its next step starts the moment the last one ends, not when
+   * the server's update arrives up to two ticks later. Without this the hero stood still for that long on every tile
+   * and the camera, which follows it, stopped and started with it. The server still decides: if it does not take the
+   * step, the hero walks back.
+   */
+  private leadStep(a: Actor, sNow: number) {
+    const v = this.lastView, r = v?.route[0];
+    if (!v || !r || !a.stepTime || r.z !== v.self.z || sNow < v.self.moveAt || sNow - v.self.moveAt > 400) return;
+    if (v.self.x !== a.target.x || v.self.y !== a.target.z || Math.max(Math.abs(r.x - a.target.x), Math.abs(r.y - a.target.z)) !== 1) return;
+    const to = new THREE.Vector3(r.x, 0, r.y);
+    a.stepMs = a.glideMs = a.stepTime(to, a.target);
+    a.from = a.position.clone(); a.goal.copy(to); a.startedAt = v.self.moveAt;
+    a.lead = { x: r.x, z: r.y, until: v.self.moveAt + a.glideMs + 400 };
+    a.facing = Math.atan2(r.x - a.target.x, r.y - a.target.z);
+    a.movingUntil = v.self.moveAt + a.glideMs + 140;
+    a.position.lerpVectors(a.from, a.goal, Math.min(1, (sNow - a.startedAt) / a.glideMs));
+  }
   private clear() {
     for (const a of this.actors.values()) { this.dropBody(a.body); a.label?.remove(); }
     for (const c of this.corpses.values()) this.dropCorpse(c);
@@ -303,11 +332,20 @@ export class ActorLayer {
     this.lastView = view;
     const now = performance.now(), sv = this.server;
     // How fast server time runs against ours (1 live, 0.25 with the lab's tick=400): animation follows it.
-    if (sv.seen && view.time > sv.time) sv.rate = Math.min(4, Math.max(0.05, sv.rate * 0.8 + ((view.time - sv.time) / Math.max(1, now - sv.at)) * 0.2));
-    if (view.time !== sv.time || !sv.seen) { sv.time = view.time; sv.at = now; sv.seen = true; }
-    const sNow = this.serverNow();
+    if (!sv.samples || Math.abs(view.time - this.serverNow(now)) > 500) { sv.base = view.time; sv.at = now; sv.last = view.time; sv.lastAt = now; sv.samples = Math.max(1, sv.samples); sv.seen = [[view.time, now]]; }
+    else if (view.time > sv.last) {
+      // The rate is read across the last few seconds of updates, so one early or late update barely moves it. A server
+      // whose ticks run a little slow (100 ms of game time per 102 ms here) is followed without a correction each update.
+      sv.seen.push([view.time, now]); if (sv.seen.length > 40) sv.seen.shift();
+      const [t0, a0] = sv.seen[0];
+      const rate = now - a0 > 150 ? Math.min(4, Math.max(0.05, (view.time - t0) / (now - a0))) : sv.rate;
+      // An update that comes sooner than expected is the truer reading (less delay on the way), so it counts for more.
+      const err = view.time - this.serverNow(now), base = this.serverNow(now) + err * (err > 0 ? 0.12 : 0.04);
+      sv.base = base; sv.at = now; sv.rate = rate; sv.last = view.time; sv.lastAt = now; sv.samples++;
+    }
+    const sNow = this.serverNow(now);
     const live = new Set<string>();
-    const put = (id: string, kind: ActorKind, name: string, look: string, p: Pos & { facing?: number }, hp: number, max: number, level = 1, attackAt = 0, foe: string | null = null, worn?: Worn) => {
+    const put = (id: string, kind: ActorKind, name: string, look: string, p: Pos & { facing?: number; moveAt?: number }, hp: number, max: number, level = 1, attackAt = 0, foe: string | null = null, worn?: Worn) => {
       live.add(id);
       let a = this.actors.get(id);
       const wornKey = worn ? JSON.stringify(worn) : '';
@@ -315,7 +353,7 @@ export class ActorLayer {
       if (!a) {
         const body = this.makeBody(lookOf(kind, id, look, worn)), target = new THREE.Vector3(p.x, 0, p.y);
         a = {
-          id, kind, name, look, worn: wornKey, body, target, position: target.clone(), height: 1, size: 1, visible: true, stepMs: STEP_MS, glideMs: STEP_MS, movingUntil: 0,
+          id, kind, name, look, worn: wornKey, body, target, goal: target.clone(), position: target.clone(), height: 1, size: 1, visible: true, stepMs: STEP_MS, glideMs: STEP_MS, movingUntil: 0,
           facing: p.facing ?? 0, hp, max, attackAt, foe, clock: 0, stopUntil: 0, swing: { phase: 'rest' }, walk: 0, walkFrame: -1,
           hurtAt: -1e9, castAt: -1e9, knockAt: -1e9, knockDir: new THREE.Vector2(), lift: new THREE.Vector3(), px: PX, shownPx: PX, flash: false, seed: (id.length * 977 + id.charCodeAt(0) * 131) % 1300, striking: false,
         };
@@ -335,20 +373,37 @@ export class ActorLayer {
       const next = new THREE.Vector3(p.x, 0, p.y);
       const adjacent = Math.max(Math.abs(next.x - a.target.x), Math.abs(next.z - a.target.z)) <= 1;
       // A floor change, or a jump the server made in one update (late or merged snapshots), snaps instead of gliding.
-      if ((a.floorZ !== undefined && a.floorZ !== p.z) || !adjacent) { a.position.copy(next); a.target.copy(next); a.from = undefined; a.startedAt = undefined; }
+      if ((a.floorZ !== undefined && a.floorZ !== p.z) || !adjacent) { a.position.copy(next); a.target.copy(next); a.goal.copy(next); a.from = undefined; a.startedAt = undefined; a.lead = undefined; }
       a.floorZ = p.z;
+      const stepTime = (to: THREE.Vector3, from: THREE.Vector3) => {
+        const ground = grounds[this.map.floors[p.z]?.ground[to.z * this.map.width + to.x] ?? 0], diagonal = to.x !== from.x && to.z !== from.z;
+        return kind === 'monster' ? rules.creatureStepMs(mobDefs[look as keyof typeof mobDefs]?.step ?? 600, ground, diagonal) : rules.stepMs(rules.heroSpeed(level), ground, diagonal);
+      };
       if (next.x !== a.target.x || next.z !== a.target.z) {
-        // Glide each step over the time the server takes for it: terrain, level speed and diagonals all matter.
-        const ground = grounds[this.map.floors[p.z]?.ground[p.y * this.map.width + p.x] ?? 0];
-        const diagonal = next.x !== a.target.x && next.z !== a.target.z;
-        const since = a.startedAt === undefined ? Infinity : sNow - a.startedAt;
-        a.from = a.position.clone(); a.startedAt = sNow;
-        a.stepMs = kind === 'monster' ? rules.creatureStepMs(mobDefs[look as keyof typeof mobDefs]?.step ?? 600, ground, diagonal) : rules.stepMs(rules.heroSpeed(level), ground, diagonal);
-        // The server takes each step on the first tick after its step time, so steps in a walk arrive a little further
-        // apart than stepMs. Glide over the gap just seen; over stepMs alone the figure stops for a moment on every tile.
-        a.glideMs = since < a.stepMs * 1.7 ? Math.max(a.stepMs, since) : a.stepMs;
-        a.movingUntil = sNow + a.glideMs + 140;
+        if (a.lead && a.lead.x === next.x && a.lead.z === next.z) {
+          // The server took the step this figure was already walking. It may have taken it a tick after it fell due, so
+          // stretch the glide to end when the server says the step ends; the next one then follows without a pause.
+          a.lead = undefined;
+          if (p.moveAt !== undefined && a.startedAt !== undefined) a.glideMs = Math.min(a.stepMs * 1.5, Math.max(a.stepMs, p.moveAt - a.startedAt));
+          a.movingUntil = (a.startedAt ?? sNow) + a.glideMs + 140;
+        } else {
+          // Glide each step over the time the server takes for it: terrain, level speed and diagonals all matter.
+          const since = a.startedAt === undefined ? Infinity : sNow - a.startedAt;
+          a.from = a.position.clone(); a.startedAt = sNow; a.lead = undefined;
+          a.stepMs = stepTime(next, a.target);
+          // Our own hero knows when the step ends (moveAt), so it arrives exactly then and the next step can take over
+          // without a pause. Others arrive a tick late at most: glide over the gap just seen between their steps.
+          a.glideMs = kind === 'self' && p.moveAt !== undefined ? Math.min(a.stepMs, Math.max(a.stepMs * 0.5, p.moveAt - sNow))
+            : since < a.stepMs * 1.7 ? Math.max(a.stepMs, since) : a.stepMs;
+          a.movingUntil = sNow + a.glideMs + 140;
+        }
+        a.goal.copy(next);
+      } else if (a.lead && kind === 'self') {
+        // Walking ahead of the server, and the route no longer goes that way (stopped, turned, blocked): walk back.
+        const r = view.route[0];
+        if (!r || r.x !== a.lead.x || r.y !== a.lead.z || sNow > a.lead.until) { a.lead = undefined; a.from = a.position.clone(); a.startedAt = sNow; a.glideMs = 140; a.goal.copy(next); }
       }
+      if (kind === 'self') a.stepTime = stepTime;
       a.target.copy(next);
     };
     const self = view.self, lvl = (xp: number) => rules.level(xp);
@@ -431,8 +486,9 @@ export class ActorLayer {
     const me = ctx.camera instanceof THREE.PerspectiveCamera && !ctx.hideSelf ? this.actors.get(this.lastView?.self.id ?? '') : undefined;
     for (const a of this.actors.values()) {
       const pos = a.position;
-      if (this.motion === 'snap' || !a.from || a.startedAt === undefined) pos.copy(a.target);
-      else { const k = Math.min(1, (sNow - a.startedAt) / a.glideMs); pos.lerpVectors(a.from, a.target, k); if (k >= 1) a.from = undefined; }
+      if (this.motion === 'snap' || !a.from || a.startedAt === undefined) pos.copy(a.goal);
+      else { const k = Math.min(1, (sNow - a.startedAt) / a.glideMs); pos.lerpVectors(a.from, a.goal, k); if (k >= 1) a.from = undefined; }
+      if (a.kind === 'self' && !a.from && !a.lead && this.motion !== 'snap') this.leadStep(a, sNow);
       if (this.clock >= a.stopUntil) a.clock += dms;
       const foe = a.foe ? this.actors.get(a.foe) : undefined;
       const engaged = !!foe && foe.visible && Math.max(Math.abs(foe.target.x - a.target.x), Math.abs(foe.target.z - a.target.z)) <= 1;

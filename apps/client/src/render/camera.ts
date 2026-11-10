@@ -74,11 +74,12 @@ export class CameraRig {
    */
   readonly ditherShift = new THREE.Vector2();
   /**
-   * How far the snapped orthographic camera stands from the true one, in render pixels (each within ±0.5). The view
-   * slides the finished image back by this much, so the world scrolls smoothly while every texel stays on the grid.
-   * Without it a walk of 1.5 px a frame advances 1, 2, 1, 2 px, which reads as shaking.
+   * In whole render pixels, how far the orthographic camera stands from the hero. The hero's sprite and the ground both
+   * land on the pixel grid; when the camera trailed the hero by a fraction of a pixel they rounded on different frames
+   * and the hero flickered one pixel against the ground with every pixel walked. The camera now sits a whole number of
+   * pixels from the hero's drawn position, and that number changes only as the camera eases in or out.
    */
-  readonly subpixel = new THREE.Vector2();
+  private readonly lag = new THREE.Vector2();
   readonly ortho = new THREE.OrthographicCamera(-10, 10, 8, -8, 0.1, 120);
   readonly persp = new THREE.PerspectiveCamera(40, 1, 0.1, 700);
   stop: Stop = stops.play;
@@ -126,7 +127,7 @@ export class CameraRig {
    * Place this frame's camera around `center` (the hero's feet). `viewH` is the buffer's height in tiles, `bufW` and
    * `bufH` in pixels, `kick` the camera kick in whole render pixels.
    */
-  place(center: THREE.Vector3, viewH: number, bufW: number, bufH: number, kick: THREE.Vector2, dt: number) {
+  place(center: THREE.Vector3, viewH: number, bufW: number, bufH: number, kick: THREE.Vector2, dt: number, hero?: THREE.Vector3) {
     this.t = Math.min(1, this.t + dt / duration(this.from, this.stop));
     this.yawT = Math.min(1, this.yawT + dt / TURN_S);
     this.yaw = this.yawFrom + turnBetween(this.yawFrom, this.yawGoal) * smooth(this.yawT);
@@ -138,7 +139,7 @@ export class CameraRig {
     this.lens = this.t >= 1 ? to : mixLens(this.fromLens, to, k);
     const orthoNow = this.stop.projection === 'ortho' && (this.t >= 1 || this.from.projection === 'ortho');
     if (orthoNow) {
-      this.placeOrtho(center, this.lens.angle, bufH, kick);
+      this.placeOrtho(center, this.lens.angle, bufH, kick, hero);
       this.active = this.ortho; this.fog = null; this.heroDist = 0;
       return;
     }
@@ -169,7 +170,7 @@ export class CameraRig {
   }
 
   /** Pixel-snapped orthographic camera: the hero's feet land on a whole render pixel, the kick after the snap. */
-  private placeOrtho(center: THREE.Vector3, pitch: number, bufH: number, kick: THREE.Vector2) {
+  private placeOrtho(center: THREE.Vector3, pitch: number, bufH: number, kick: THREE.Vector2, hero?: THREE.Vector3) {
     const c = this.ortho, cp = Math.cos(pitch);
     const offset = new THREE.Vector3(Math.sin(this.yaw) * cp, Math.sin(pitch), Math.cos(this.yaw) * cp).multiplyScalar(19.5);
     c.position.copy(center).add(offset);
@@ -178,11 +179,19 @@ export class CameraRig {
     const upp = (c.top - c.bottom) / bufH;
     const right = new THREE.Vector3().setFromMatrixColumn(c.matrixWorld, 0), up = new THREE.Vector3().setFromMatrixColumn(c.matrixWorld, 1);
     const sx = center.dot(right), sy = center.dot(up);
-    const snapped = center.clone().addScaledVector(right, Math.round(sx / upp) * upp - sx).addScaledVector(up, Math.round(sy / upp) * upp - sy);
+    let px = Math.round(sx / upp), py = Math.round(sy / upp);
+    if (hero) {
+      // The lag keeps its whole-pixel value until the eased centre has moved most of a pixel from it, so it does not
+      // flip back and forth while the centre hovers half way between two pixels.
+      const hx = hero.dot(right) / upp, hy = hero.dot(up) / upp, wantX = sx / upp - hx, wantY = sy / upp - hy;
+      if (Math.abs(wantX - this.lag.x) > 0.75) this.lag.x = Math.round(wantX);
+      if (Math.abs(wantY - this.lag.y) > 0.75) this.lag.y = Math.round(wantY);
+      px = Math.round(hx) + this.lag.x; py = Math.round(hy) + this.lag.y;
+    }
+    const snapped = center.clone().addScaledVector(right, px * upp - sx).addScaledVector(up, py * upp - sy);
     c.position.copy(snapped).add(offset).addScaledVector(right, Math.round(kick.x) * upp).addScaledVector(up, Math.round(kick.y) * upp);
-    this.subpixel.set(Math.round(sx / upp) - sx / upp, Math.round(sy / upp) - sy / upp);
     const wrap = (n: number) => ((n % 4) + 4) % 4;
-    this.ditherShift.set(wrap(Math.round(sx / upp) + Math.round(kick.x)), wrap(Math.round(sy / upp) + Math.round(kick.y)));
+    this.ditherShift.set(wrap(px + Math.round(kick.x)), wrap(py + Math.round(kick.y)));
     c.updateMatrixWorld();
   }
 }
