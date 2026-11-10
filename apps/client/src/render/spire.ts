@@ -67,8 +67,9 @@ export class Spire {
     };
     const lancet = (a: number, r: number, y: number, w: number, h: number) => m.put(prim.lancet(), C.void, Math.sin(a) * r, y, Math.cos(a) * r, { ry: a, sx: w, sy: h / 3, sz: 0.24 });
 
-    // Plinth rising through the shrine roof, then the first stage.
-    coursed(2.25, 1.8, 4.7, C.dark);
+    // Plinth rising through the shrine roof from where its lowest slope meets it, so it hangs as little as it can
+    // below the hall's ceiling.
+    coursed(2.25, 2.55, 4.7, C.dark);
     oct(C.light, 2.38, 4.7, 5.05);
     coursed(1.85, 5.05, 8.7);
     around(4, 0, a => { lancet(a, 1.72, 5.7, 0.5, 2.0); gablet(a, 1.9, 7.55, 0.86, 0.75); });
