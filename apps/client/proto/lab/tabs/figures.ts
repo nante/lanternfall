@@ -2,7 +2,8 @@
 import * as THREE from 'three';
 import type { TabContext } from '../main.ts';
 import { places } from '../harness.ts';
-import { bake, frameIndex, DIRS, type Atlas } from '../../../src/render/figures/bake.ts';
+import { bake, frameIndex, palette, DIRS, type Atlas } from '../../../src/render/figures/bake.ts';
+import { PX } from '../../../src/render/stops.ts';
 import { animOrder, animFrames, type AnimName } from '../../../src/render/figures/poses.ts';
 import { creatureFigure, heroFigureOf, identityOf, isCreature, type Figure } from '../../../src/render/figures/kit.ts';
 import type { Extra, Motion } from '../../../src/render/actor-layer.ts';
@@ -67,9 +68,10 @@ export function mount(ctx: TabContext) {
   group('Move', [['glide', 'Glide'], ['snap', 'Snap']], 'move', 'glide', v => { layer.motion = v as Motion; });
   group('Feel', [['off', 'Off'], ['subtle', 'Subtle'], ['heavy', 'Heavy']], 'feel', 'heavy', v => { layer.feel = v as FeelLevel; });
 
-  // `who` may name figures outside the base bake (kits, creatures), comma-separated; the turntable bakes them on the spot.
+  // `who` may name figures outside the base bake (kits, creatures), comma-separated. The turntable bakes on the spot
+  // (the layer's atlases keep no CPU copy), at `tpitch` and `tpx` texels per tile.
   const who = q('who', ''), extra = who.split(',').map(lookup).filter((f): f is Figure => !!f);
-  const atlas = extra.length ? bake(Number(q('tpitch', String(layer.atlas.pitch))), extra) : layer.atlas;
+  const atlas = q('turn', '0') === '1' ? bake(Number(q('tpitch', String(layer.atlas.pitch))), extra.length ? extra : undefined, Number(q('tpx', String(PX)))) : layer.atlas;
   if (q('turn', '0') === '1') turntable(atlas, q('anim', 'all') as AnimName | 'all', extra.length === 1 ? extra[0].id : extra.length ? '' : who, q('chan', 'color'), q('frame', ''), Number(q('tz', '0')));
   if (q('loupe', '0') !== '0') loupe(ctx, Number(q('loupe', '6')), q('lid', ''));
   watch(ctx, Number(q('log', '0')));
@@ -98,7 +100,7 @@ function watch(ctx: TabContext, seconds: number) {
       }
     }
     const L = layer.log, secs = (performance.now() - start) / 1000;
-    const lazy = layer.bakes.map(b => `${b.id.split('@')[0].replace(/^hero:[^:]+:[^:]+:\d:/, '')} ${b.ms.toFixed(0)} ms in ${b.steps} (max ${b.worst.toFixed(1)}; layout ${b.phases.setup.toFixed(1)}, render ${b.phases.render.toFixed(1)}, clean ${b.phases.clean.toFixed(1)})`).join(' · ');
+    const lazy = layer.bakes.map(b => `${b.id.split('@')[0].replace(/^hero:[^:]+:[^:]+:\d:/, '')} ${(b.pitch * 180 / Math.PI).toFixed(0)}° ${b.px} px ${(b.bytes / 2 ** 20).toFixed(1)} MB ${b.ms.toFixed(0)} ms in ${b.steps} (max ${b.worst.toFixed(1)}; layout ${b.phases.setup.toFixed(1)}, render ${b.phases.render.toFixed(1)}, clean ${b.phases.clean.toFixed(1)})`).join(' · ');
     const text = `figures · feel ${layer.feel} · ${layer.motion}${layer.reduced ? ' · reduced motion' : ''}\nbake ${layer.atlas ? `${layer.atlas.cells} frames ${layer.atlas.ms.toFixed(0)} ms (setup ${layer.atlas.phases.setup.toFixed(0)}, render ${layer.atlas.phases.render.toFixed(0)}, clean ${layer.atlas.phases.clean.toFixed(0)})` : "none"}\n` +
       `lazy bakes ${layer.bakes.length}${lazy ? `: ${lazy}` : ''}\ntime ${secs.toFixed(0)} s · frames ${frames}\neffects ${L.effects} (${L.restrikes} during a strike) · strikes drawn ${L.strikes}\nstrikes before effect ${L.early}\nwind-ups ${L.windups} · relaxed ${L.relaxed} · collapses ${L.collapses}\n` +
       `ring checks ${ring.checks} · off tile ${ring.off}${ring.first ? `\nfirst: ${ring.first}` : ''}`;
@@ -133,13 +135,17 @@ function loupe(ctx: TabContext, scale: number, id: string) {
   requestAnimationFrame(draw);
 }
 
+/** The atlas as pixels: palette colours, or with `chan=normal` the folded normal. */
 function atlasCanvas(atlas: Atlas, chan: string) {
   const c = document.createElement('canvas'); c.width = atlas.width; c.height = atlas.height;
-  const img = new ImageData(atlas.width, atlas.height), src = chan === 'normal' ? atlas.normal : atlas.color;
+  const img = new ImageData(atlas.width, atlas.height), src = atlas.data;
   for (let y = 0; y < atlas.height; y++) {
     const from = y * atlas.width * 4, to = (atlas.height - 1 - y) * atlas.width * 4;
     for (let i = 0; i < atlas.width * 4; i += 4) {
-      img.data[to + i] = src[from + i]; img.data[to + i + 1] = src[from + i + 1]; img.data[to + i + 2] = src[from + i + 2]; img.data[to + i + 3] = atlas.color[from + i + 3];
+      if (!src[from + i + 3]) continue;
+      const e = (src[from + i + 2] + 256 * (src[from + i + 3] - 1)) * 4;
+      const rgb = chan === 'normal' ? [src[from + i], src[from + i + 1], 128] : [palette[e], palette[e + 1], palette[e + 2]];
+      img.data[to + i] = rgb[0]; img.data[to + i + 1] = rgb[1]; img.data[to + i + 2] = rgb[2]; img.data[to + i + 3] = 255;
     }
   }
   c.getContext('2d')!.putImageData(img, 0, 0);
@@ -158,12 +164,16 @@ function turntable(atlas: Atlas, anim: AnimName | 'all', who: string, chan: stri
     ? anim === 'all' ? animOrder.map(a => ({ label: a, id: who, anim: a })) : Array.from({ length: animFrames[anim] }, (_, i) => ({ label: `${anim} ${i}`, id: who, anim, at: i }))
     : ids.map(id => ({ label: atlas.sheets.get(id)!.figure.label, id, anim: anim === 'all' ? 'walk' : anim }));
   // Rows are cropped to what their frames use, so the scale can be as large as the window allows.
-  const span = rows.map(r => { const s = atlas.sheets.get(r.id as never)!, fr = s.frames.slice(frameIndex(r.anim, 0, 0), frameIndex(r.anim, animFrames[r.anim] - 1, DIRS - 1) + 1); return { s, top: Math.max(...fr.map(f => f.top)) + 1, below: Math.max(...fr.map(f => f.below)) + 1 }; });
+  // Frames are cropped to what they draw, so each is placed by its feet: `left` and `right` are the widest reach either side.
+  const span = rows.map(r => {
+    const s = atlas.sheets.get(r.id as never)!, fr = s.frames.slice(frameIndex(r.anim, 0, 0), frameIndex(r.anim, animFrames[r.anim] - 1, DIRS - 1) + 1);
+    return { s, top: Math.max(...fr.map(f => f.h - f.ay)) + 1, below: Math.max(...fr.map(f => f.ay)) + 1, left: Math.max(...fr.map(f => f.ax)), right: Math.max(...fr.map(f => f.w - f.ax)) };
+  });
   const draw = (t: number) => {
     const W = Math.round(innerWidth * devicePixelRatio), H = Math.round(innerHeight * devicePixelRatio);
     if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
     const g = cv.getContext('2d')!; g.imageSmoothingEnabled = false; g.clearRect(0, 0, W, H);
-    const total = span.reduce((n, x) => n + x.top + x.below, 0), colW = Math.max(...span.map(x => x.s.cell.w));
+    const total = span.reduce((n, x) => n + x.top + x.below, 0), left = Math.max(...span.map(x => x.left)), colW = left + Math.max(...span.map(x => x.right)) + 2;
     const S = zoom || Math.max(1, Math.floor(Math.min((H - 140) / total, (W - 220) / (colW * DIRS))));
     let y = 80;
     g.font = `600 ${13 * devicePixelRatio}px Inter Variable, sans-serif`; g.fillStyle = '#ece2c8'; g.textBaseline = 'middle';
@@ -173,8 +183,7 @@ function turntable(atlas: Atlas, anim: AnimName | 'all', who: string, chan: stri
       g.fillText(r.label, 16, y + (top * S) / 2);
       for (let d = 0; d < DIRS; d++) {
         const c = s.frames[frameIndex(r.anim, f, d)];
-        const sy = atlas.height - (c.y + c.ay + top);
-        g.drawImage(sheet, c.x, sy, c.w, top + below, 200 + d * colW * S + ((colW - c.w) * S) / 2, y, c.w * S, (top + below) * S);
+        if (c.w) g.drawImage(sheet, c.x, atlas.height - (c.y + c.h), c.w, c.h, 200 + (d * colW + left - c.ax) * S, y + (top - (c.h - c.ay)) * S, c.w * S, c.h * S);
       }
       y += (top + below) * S;
     });

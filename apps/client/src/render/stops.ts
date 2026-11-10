@@ -20,9 +20,8 @@ export type StopFog = { near: number; far: number; top?: [number, number] };
 type StopBase = {
   id: StopId; label: string;
   /**
-   * The pitch figures are baked at. One bake is 64 MB of atlas on each of CPU and GPU and about 0.4 s of work, so stops
-   * share two: the orthographic stops draw figures as Tilt sees them (a 3/4 sprite over a steeper map, as top-down
-   * pixel RPGs do), and every lens draws them from just above head height.
+   * The pitch figures are baked at: each orthographic stop's own, so Top-down sees heads and shoulders from above, and
+   * for every lens just above head height. Only Tilt's is baked whole up front; the rest bake per figure as they are seen.
    */
   figures: number;
   zoomStep: number;
@@ -39,8 +38,8 @@ export type Stop = StopBase & ({ projection: 'ortho'; pitch: number } | { projec
 
 const TILT = Math.asin(3 / 4), LOW = (9 * Math.PI) / 180;
 export const stops = {
-  top: { id: 'top', label: 'Top-down', projection: 'ortho', pitch: Math.asin(31 / 32), figures: TILT, zoomStep: 0, chunk: 1, picking: true, yaw: 'fixed', vista: false },
-  close: { id: 'close', label: 'Close', projection: 'ortho', pitch: Math.asin(7 / 8), figures: TILT, zoomStep: 1, chunk: 1, picking: true, yaw: 'fixed', vista: false },
+  top: { id: 'top', label: 'Top-down', projection: 'ortho', pitch: Math.asin(31 / 32), figures: Math.asin(31 / 32), zoomStep: 0, chunk: 1, picking: true, yaw: 'fixed', vista: false },
+  close: { id: 'close', label: 'Close', projection: 'ortho', pitch: Math.asin(7 / 8), figures: Math.asin(7 / 8), zoomStep: 1, chunk: 1, picking: true, yaw: 'fixed', vista: false },
   play: { id: 'play', label: 'Tilt', projection: 'ortho', pitch: TILT, figures: TILT, zoomStep: 0, chunk: 1, picking: true, yaw: 'fixed', vista: false },
   third: {
     id: 'third', label: 'Third person', projection: 'persp', figures: LOW, zoomStep: 0, chunk: 1, picking: true, yaw: 'free', vista: false,

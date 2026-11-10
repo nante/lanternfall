@@ -509,7 +509,7 @@ export class WorldView {
     const rig = this.rig, persp = this.stop.projection === 'persp', inHead = rig.active === this.persp && rig.heroDist < 1.5;
     this.actors.frame(dt, t, {
       floor: this.floor, selfTarget: this.view?.self.target ?? null, key: this.key, sunDir: SUN_DIR, time: t, serverTime: this.view?.time ?? 0,
-      pitch: rig.figurePitch, wide: this.scenery > 0.5, yaw: rig.yaw, hideSelf: inHead, camera: rig.active,
+      pitch: rig.figurePitch, wide: this.scenery > 0.5, yaw: rig.yaw, hideSelf: inHead, camera: rig.active, bufH: this.target.height,
       // A perspective lens sees under and between roofs, and depth hides what is inside; names go by line of sight.
       hiddenByRoof: persp ? () => false : (x, y) => { const id = roofs ? this.map.floors[0].roof[y * this.map.width + x] : -1; return id >= 0 && !!roofs?.find(r => r.building.id === id)?.mesh.visible; },
       occluded: persp ? (x, y) => this.sightBlocked(x, y) : () => false,

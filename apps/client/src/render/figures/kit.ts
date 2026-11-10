@@ -608,6 +608,9 @@ const memo = (id: string, make: () => Figure) => { let f = cache.get(id); if (!f
 export const creatureFigure = (k: CreatureKind) => memo(k, () => { const c: Creature = creatures[k]; return { id: k, label: c.label, skeleton: c.skeleton, joints: c.joints, parts: c.parts(), scale: c.scale, stance: c.stance }; });
 export const townsfolkFigure = (look: string) => memo(look, () => human(look, townsfolk[look][0], townsfolk[look][1]));
 export const heroFigureOf = (worn: Worn, who: Identity) => memo(heroKey(worn, who), () => heroFigure(worn, who));
+/** What the eye sees of its own figure in first person: forearms, hands and what they hold, posed like the rest of it. */
+export const heldFigure = (f: Figure): Figure => memo(`held:${f.id}`, () => ({ ...f, id: `held:${f.id}`, label: `${f.label} (held)`, parts: f.parts.filter(p => p.tag !== 'smear' && heldJoints.has(p.joint)) }));
+const heldJoints = new Set(['elbowR', 'handR', 'elbowL', 'handL']);
 /** The plain hero: no gear, a brown cape. Stands in while a hero's own outfit bakes, and lies as a hero's corpse. */
 export const plainHero = () => heroFigureOf({}, { cape: 'wool', hair: 'hairBrown', hood: false });
 /** The starting kit, in your colours: what you most likely wear the first time the game draws you. */
