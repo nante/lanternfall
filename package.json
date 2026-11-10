@@ -10,6 +10,7 @@
     "dev": "concurrently -k -n world,client 'npm:dev:server' 'npm:dev:client'",
     "dev:server": "tsx watch --include content/balance.json apps/server/src/index.ts",
     "dev:client": "vite --config apps/client/vite.config.ts",
+    "host": "tsx scripts/host.ts",
     "typecheck": "tsc --noEmit",
     "build": "npm run typecheck && vite build --config apps/client/vite.config.ts",
     "test": "tsx --test tests/*.test.ts",

@@ -73,6 +73,12 @@ export class CameraRig {
    * reshapes every dithered edge as the camera moves.
    */
   readonly ditherShift = new THREE.Vector2();
+  /**
+   * How far the snapped orthographic camera stands from the true one, in render pixels (each within ±0.5). The view
+   * slides the finished image back by this much, so the world scrolls smoothly while every texel stays on the grid.
+   * Without it a walk of 1.5 px a frame advances 1, 2, 1, 2 px, which reads as shaking.
+   */
+  readonly subpixel = new THREE.Vector2();
   readonly ortho = new THREE.OrthographicCamera(-10, 10, 8, -8, 0.1, 120);
   readonly persp = new THREE.PerspectiveCamera(40, 1, 0.1, 700);
   stop: Stop = stops.play;
@@ -174,6 +180,7 @@ export class CameraRig {
     const sx = center.dot(right), sy = center.dot(up);
     const snapped = center.clone().addScaledVector(right, Math.round(sx / upp) * upp - sx).addScaledVector(up, Math.round(sy / upp) * upp - sy);
     c.position.copy(snapped).add(offset).addScaledVector(right, Math.round(kick.x) * upp).addScaledVector(up, Math.round(kick.y) * upp);
+    this.subpixel.set(Math.round(sx / upp) - sx / upp, Math.round(sy / upp) - sy / upp);
     const wrap = (n: number) => ((n % 4) + 4) % 4;
     this.ditherShift.set(wrap(Math.round(sx / upp) + Math.round(kick.x)), wrap(Math.round(sy / upp) + Math.round(kick.y)));
     c.updateMatrixWorld();

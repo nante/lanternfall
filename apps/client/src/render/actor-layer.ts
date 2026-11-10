@@ -71,7 +71,7 @@ function lookOf(kind: ActorKind, id: string, look: string, worn?: Worn): Look {
 type Body = { sprite: SpriteBody; look: Look; held?: Look };
 type Actor = ActorHandle & {
   look: string; worn: string; body: Body; label?: HTMLDivElement; bar?: HTMLDivElement;
-  from?: THREE.Vector3; startedAt?: number; stepMs: number; floorZ?: number; movingUntil: number;
+  from?: THREE.Vector3; startedAt?: number; stepMs: number; glideMs: number; floorZ?: number; movingUntil: number;
   facing: number; hp: number; max: number; attackAt: number; foe: string | null;
   /** Animation clock (ms). Hit-stop holds it; nothing positional reads it. */
   clock: number; stopUntil: number; swing: Swing; walk: number; walkFrame: number; hurtAt: number; castAt: number;
@@ -315,7 +315,7 @@ export class ActorLayer {
       if (!a) {
         const body = this.makeBody(lookOf(kind, id, look, worn)), target = new THREE.Vector3(p.x, 0, p.y);
         a = {
-          id, kind, name, look, worn: wornKey, body, target, position: target.clone(), height: 1, size: 1, visible: true, stepMs: STEP_MS, movingUntil: 0,
+          id, kind, name, look, worn: wornKey, body, target, position: target.clone(), height: 1, size: 1, visible: true, stepMs: STEP_MS, glideMs: STEP_MS, movingUntil: 0,
           facing: p.facing ?? 0, hp, max, attackAt, foe, clock: 0, stopUntil: 0, swing: { phase: 'rest' }, walk: 0, walkFrame: -1,
           hurtAt: -1e9, castAt: -1e9, knockAt: -1e9, knockDir: new THREE.Vector2(), lift: new THREE.Vector3(), px: PX, shownPx: PX, flash: false, seed: (id.length * 977 + id.charCodeAt(0) * 131) % 1300, striking: false,
         };
@@ -341,9 +341,13 @@ export class ActorLayer {
         // Glide each step over the time the server takes for it: terrain, level speed and diagonals all matter.
         const ground = grounds[this.map.floors[p.z]?.ground[p.y * this.map.width + p.x] ?? 0];
         const diagonal = next.x !== a.target.x && next.z !== a.target.z;
+        const since = a.startedAt === undefined ? Infinity : sNow - a.startedAt;
         a.from = a.position.clone(); a.startedAt = sNow;
         a.stepMs = kind === 'monster' ? rules.creatureStepMs(mobDefs[look as keyof typeof mobDefs]?.step ?? 600, ground, diagonal) : rules.stepMs(rules.heroSpeed(level), ground, diagonal);
-        a.movingUntil = sNow + a.stepMs + 140;
+        // The server takes each step on the first tick after its step time, so steps in a walk arrive a little further
+        // apart than stepMs. Glide over the gap just seen; over stepMs alone the figure stops for a moment on every tile.
+        a.glideMs = since < a.stepMs * 1.7 ? Math.max(a.stepMs, since) : a.stepMs;
+        a.movingUntil = sNow + a.glideMs + 140;
       }
       a.target.copy(next);
     };
@@ -428,7 +432,7 @@ export class ActorLayer {
     for (const a of this.actors.values()) {
       const pos = a.position;
       if (this.motion === 'snap' || !a.from || a.startedAt === undefined) pos.copy(a.target);
-      else { const k = Math.min(1, (sNow - a.startedAt) / a.stepMs); pos.lerpVectors(a.from, a.target, k); if (k >= 1) a.from = undefined; }
+      else { const k = Math.min(1, (sNow - a.startedAt) / a.glideMs); pos.lerpVectors(a.from, a.target, k); if (k >= 1) a.from = undefined; }
       if (this.clock >= a.stopUntil) a.clock += dms;
       const foe = a.foe ? this.actors.get(a.foe) : undefined;
       const engaged = !!foe && foe.visible && Math.max(Math.abs(foe.target.x - a.target.x), Math.abs(foe.target.z - a.target.z)) <= 1;

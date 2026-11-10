@@ -11,7 +11,13 @@ export class Net {
   id = '';
   private waiting = new Map<string, (r: Result) => void>();
   constructor(readonly on: NetEvents) {}
-  get url() { const host = location.hostname || '127.0.0.1'; const proto = location.protocol === 'https:' ? 'wss' : 'ws'; return `${proto}://${host}:2567`; }
+  /** VITE_WORLD_URL picks the world server at build time: a ws(s) URL, or `same-origin` when the world server also serves the page (`npm run host`). Unset: the page's host on :2567, as in dev. */
+  get url() {
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws', set = import.meta.env.VITE_WORLD_URL as string | undefined;
+    if (set === 'same-origin') return `${proto}://${location.host}`;
+    if (set) return set;
+    return `${proto}://${location.hostname || '127.0.0.1'}:2567`;
+  }
   async join(name: string, token?: string) {
     const client = new Client(this.url);
     const room = await client.joinOrCreate('lanternfall', token ? { token, name } : { name });

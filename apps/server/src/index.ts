@@ -63,12 +63,15 @@ class TownRoom extends Room {
 }
 let room:TownRoom|undefined;
 const PORT=Number(process.env.PORT??2567);
+// Hosting for friends: bind wider with LANTERNFALL_HOST=0.0.0.0, and serve a built client from the same port with LANTERNFALL_STATIC=dist/client.
+const HOST=process.env.LANTERNFALL_HOST??'127.0.0.1',STATIC=process.env.LANTERNFALL_STATIC;
+const loopback=(a?:string)=>a==='127.0.0.1'||a==='::1'||a==='::ffff:127.0.0.1';
 const app=express();app.get('/health',(_req,res)=>res.json({ok:true,revision:engine.state.revision,players:Object.keys(engine.state.players).length}));
 // Studio account editing. The Studio reads this token from .local and proxies to us; nothing else on the machine should get in.
 const adminToken=randomBytes(24).toString('hex');
 writeFileSync('.local/admin-token',adminToken,{mode:0o600});
 app.use('/admin',(req,res,next)=>{const got=Buffer.from(req.get('x-admin-token')??''),want=Buffer.from(adminToken);
- if(req.headers.host!==`127.0.0.1:${PORT}`||got.length!==want.length||!timingSafeEqual(got,want)){res.status(403).json({message:'Not allowed'});return;}next();},express.json({limit:'256kb'}));
+ if(!loopback(req.socket.remoteAddress)||req.headers.host!==`127.0.0.1:${PORT}`||got.length!==want.length||!timingSafeEqual(got,want)){res.status(403).json({message:'Not allowed'});return;}next();},express.json({limit:'256kb'}));
 const accounts=()=>Object.values(engine.state.players).map(p=>accountOf(engine,p)).sort((a,b)=>a.name.localeCompare(b.name));
 app.get('/admin/accounts',(_req,res)=>{res.json(accounts());});
 app.put('/admin/accounts/:id',(req,res)=>{const id=String(req.params.id),edit=AccountEdit.safeParse(req.body);
@@ -78,9 +81,10 @@ app.put('/admin/accounts/:id',(req,res)=>{const id=String(req.params.id),edit=Ac
  catch(error){if(error instanceof StaleItems){res.status(409).json({message:error.message});return;}if(error instanceof GameError){res.status(422).json({message:error.message});return;}console.error(JSON.stringify({event:'account_edit_failed',error:String(error)}));res.status(500).json({message:'The edit could not be saved.'});return;}
  console.info(JSON.stringify({event:'account_edited',player:id,fields:Object.keys(edit.data)}));
  room?.edited(id);res.json(accountOf(engine,engine.state.players[id]));});
+if(STATIC)app.use(express.static(STATIC));
 const server=defineServer({transport:new WebSocketTransport({server:createServer(app)}),rooms:{lanternfall:defineRoom(TownRoom)}});
-await server.listen(PORT,'127.0.0.1');
-console.info(JSON.stringify({event:'world_ready',port:PORT,map:map.name}));
+await server.listen(PORT,HOST);
+console.info(JSON.stringify({event:'world_ready',host:HOST,port:PORT,static:STATIC??null,map:map.name}));
 let closing=false;
 function shutdown(){if(closing)return;closing=true;try{persist(engine.state);db.close();}finally{process.exit(0);}}
 process.on('SIGTERM',shutdown);process.on('SIGINT',shutdown);
