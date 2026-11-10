@@ -94,6 +94,48 @@ export class Mason {
     }
     return this;
   }
+  /** One triangle in the current frame, coloured per corner, with its face normal. */
+  face(a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3, ca: THREE.Color, cb = ca, cc = ca) {
+    const pa = a.clone().applyMatrix4(this.frame), pb = b.clone().applyMatrix4(this.frame), pc = c.clone().applyMatrix4(this.frame);
+    const n = pb.clone().sub(pa).cross(pc.clone().sub(pa)).normalize();
+    for (const [p, k] of [[pa, ca], [pb, cb], [pc, cc]] as const) {
+      col.copy(k); this.shade?.(col, p);
+      this.pos.push(p.x, p.y, p.z); this.nrm.push(n.x, n.y, n.z); this.rgb.push(col.r, col.g, col.b);
+    }
+    return this;
+  }
+  /**
+   * A tube swept along `spine`, its cross-section an ellipse `r(t)` = [half-width, half-height] in a frame that keeps
+   * `up` as its top. `paint(t, a)` colours each vertex by position along the tube and angle round it (0 = top).
+   */
+  loft(spine: THREE.Vector3[], r: (t: number) => [number, number], paint: (t: number, a: number) => THREE.Color, n = 10, up = new THREE.Vector3(0, 1, 0), caps = true) {
+    const rings: THREE.Vector3[][] = [], cols: THREE.Color[][] = [];
+    // The side vector is carried along the spine (parallel transport), so a tube that turns through vertical never twists.
+    let side = new THREE.Vector3();
+    spine.forEach((p, i) => {
+      const t = i / (spine.length - 1);
+      const tan = spine[Math.min(i + 1, spine.length - 1)].clone().sub(spine[Math.max(i - 1, 0)]).normalize();
+      if (i === 0) { side = tan.clone().cross(up).normalize(); if (side.lengthSq() < 1e-6) side.set(1, 0, 0); }
+      else side.addScaledVector(tan, -side.dot(tan)).normalize();
+      const top = side.clone().cross(tan).normalize();
+      const [rw, rh] = r(t), ring: THREE.Vector3[] = [], rc: THREE.Color[] = [];
+      for (let k = 0; k < n; k++) {
+        const a = (k / n) * Math.PI * 2;
+        ring.push(p.clone().addScaledVector(top, Math.cos(a) * rh).addScaledVector(side, Math.sin(a) * rw));
+        rc.push(paint(t, a));
+      }
+      rings.push(ring); cols.push(rc);
+    });
+    for (let i = 0; i < rings.length - 1; i++) for (let k = 0; k < n; k++) {
+      const k2 = (k + 1) % n, a = rings[i][k], b = rings[i][k2], c = rings[i + 1][k2], d = rings[i + 1][k];
+      this.face(a, b, c, cols[i][k], cols[i][k2], cols[i + 1][k2]).face(a, c, d, cols[i][k], cols[i + 1][k2], cols[i + 1][k]);
+    }
+    if (caps) for (const [i, dir] of [[0, 1], [rings.length - 1, -1]] as const) {
+      const c = spine[i];
+      for (let k = 0; k < n; k++) { const k2 = (k + 1) % n; if (dir > 0) this.face(c, rings[i][k2], rings[i][k], cols[i][k]); else this.face(c, rings[i][k], rings[i][k2], cols[i][k]); }
+    }
+    return this;
+  }
   /** A square beam of width `w` from point a to point b. */
   beam(color: THREE.ColorRepresentation, a: THREE.Vector3, b: THREE.Vector3, w: number, d = w) {
     const dir = b.clone().sub(a), len = dir.length();

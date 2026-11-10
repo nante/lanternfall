@@ -28,6 +28,7 @@ const RUIN = {
   light: mix(ramps.stone[4], ramps.bone[0], 0.2),
   dark: mix(ramps.stone[2], ramps.slate[1], 0.35),
   deep: mix(ramps.stone[1], ramps.slate[0], 0.4),
+  void: ramps.night[2],
   rubble: [ramps.stone[1], ramps.stone[2], ramps.stone[3], mix(ramps.stone[2], ramps.earth[6], 0.4), mix(ramps.stone[3], ramps.slate[2], 0.3)],
 };
 
@@ -49,8 +50,10 @@ export function townHouse(m: Mason, lit: Mason, y: number, w: number, d: number,
   for (let s = 1; s < storeys; s++) m.block(TOWN.timber, 0, y + (s * h) / storeys - 0.1, y + (s * h) / storeys + 0.1, 0, w + 0.14, d + 0.14);
   const bays = clamp(Math.floor(w / 1.2), 1, 4);
   for (let s = 0; s < Math.min(storeys, 4); s++) for (let b = 0; b < bays; b++) {
-    if (rnd(i * 7 + s, b) > 0.82) continue;
     const wx = ((b + 0.5) / bays) * w - w / 2, wy = y + ((s + 0.55) * h) / storeys;
+    // The first bay of the ground floor is the door.
+    if (s === 0 && b === 0) { m.put(prim.pane(), TOWN.timber, wx, y + 0.6, d / 2 + 0.03, { sx: 0.6, sy: 1.2 }); continue; }
+    if (rnd(i * 7 + s, b) > 0.82) continue;
     (rnd(i * 13 + s * 3, b + 9) < 0.3 ? lit : m).put(prim.pane(), TOWN.void, wx, wy, d / 2 + 0.03, { sx: 0.42, sy: 0.72 });
   }
   const along = w >= d, span = Math.min(w, d), rise = span * (1.0 + rnd(i, 4) * 0.7);
@@ -103,30 +106,65 @@ export function buildDistrict(m: Mason, lit: Mason, g: Ground, clear: Clear, p: 
 }
 
 /**
- * A ruin (ref-1's foreground): a broken wall of uneven height with breaches and a lancet, a stub of a round tower at one
- * end, and fallen stone on the ground around it.
+ * Coursed ashlar across a wall from x0 to x1 (local frame), y0 to y1, `thick` deep about z = 0: courses of dressed stones
+ * in staggered bond, each a touch proud or shy of the face and in its own tone, over a dark core that shows as mortar.
+ * `top(x)` gives the broken top at each stone, so a ruined wall steps down stone by stone instead of in slabs.
+ */
+export function ashlar(m: Mason, x0: number, x1: number, y0: number, y1: number, thick: number, seed: number, tones: string[], top: (x: number) => number = () => y1) {
+  const ch = 0.46;
+  m.block(RUIN.deep, (x0 + x1) / 2, y0, Math.min(y1, Math.max(y0 + 0.1, top((x0 + x1) / 2))) - 0.05, 0, x1 - x0 - 0.04, thick - 0.12);
+  for (let row = 0, y = y0; y < y1 - 0.05; row++, y += ch) {
+    let x = x0 - (row % 2) * 0.35;
+    for (let k = 0; x < x1; k++) {
+      const len = 0.55 + rnd(seed * 13 + row * 7, k) * 0.5, a = Math.max(x, x0), b = Math.min(x + len, x1);
+      const cx = (a + b) / 2;
+      if (b - a > 0.12 && y + ch * 0.5 < top(cx)) {
+        const j = rnd(seed + row * 3, k * 5), d = (rnd(seed * 3 + k, row) - 0.5) * 0.07;
+        m.block(tones[Math.floor(j * tones.length)], cx, y, Math.min(y + ch - 0.05, y1), d, b - a - 0.05, thick + d * 0.5);
+      }
+      x += len;
+    }
+  }
+}
+
+/**
+ * A ruin (ref-1's foreground): a broken wall of coursed stone stepping down to breaches, lancets, ivy climbing the face
+ * that looks at the town, a stub of a round tower at one end, and fallen stone on the ground around it.
  */
 export function buildRuin(m: Mason, g: Ground, p: Ruin) {
   m.within(p.x, 0, p.z, p.ry, () => {
     const G = (x: number, z: number) => { const w = m.world(x, 0, z); return g(w.x, w.z); };
-    const seg = 1.6, n = Math.max(2, Math.round(p.span / seg));
+    const seg = 1.6, n = Math.max(2, Math.round(p.span / seg)), tones = [RUIN.stone, RUIN.stone, RUIN.dark, RUIN.light, RUIN.rubble[4]];
     let hgt = p.height * (0.5 + rnd(p.seed, 1) * 0.4);
     for (let i = 0; i < n; i++) {
       const x = -p.span / 2 + (i + 0.5) * seg, r = rnd(p.seed * 31 + i, 2), y = G(x, 0);
+      const prev = hgt;
       hgt = clamp(hgt + (r - 0.5) * p.height * 0.7, 0.7, p.height);
       if (rnd(p.seed * 17 + i, 3) < 0.15) { hgt = 0.6; m.put(prim.rock(), RUIN.rubble[i % 5], x, y + 0.3, 0.2, { sx: 0.9, sy: 0.5, sz: 0.8, ry: r * 6 }); continue; }
-      m.block(i % 3 === 0 ? RUIN.dark : RUIN.stone, x, y - 1, y + hgt, 0, seg + 0.08, 1.3);
-      // A ragged top: a half-width stub left standing, and a paler course where the weather strikes.
-      if (r > 0.55) m.block(RUIN.stone, x - 0.4, y + hgt, y + hgt + 0.5 + r * 0.6, 0, 0.8, 1.3);
-      if (hgt > 2.4) m.block(RUIN.light, x, y + hgt - 0.3, y + hgt, 0, seg + 0.2, 1.4);
+      // The top runs from the last segment's height to this one's, broken stone by stone.
+      const h0 = prev, h1 = hgt, x0 = x - seg / 2, top = (u: number) => y + h0 + (h1 - h0) * ((u - x0) / seg) - rnd(Math.floor(u * 3), p.seed + i) * 0.5;
+      ashlar(m, x0, x0 + seg, y - 0.4, y + Math.max(h0, h1), 1.3, p.seed * 101 + i, tones, top);
       if (hgt > 3.2 && r < 0.4) m.put(prim.lancet(), RUIN.deep, x, y + 1.0, 0, { sx: 0.6, sy: 0.6, sz: 1.5 });
+      // Ivy on the town side: clumps climbing from the foot.
+      if (rnd(p.seed * 7 + i, 4) < 0.45) for (let k = 0; k < 4; k++) {
+        const iy = y + 0.2 + rnd(i, k + p.seed) * hgt * 0.7;
+        m.put(prim.dome(6, 2), ['#2b4a2d', '#335631', '#3e6435'][k % 3], x + (rnd(k, i) - 0.5) * seg * 0.8, iy, 0.66, { sx: 0.35 + rnd(i, k) * 0.3, sy: 0.3 + rnd(k, i + 3) * 0.4, sz: 0.12, rx: Math.PI / 2 });
+      }
     }
     if (p.tower) {
       const x = p.span / 2 + 1.4, y = G(x, 0), th = p.height * 1.35;
-      m.put(prim.cyl(10), RUIN.stone, x, y + th / 2 - 0.5, 0, { sx: 1.9, sy: th + 1, sz: 1.9 });
-      m.put(prim.cyl(10), RUIN.light, x, y + th * 0.55, 0, { sx: 2.05, sy: 0.3, sz: 2.05 });
-      for (let k = 0; k < 4; k++) { const a = k * 1.3 + rnd(p.seed, 5 + k); m.block(RUIN.dark, x + Math.sin(a) * 1.5, y + th, y + th + 0.5 + rnd(p.seed, 9 + k) * 1.4, Math.cos(a) * 1.5, 0.9, 0.9, a); }
-      m.put(prim.lancet(), RUIN.deep, x, y + th * 0.5, 1.75, { sx: 0.5, sy: 0.5, sz: 0.5 });
+      m.put(prim.cyl(12), RUIN.deep, x, y + th / 2 - 0.5, 0, { sx: 1.84, sy: th + 1, sz: 1.84 });
+      // Coursed rings, the upper courses broken away round one side.
+      for (let row = 0, yy = y - 0.5; yy < y + th + 1.2; row++, yy += 0.46) {
+        const gone = yy > y + th - 0.8, n2 = 14;
+        for (let k = 0; k < n2; k++) {
+          const a = ((k + (row % 2) * 0.5) / n2) * Math.PI * 2;
+          if (gone && Math.sin(a + p.seed) > -0.2 + (yy - y - th) * 0.6) continue;
+          const j = rnd(p.seed + row, k), rr = 1.86 + (j - 0.5) * 0.06;
+          m.block(tones[Math.floor(j * tones.length)], x + Math.sin(a) * rr, yy, yy + 0.41, Math.cos(a) * rr, 0.8, 0.3, a);
+        }
+      }
+      for (const yy of [y + 1.2, y + th * 0.6]) m.block(RUIN.void, x, yy, yy + 0.7, 1.95, 0.14, 0.12);
     }
     // Fallen stone: blocks lying where they fell, more on the side that faces the town.
     for (let i = 0; i < Math.round(p.span * 1.6); i++) {

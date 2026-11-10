@@ -54,6 +54,14 @@ function cathedral(m: Mason, g: Ground) {
       m.put(prim.cyl(8), C.wall, tx, G + 34.5, -3, { sx: 3.4, sy: 9, sz: 3.4, ry: Math.PI / 8 });
       for (const a of [-0.8, 0, 0.8]) m.put(prim.lancet(), C.void, tx + Math.sin(a) * 3.1, G + 31.5, -3 + Math.cos(a) * 3.1, { ry: a, sx: 1.1, sy: 1.8, sz: 0.6 });
       m.put(prim.cone(8), C.spire, tx, G + 39 + 13, -3, { sx: 3.6, sy: 26, sz: 3.6, ry: Math.PI / 8 });
+      // Crockets up the spire's eight arrises and lucarnes at its foot: the jagged silhouette of ref-2's spires.
+      for (let k = 0; k < 8; k++) {
+        const a = (k / 8) * Math.PI * 2 + Math.PI / 8 + Math.PI / 8;
+        for (let t = 0.12; t < 0.85; t += 0.12) m.put(prim.cone(4), C.trim, tx + Math.sin(a) * 3.6 * (1 - t) * 0.98, G + 39 + 26 * t, -3 + Math.cos(a) * 3.6 * (1 - t) * 0.98, { sx: 0.55, sy: 1.4, sz: 0.55, rz: -Math.sin(a) * 0.4, rx: Math.cos(a) * 0.4 });
+      }
+      for (let k = 0; k < 4; k++) { const a = (k / 4) * Math.PI * 2; m.put(prim.gable(), C.spire, tx + Math.sin(a) * 2.9, G + 41, -3 + Math.cos(a) * 2.9, { sx: 0.8, sy: 3.4, sz: 2.0, ry: a + Math.PI / 2 }); m.put(prim.lancet(), C.void, tx + Math.sin(a) * 3.25, G + 40.2, -3 + Math.cos(a) * 3.25, { ry: a, sx: 0.8, sy: 0.6, sz: 0.4 }); }
+      // Paired lancets on the tower's face above the string course.
+      for (const dx of [-1.8, 1.8]) m.put(prim.lancet(), C.void, tx + dx, G + 22, 1.1, { sx: 1.2, sy: 1.8, sz: 0.6 });
       for (let i = 0; i < 4; i++) { const a = (i / 4) * Math.PI * 2 + Math.PI / 4; pinnacle(m, tx + Math.sin(a) * 3.2, G + 39, -3 + Math.cos(a) * 3.2, 0.8); }
       m.put(prim.box(), C.spire, tx, G + 66, -3, { sx: 1.1, sy: 2.4, sz: 1.1 });
     };
@@ -64,12 +72,26 @@ function cathedral(m: Mason, g: Ground) {
     pinnacle(m, 0, G + 30.5, -2, 0.9);
     m.put(prim.cyl(12), C.void, 0, G + 16.5, 1.1, { sx: 3, sy: 0.6, sz: 3, rx: Math.PI / 2 });
     m.put(prim.cyl(12), C.trim, 0, G + 16.5, 1.0, { sx: 3.6, sy: 0.5, sz: 3.6, rx: Math.PI / 2 });
+    // Tracery in the rose: twelve spokes and a hub.
+    for (let k = 0; k < 12; k++) { const a = (k / 12) * Math.PI * 2; m.put(prim.box(), C.trim, Math.sin(a) * 1.5, G + 16.5 + Math.cos(a) * 1.5, 1.45, { sx: 0.35, sy: 3.0, sz: 0.3, rz: -a }); }
+    m.put(prim.cyl(10), C.trim, 0, G + 16.5, 1.45, { sx: 0.8, sy: 0.3, sz: 0.8, rx: Math.PI / 2 });
+    // A gallery of kings: a row of small arched niches across the front between the towers.
+    for (let k = 0; k < 7; k++) m.put(prim.lancet(), C.void, -4.2 + k * 1.4, G + 11.6, 1.15, { sx: 0.75, sy: 0.65, sz: 0.5 });
+    m.block(C.trim, 0, G + 13.9, G + 14.4, -1.6, 11.4, 6.6);
+    // Gables over the three portals, each crowned with a pinnacle.
+    for (const [x, w, hh] of [[0, 4.6, 5.5], [-9.5, 3.2, 4], [9.5, 3.2, 4]] as const) {
+      m.put(prim.gable(), C.trim, x, G + (x === 0 ? 7.6 : 5.6), 1.4, { sx: 0.6, sy: hh, sz: w, ry: Math.PI / 2 });
+      pinnacle(m, x, G + (x === 0 ? 7.6 : 5.6) + hh - 0.6, 1.4, 0.55, C.trim);
+    }
     m.put(prim.lancet(), C.void, 0, G, 1.2, { sx: 3.4, sy: 3.2, sz: 0.6 });
     for (const x of [-9.5, 9.5]) m.put(prim.lancet(), C.void, x, G, 1.2, { sx: 2.2, sy: 2.2, sz: 0.6 });
     m.block(C.trim, 0, G + 10.6, G + 11.4, -1.6, 11.4, 6.6);
     // Nave, aisles and the flying buttresses that hold the nave up, a pinnacle on every pier.
     m.block(C.wall, 0, G - 4, G + 24, -28, 12, 46);
     m.put(prim.gable(), C.spire, 0, G + 24, -28, { sx: 46, sy: 9, sz: 13.2, ry: Math.PI / 2 });
+    for (let z = -6; z > -50; z -= 3) m.put(prim.cone(4), C.trim, 0, G + 33.6, z, { sx: 0.5, sy: 2.2, sz: 0.5 });
+    // A pierced parapet along the clerestory with a pinnacle at every bay.
+    for (const sx of [-1, 1]) { m.block(C.trim, sx * 6.1, G + 24, G + 25.2, -28, 0.8, 46); for (let z = -6; z > -51; z -= 5.4) pinnacle(m, sx * 6.1, G + 25.2, z, 0.6, C.trim); }
     for (const s of [-1, 1]) {
       m.block(C.wallDk, s * 9, G - 4, G + 12, -28, 6, 44);
       m.put(prim.box(), C.spire, s * 9.3, G + 13, -28, { sx: 6.6, sy: 0.8, sz: 44, rz: -s * 0.35 });
@@ -95,6 +117,7 @@ function cathedral(m: Mason, g: Ground) {
     }
     m.put(prim.cyl(10), C.wall, 0, G + 8, -51, { sx: 6, sy: 24, sz: 6 });
     m.put(prim.cone(10), C.spire, 0, G + 24, -51, { sx: 6.4, sy: 8, sz: 6.4 });
+    for (const a of [-1.1, 0, 1.1]) { const x = Math.sin(a + Math.PI) * 6.8, z = -51 + Math.cos(a + Math.PI) * 6.8; m.put(prim.cyl(8), C.wallDk, x, G + 4, z, { sx: 2.6, sy: 16, sz: 2.6 }); m.put(prim.cone(8), C.spire, x, G + 14.5, z, { sx: 2.9, sy: 5, sz: 2.9 }); }
   }, CITY.scale);
 }
 
