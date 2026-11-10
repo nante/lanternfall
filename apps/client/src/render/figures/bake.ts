@@ -6,21 +6,37 @@ import { poses, basePose, animOrder, animFrames, rollJoint, holds, type AnimName
 export const DIRS = 8;
 export const animOffset = animOrder.reduce((o, a, i) => ({ ...o, [a]: i === 0 ? 0 : o[animOrder[i - 1]] + animFrames[animOrder[i - 1]] }), {} as Record<AnimName, number>);
 export const FRAMES = animOrder.reduce((n, a) => n + animFrames[a], 0);
-/** A baked frame in atlas texels (origin bottom-left). `below` and `top` count opaque rows under and over the feet. */
+/** A baked frame in atlas texels (origin bottom-left), cropped to what it draws. `below` and `top` count opaque rows under and over the feet. */
 export type FrameRect = { x: number; y: number; w: number; h: number; ax: number; ay: number; below: number; top: number };
-/** Sprite cell in render px; (ax, ay) is the feet, counted from the cell's bottom-left corner. Fitted to every pose at the bake pitch. */
-export type Cell = { w: number; h: number; ax: number; ay: number };
+/** A render cell in texels; (ax, ay) is the feet, counted from the cell's bottom-left corner. Fitted to every pose of one animation in one direction. */
+type Cell = { w: number; h: number; ax: number; ay: number };
 /** `height` is the standing figure's height in tiles; `span` its widest ground extent at rest, in tiles. */
-export type Sheet = { figure: Figure; cell: Cell; frames: FrameRect[]; height: number; span: number };
-/** Colour holds palette sRGB with coverage in alpha; normal holds world normals (×0.5+0.5) with the self-lit share in alpha. */
-export type Atlas = { width: number; height: number; color: Uint8Array; normal: Uint8Array; sheets: Map<string, Sheet>; pitch: number; ms: number; phases: { setup: number; render: number; clean: number }; cells: number; clipped: string[] };
+export type Sheet = { figure: Figure; frames: FrameRect[]; height: number; span: number };
+/**
+ * Four bytes a texel: the world normal folded onto an octahedron in red and green, then a palette entry (`palette`)
+ * in blue and the low bit of alpha, alpha 0 where nothing is drawn. `px` is texels per tile across the view: PX for
+ * the orthographic stops, more for a figure near a lens.
+ */
+export type Atlas = { width: number; height: number; data: Uint8Array; sheets: Map<string, Sheet>; pitch: number; px: number; ms: number; phases: { setup: number; render: number; clean: number }; cells: number; clipped: string[] };
 export const frameIndex = (anim: AnimName, frame: number, dir: number) => (animOffset[anim] + frame) * DIRS + dir;
 
-const WIDTH = 2048;
+/** WebGL's guaranteed texture size is smaller, but every GPU the game targets takes 16384; atlases wrap at this width. */
+const WIDTH = 2048, MAX_HEIGHT = 16384;
 /** Depth is stored in 8 bits across ±DEPTH tiles around the camera distance: room for a creature several tiles long. */
 const DEPTH = 4;
 const hex = (h: string) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
-const rampBytes = Object.fromEntries(Object.entries(materials).map(([k, r]) => [k, r.map(hex)])) as Record<Mat, number[][]>;
+const mats = Object.keys(materials) as Mat[], RAMP = 5;
+/** Every material's ramp, RAMP entries each, as sRGB bytes with the material's self-lit share in alpha. */
+export const palette = Uint8Array.from(mats.flatMap(m => materials[m].map(c => [...hex(c), Math.round((glow[m] ?? 0) * 255)]).flat()));
+export const PALETTE_SIZE = palette.length / 4;
+/** A unit normal from the normal pass's bytes, folded onto the octahedron and quantised to two bytes. */
+function octahedral(r: number, g: number, b: number, out: Uint8Array, at: number) {
+  let x = r / 127.5 - 1, y = g / 127.5 - 1, z = b / 127.5 - 1;
+  const l = Math.abs(x) + Math.abs(y) + Math.abs(z) || 1;
+  x /= l; y /= l; z /= l;
+  if (z < 0) { const fx = (1 - Math.abs(y)) * Math.sign(x || 1), fy = (1 - Math.abs(x)) * Math.sign(y || 1); x = fx; y = fy; }
+  out[at] = Math.round((x * 0.5 + 0.5) * 255); out[at + 1] = Math.round((y * 0.5 + 0.5) * 255);
+}
 
 /** Facing index d turns the figure to d·45° from south, matching the server's atan2(dx, dy). */
 const dirAngle = (d: number) => (d * Math.PI) / 4;
@@ -49,8 +65,12 @@ function rootMatrix(fig: Figure, pose: Pose, dir: number) {
     .multiply(new THREE.Matrix4().makeRotationY(dirAngle(dir)));
 }
 type Posed = { anim: AnimName; frame: number; dir: number; pose: Pose; parts: THREE.Matrix4[] };
+/** Poses do not depend on the pitch or density, so a figure baked again at another keeps them. */
+const posedCache = new WeakMap<Figure, Posed[]>();
 /** Every frame of a figure as part matrices relative to its feet; a smear part on a frame without a strike is scaled to nothing. */
 function posed(fig: Figure): Posed[] {
+  const cached = posedCache.get(fig);
+  if (cached) return cached;
   const out: Posed[] = [];
   for (const anim of animOrder) for (let frame = 0; frame < animFrames[anim]; frame++) {
     const pose = poses[fig.skeleton][anim][frame];
@@ -59,12 +79,14 @@ function posed(fig: Figure): Posed[] {
       out.push({ anim, frame, dir, pose, parts: fig.parts.map(p => (p.tag === 'smear' && !pose.smear ? new THREE.Matrix4().makeScale(0, 0, 0) : root.clone().multiply(joints.get(p.joint)!))) });
     }
   }
+  for (const p of fig.parts) if (!p.geo.boundingBox) p.geo.computeBoundingBox();
+  posedCache.set(fig, out);
   return out;
 }
-/** The cell that holds every pose: bounding boxes of the parts, projected onto the camera's right and up axes. */
-function fitCell(fig: Figure, frames: Posed[], sin: number, cos: number): Cell {
+/** The cell that holds every pose given: bounding boxes of the parts, projected onto the camera's right and up axes. */
+function fitCell(fig: Figure, frames: Posed[], sin: number, cos: number, px: number): Cell {
   let u0 = 0, u1 = 0, v0 = 0, v1 = 0;
-  const boxes = fig.parts.map(p => { p.geo.computeBoundingBox(); return p.geo.boundingBox!; }), c = new THREE.Vector3();
+  const boxes = fig.parts.map(p => p.geo.boundingBox!), c = new THREE.Vector3();
   for (const f of frames) fig.parts.forEach((_, k) => {
     const b = boxes[k], m = f.parts[k];
     for (let i = 0; i < 8; i++) {
@@ -73,8 +95,8 @@ function fitCell(fig: Figure, frames: Posed[], sin: number, cos: number): Cell {
       if (c.x < u0) u0 = c.x; if (c.x > u1) u1 = c.x; if (v < v0) v0 = v; if (v > v1) v1 = v;
     }
   });
-  const ax = Math.ceil(-u0 * PX) + 2, ay = Math.ceil(-v0 * PX) + 2;
-  return { w: ax + Math.ceil(u1 * PX) + 2, h: ay + Math.ceil(v1 * PX) + 2, ax, ay };
+  const ax = Math.ceil(-u0 * px) + 2, ay = Math.ceil(-v0 * px) + 2;
+  return { w: ax + Math.ceil(u1 * px) + 2, h: ay + Math.ceil(v1 * px) + 2, ax, ay };
 }
 /** The widest ground extent of the standing figure, in tiles: the base of its shadow, hit area and target ring. */
 function restSpan(fig: Figure, rest: Posed) {
@@ -90,17 +112,20 @@ function restSpan(fig: Figure, rest: Posed) {
 
 const vertex = /* glsl */`
   attribute float aPart; attribute vec2 aGrain; attribute vec4 aCell;
+  uniform float uGrainScale;
   varying float vPart; varying float vDepth; varying vec3 vN; varying vec3 vObj; flat varying vec4 vCell; flat varying float vGrain;
   void main() {
-    // Grain is in tiles whatever the figure's scale, so a giant's hide breaks into the same size of pixel clusters.
-    vCell = aCell; vGrain = aGrain.x; vObj = position * aGrain.y;
+    // Grain is in texels whatever the figure's scale or the bake's density, so a giant's hide, or a figure baked for a
+    // near lens, breaks into pixel clusters of the same size as everyone else's.
+    vCell = aCell; vGrain = aGrain.x; vObj = position * aGrain.y * uGrainScale;
     vec4 wp = modelMatrix * instanceMatrix * vec4(position, 1.0);
     vec4 vp = viewMatrix * wp;
     vPart = aPart; vDepth = -vp.z; vN = normalize(mat3(modelMatrix) * mat3(instanceMatrix) * normal);
     gl_Position = projectionMatrix * vp;
   }`;
 const clip = /* glsl */`varying float vPart; varying float vDepth; varying vec3 vN; varying vec3 vObj; flat varying vec4 vCell; flat varying float vGrain;
-  void inCell() { if (gl_FragCoord.x < vCell.x || gl_FragCoord.y < vCell.y || gl_FragCoord.x > vCell.z || gl_FragCoord.y > vCell.w) discard; }
+  uniform float uBandY;
+  void inCell() { vec2 p = gl_FragCoord.xy + vec2(0.0, uBandY); if (p.x < vCell.x || p.y < vCell.y || p.x > vCell.z || p.y > vCell.w) discard; }
   float h3(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
   float vnoise(vec3 x) {
     vec3 i = floor(x), f = fract(x); f = f * f * (3.0 - 2.0 * f);
@@ -119,6 +144,9 @@ const clip = /* glsl */`varying float vPart; varying float vDepth; varying vec3 
     return min(fract(q.x + q.y * 0.5) < 0.16 ? 1.0 : s * 0.6 + 0.2, 1.0);
   }`;
 const D = 10;
+const grainScale = { value: 1 }, bandY = { value: 0 };
+/** Texels per GPU pass: a bake renders and reads back in bands of about 8 MB, so a large one never stalls a frame on its read back. */
+const BAND_TEXELS = 2 ** 21;
 let gpu: { renderer: THREE.WebGLRenderer; ids: THREE.ShaderMaterial; nrm: THREE.ShaderMaterial } | undefined;
 /** One renderer for every bake, kept: outfit variants bake while playing, and a fresh context and shader compile each time would cost more than the bake. */
 function baker() {
@@ -126,7 +154,7 @@ function baker() {
   const renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true, canvas: document.createElement('canvas') });
   renderer.setPixelRatio(1); renderer.setSize(1, 1, false); renderer.setClearColor(0x000000, 0);
   const ids = new THREE.ShaderMaterial({
-    side: THREE.DoubleSide, vertexShader: vertex,
+    side: THREE.DoubleSide, vertexShader: vertex, uniforms: { uGrainScale: grainScale, uBandY: bandY },
     fragmentShader: `${clip}
       void main() {
         inCell();
@@ -135,7 +163,7 @@ function baker() {
       }`,
   });
   const nrm = new THREE.ShaderMaterial({
-    side: THREE.DoubleSide, vertexShader: vertex,
+    side: THREE.DoubleSide, vertexShader: vertex, uniforms: { uGrainScale: grainScale, uBandY: bandY },
     fragmentShader: `${clip}
       void main() { inCell(); vec3 n = normalize(vN) * (gl_FrontFacing ? 1.0 : -1.0); gl_FragColor = vec4(n * 0.5 + 0.5, 1.0); }`,
   });
@@ -143,10 +171,10 @@ function baker() {
 }
 
 /**
- * Bakes figures × animations × directions at `pitch` with an orthographic camera at exactly PX px per tile, then cleans
+ * Bakes figures × animations × directions at `pitch` with an orthographic camera at exactly `px` texels per tile, then cleans
  * up on the CPU: 4-tone palette ramps by surface direction, a selective 1 px outline, no stray pixels. `step` does as
- * much as fits in a time budget, so a bake can spread over several frames: building the scene and each GPU pass are a
- * step apiece, cleaning splits by cell.
+ * much as fits in a time budget, so a bake can spread over several frames: building the scene and each band of each GPU
+ * pass are a step apiece, cleaning splits by cell.
  */
 export class BakeJob {
   private readonly t0 = performance.now();
@@ -155,13 +183,15 @@ export class BakeJob {
   private sheets = new Map<string, Sheet>();
   private W = WIDTH; private H = 0;
   private A?: Uint8Array; private B?: Uint8Array;
-  private gpu?: { scene: THREE.Scene; cam: THREE.OrthographicCamera; rt: THREE.WebGLRenderTarget; passes: [THREE.ShaderMaterial, Uint8Array][]; next: number; reading?: boolean };
-  private color?: Uint8Array; private normal?: Uint8Array;
+  private gpu?: { scene: THREE.Scene; cam: THREE.OrthographicCamera; rt: THREE.WebGLRenderTarget; band: number; out: [Uint8Array, Uint8Array]; passes: [THREE.ShaderMaterial, Uint8Array][]; next: number; reading?: boolean };
+  /** Per frame, the box the cleaner drew into, in cell texels: x0, y0, x1, y1 (x1 < x0 when nothing was drawn). */
+  private readonly drawn = new Map<FrameRect, [number, number, number, number]>();
   private queue: [Sheet, number][] = [];
+  private packed?: { frames: FrameRect[]; at: Map<FrameRect, [number, number]>; H: number; data: Uint8Array; next: number };
   private clipped: string[] = [];
   private done?: Atlas;
   private readonly sin: number; private readonly cos: number;
-  constructor(readonly figs: Figure[], readonly pitch: number) { this.sin = Math.sin(pitch); this.cos = Math.cos(pitch); }
+  constructor(readonly figs: Figure[], readonly pitch: number, readonly px = PX) { this.sin = Math.sin(pitch); this.cos = Math.cos(pitch); }
 
   step(budget = Infinity): Atlas | undefined {
     const start = performance.now(), left = () => budget - (performance.now() - start);
@@ -179,26 +209,42 @@ export class BakeJob {
         this.phases.clean += performance.now() - t;
         continue;
       }
-      this.finish();
+      if (!this.packed) this.pack();
+      while (this.packed!.next < this.packed!.frames.length && left() > 0) this.crop(this.packed!.frames[this.packed!.next++]);
+      this.phases.clean += performance.now() - t;
+      if (this.packed!.next === this.packed!.frames.length) this.finish();
     }
     return this.done;
   }
 
+  /**
+   * Render cells on shelves, one size per animation and direction (a body lying dead is wide and low, a raised blade
+   * tall and narrow), so the render target stays small. `pack` then crops each frame to what it draws.
+   */
   private layout() {
-    let y = 0;
-    this.posedFigs = this.figs.map(f => {
-      const frames = posed(f), cell = fitCell(f, frames, this.sin, this.cos);
-      const perRow = Math.max(1, Math.floor(this.W / cell.w)), n = FRAMES * DIRS, rects: FrameRect[] = [];
-      for (let i = 0; i < n; i++) rects.push({ x: (i % perRow) * cell.w, y: y + Math.floor(i / perRow) * cell.h, w: cell.w, h: cell.h, ax: cell.ax, ay: cell.ay, below: 0, top: 0 });
-      y += Math.ceil(n / perRow) * cell.h;
-      this.sheets.set(f.id, { figure: f, cell, frames: rects, height: 1, span: restSpan(f, frames[0]) });
+    const cells = this.figs.map(f => {
+      const frames = posed(f), fit = new Map<string, Cell>();
+      for (const a of animOrder) for (let d = 0; d < DIRS; d++) fit.set(`${a}${d}`, fitCell(f, frames.filter(p => p.anim === a && p.dir === d), this.sin, this.cos, this.px));
+      return { f, frames, cells: frames.map(p => fit.get(`${p.anim}${p.dir}`)!) };
+    });
+    const area = cells.reduce((n, c) => n + c.cells.reduce((m, cell) => m + cell.w * cell.h, 0), 0);
+    while (this.W < 8192 && area * 1.25 > this.W * MAX_HEIGHT * 0.5) this.W *= 2;
+    let x = 0, y = 0, shelf = 0;
+    this.posedFigs = cells.map(({ f, frames, cells }) => {
+      const rects = cells.map((cell): FrameRect => {
+        if (x + cell.w > this.W) { x = 0; y += shelf; shelf = 0; }
+        const r = { x, y, w: cell.w, h: cell.h, ax: cell.ax, ay: cell.ay, below: 0, top: 0 };
+        x += cell.w; shelf = Math.max(shelf, cell.h);
+        return r;
+      });
+      this.sheets.set(f.id, { figure: f, frames: rects, height: 1, span: restSpan(f, frames[0]) });
       return frames;
     });
-    this.H = Math.ceil(y / 4) * 4;
+    this.H = Math.ceil((y + shelf) / 4) * 4;
   }
 
   private build() {
-    const { W, H, sin, cos } = this;
+    const { W, H, sin, cos, px } = this;
     const camUp = new THREE.Vector3(0, cos, -sin), scene = new THREE.Scene();
     this.figs.forEach((f, fi) => {
       const sheet = this.sheets.get(f.id)!, frames = this.posedFigs![fi];
@@ -215,16 +261,18 @@ export class BakeJob {
         frames.forEach((fr, i) => {
           const cell = sheet.frames[i];
           // The feet sit on a pixel corner of the cell, in the camera plane through the origin.
-          const u = (cell.x + cell.ax - W / 2) / PX, v = (cell.y + cell.ay - H / 2) / PX;
+          const u = (cell.x + cell.ax - W / 2) / px, v = (cell.y + cell.ay - H / 2) / px;
           m.setMatrixAt(i, new THREE.Matrix4().makeTranslation(new THREE.Vector3(u, 0, 0).addScaledVector(camUp, v)).multiply(fr.parts[k]));
         });
       });
     });
-    const cam = new THREE.OrthographicCamera(-W / 2 / PX, W / 2 / PX, H / 2 / PX, -H / 2 / PX, 0.1, 40);
+    const cam = new THREE.OrthographicCamera(-W / 2 / px, W / 2 / px, H / 2 / px, -H / 2 / px, 0.1, 40);
     cam.position.set(0, sin * D, cos * D); cam.lookAt(0, 0, 0); cam.updateMatrixWorld();
-    const { ids, nrm } = baker();
-    const rt = new THREE.WebGLRenderTarget(W, H, { depthBuffer: true, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, generateMipmaps: false });
-    this.gpu = { scene, cam, rt, passes: [[ids, new Uint8Array(W * H * 4)], [nrm, new Uint8Array(W * H * 4)]], next: 0 };
+    const { ids, nrm } = baker(), band = Math.min(H, Math.max(4, Math.floor(BAND_TEXELS / W)));
+    const rt = new THREE.WebGLRenderTarget(W, band, { depthBuffer: true, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, generateMipmaps: false });
+    const out: [Uint8Array, Uint8Array] = [new Uint8Array(W * H * 4), new Uint8Array(W * H * 4)], passes: [THREE.ShaderMaterial, Uint8Array][] = [];
+    for (const [mat, buf] of [[ids, out[0]], [nrm, out[1]]] as const) for (let y = 0; y < H; y += band) passes.push([mat, buf.subarray(y * W * 4, Math.min(H, y + band) * W * 4)]);
+    this.gpu = { scene, cam, rt, band, out, passes, next: 0 };
   }
 
   /**
@@ -232,12 +280,16 @@ export class BakeJob {
    * asynchronously, so waiting for the GPU never blocks a frame; the next step starts once the pixels are in.
    */
   private pass(sync: boolean) {
-    const g = this.gpu!, { renderer } = baker(), [mat, buf] = g.passes[g.next++];
+    const g = this.gpu!, { renderer } = baker(), { W, H, px } = this, [mat, buf] = g.passes[g.next];
+    const y0 = (g.next % Math.ceil(H / g.band)) * g.band, rows = buf.length / (W * 4);
+    g.next++;
+    grainScale.value = px / PX; bandY.value = y0;
+    g.cam.top = (y0 + g.band - H / 2) / px; g.cam.bottom = (y0 - H / 2) / px; g.cam.updateProjectionMatrix();
     renderer.setRenderTarget(g.rt);
     g.scene.overrideMaterial = mat;
     renderer.clear(); renderer.render(g.scene, g.cam);
-    if (sync) renderer.readRenderTargetPixels(g.rt, 0, 0, this.W, this.H, buf);
-    else { g.reading = true; void renderer.readRenderTargetPixelsAsync(g.rt, 0, 0, this.W, this.H, buf).then(() => { g.reading = false; if (g.next === g.passes.length) this.read(); }); }
+    if (sync) renderer.readRenderTargetPixels(g.rt, 0, 0, W, rows, buf);
+    else { g.reading = true; void renderer.readRenderTargetPixelsAsync(g.rt, 0, 0, W, rows, buf).then(() => { g.reading = false; if (g.next === g.passes.length) this.read(); }); }
     renderer.setRenderTarget(null);
     if (sync && g.next === g.passes.length) this.read();
   }
@@ -245,68 +297,89 @@ export class BakeJob {
     const g = this.gpu!;
     g.rt.dispose();
     for (const o of g.scene.children) { (o as THREE.InstancedMesh).geometry.dispose(); (o as THREE.InstancedMesh).dispose(); }
-    this.A = g.passes[0][1]; this.B = g.passes[1][1];
-    this.color = new Uint8Array(this.W * this.H * 4); this.normal = new Uint8Array(this.W * this.H * 4);
+    [this.A, this.B] = g.out;
     for (const sheet of this.sheets.values()) sheet.frames.forEach((_, i) => this.queue.push([sheet, i]));
   }
 
+  /** Crop every frame to what it draws and place the crops on shelves, tallest first: about a third of the render cells. */
+  private pack() {
+    const W = this.W, frames = [...this.sheets.values()].flatMap(s => s.frames), box = (f: FrameRect) => this.drawn.get(f)!;
+    const order = frames.filter(f => box(f)[2] >= box(f)[0]).sort((a, b) => (box(b)[3] - box(b)[1]) - (box(a)[3] - box(a)[1]));
+    let x = 0, y = 0, shelf = 0;
+    const at = new Map<FrameRect, [number, number]>();
+    for (const f of order) {
+      const [x0, y0, x1, y1] = box(f), w = x1 - x0 + 1, h = y1 - y0 + 1;
+      if (x + w > W) { x = 0; y += shelf; shelf = 0; }
+      at.set(f, [x, y]); x += w; shelf = Math.max(shelf, h);
+    }
+    const H = Math.max(4, Math.ceil((y + shelf) / 4) * 4);
+    this.packed = { frames, at, H, data: new Uint8Array(W * H * 4), next: 0 };
+  }
+  /** Copy one frame's crop into the packed atlas; a frame that draws nothing keeps an empty rect. */
+  private crop(f: FrameRect) {
+    const { at, data } = this.packed!, A = this.A!, W = this.W, [x0, y0, x1, y1] = this.drawn.get(f)!, to = at.get(f);
+    if (!to) { Object.assign(f, { x: 0, y: 0, w: 0, h: 0, ax: 0, ay: 0 }); return; }
+    const w = x1 - x0 + 1, h = y1 - y0 + 1;
+    for (let r = 0; r < h; r++) { const from = ((f.y + y0 + r) * W + f.x + x0) * 4; data.set(A.subarray(from, from + w * 4), ((to[1] + r) * W + to[0]) * 4); }
+    Object.assign(f, { x: to[0], y: to[1], w, h, ax: f.ax - x0, ay: f.ay - y0 });
+  }
   private finish() {
     for (const sheet of this.sheets.values()) {
       const idle = sheet.frames.slice(0, animFrames.idle * DIRS);
-      sheet.height = Math.max(...idle.map(f => f.top)) / (PX * this.cos);
+      sheet.height = Math.max(...idle.map(f => f.top)) / (this.px * this.cos);
     }
+    const { frames, H, data } = this.packed!;
     this.done = {
-      width: this.W, height: this.H, color: this.color!, normal: this.normal!, sheets: this.sheets, pitch: this.pitch, ms: performance.now() - this.t0,
-      phases: this.phases, cells: [...this.sheets.values()].reduce((n, s) => n + s.frames.length, 0), clipped: this.clipped,
+      width: this.W, height: H, data, sheets: this.sheets, pitch: this.pitch, px: this.px, ms: performance.now() - this.t0,
+      phases: this.phases, cells: frames.length, clipped: this.clipped,
     };
     this.A = this.B = new Uint8Array(0);
   }
 
-  /** For the cleaner: the GPU passes and the output. */
-  get io() { return { A: this.A!, B: this.B!, color: this.color!, normal: this.normal!, W: this.W, sin: this.sin, cos: this.cos, clipped: this.clipped }; }
+  /** For the cleaner: the GPU passes, which it overwrites cell by cell with the cleaned texels. */
+  get io() { return { A: this.A!, B: this.B!, W: this.W, sin: this.sin, cos: this.cos, clipped: this.clipped, drawn: this.drawn }; }
 }
 
 /** Bake every base figure at `pitch` in one go. */
-export function bake(pitch: number, figs: Figure[] = figures()): Atlas { return new BakeJob(figs, pitch).step()!; }
+export function bake(pitch: number, figs: Figure[] = figures(), px = PX): Atlas { return new BakeJob(figs, pitch, px).step()!; }
 
 /**
- * Per cell: tones from the surface normal and grain, inner edges, stray pixels, then the outline; writes palette colours.
+ * Per cell: tones from the surface normal and grain, inner edges, stray pixels, then the outline; writes palette
+ * entries and folded normals over the cell's own render texels, which it has read by then.
  * Works on a grid padded by one empty pixel, inside each cell's occupied box, so neighbour reads need no bounds checks.
  */
 class Cleaner {
   private last?: Sheet;
-  private matOf!: Int16Array; private smear!: Uint8Array; private amount!: Float32Array; private ramp!: number[][][]; private lit!: Uint8Array;
-  private part!: Uint8Array; private tone!: Int8Array; private depth!: Float32Array; private src!: Int32Array; private edge!: Uint8Array;
-  private P = 0;
+  private matOf!: Int16Array; private smear!: Uint8Array; private amount!: Float32Array; private entry!: Int16Array;
+  private part!: Uint8Array; private tone!: Int8Array; private depth!: Float32Array; private src!: Int32Array; private edge!: Uint8Array; private oct!: Uint8Array;
   constructor(private readonly job: BakeJob) {}
   private prepare(sheet: Sheet) {
     if (this.last === sheet) return;
     this.last = sheet;
     const parts = sheet.figure.parts;
-    this.matOf = Int16Array.from([-1, ...parts.map(p => Object.keys(materials).indexOf(p.mat))]);
+    this.matOf = Int16Array.from([-1, ...parts.map(p => mats.indexOf(p.mat))]);
     this.smear = Uint8Array.from([0, ...parts.map(p => (p.tag === 'smear' ? 1 : 0))]);
     this.amount = Float32Array.from([0, ...parts.map(p => grain[p.mat]?.[1] ?? 0)]);
-    this.ramp = [rampBytes.eye, ...parts.map(p => rampBytes[p.mat])];
-    this.lit = Uint8Array.from([0, ...parts.map(p => Math.round((glow[p.mat] ?? 0) * 255))]);
-    const { w, h } = sheet.cell, P = w + 2, n = P * (h + 2);
-    this.P = P;
-    this.part = new Uint8Array(n); this.tone = new Int8Array(n); this.depth = new Float32Array(n); this.src = new Int32Array(n); this.edge = new Uint8Array(n);
+    this.entry = Int16Array.from([0, ...parts.map(p => mats.indexOf(p.mat) * RAMP)]);
+    const n = Math.max(...sheet.frames.map(f => (f.w + 2) * (f.h + 2)));
+    this.part = new Uint8Array(n); this.tone = new Int8Array(n); this.depth = new Float32Array(n); this.src = new Int32Array(n); this.edge = new Uint8Array(n); this.oct = new Uint8Array(n * 2);
   }
   cell(sheet: Sheet, ci: number) {
     this.prepare(sheet);
-    const { A, B, color, normal, W, sin, cos, clipped } = this.job.io;
-    const { matOf, smear, amount, ramp, lit, part, tone, depth, src, edge, P } = this;
-    const cell = sheet.frames[ci], { w, h } = sheet.cell;
+    const { A, B, W, sin, cos, clipped, drawn } = this.job.io;
+    const { matOf, smear, amount, entry, part, tone, depth, src, edge, oct } = this;
+    const cell = sheet.frames[ci], { w, h } = cell, P = w + 2;
     const N = [1, -1, P, -P];
     // Outline neighbours, the pixel below first: an outline above the figure takes the softer shade.
     const below = [-P, -1, 1, P];
-    part.fill(0);
+    part.fill(0, 0, P * (h + 2));
     let x0 = w, x1 = -1, y0 = h, y1 = -1;
     for (let y = 0; y < h; y++) {
       let o = ((cell.y + y) * W + cell.x) * 4, i = (y + 1) * P + 1;
       for (let x = 0; x < w; x++, o += 4, i++) {
         if (!A[o + 3]) continue;
-        const k = A[o]; part[i] = k; src[i] = o; depth[i] = (A[o + 1] / 255) * 2 * DEPTH - DEPTH;
+        const k = A[o]; part[i] = k; src[i] = i; depth[i] = (A[o + 1] / 255) * 2 * DEPTH - DEPTH;
+        octahedral(B[o], B[o + 1], B[o + 2], oct, i * 2);
         if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
         if (A[o + 2] === 0) { tone[i] = 0; continue; }
         // Occlusion only: undersides and grazing edges darken, tops catch a glint. Direction and colour of light come at runtime.
@@ -315,7 +388,8 @@ class Cleaner {
         tone[i] = smear[k] ? 2 : v >= 0.86 ? 3 : v >= 0.52 ? 2 : v >= 0.3 ? 1 : 0;
       }
     }
-    if (x1 < 0) { cell.below = cell.top = 0; return; }
+    for (let y = 0; y < h; y++) { const o = ((cell.y + y) * W + cell.x) * 4; A.fill(0, o, o + w * 4); }
+    if (x1 < 0) { cell.below = cell.top = 0; drawn.set(cell, [0, 0, -1, -1]); return; }
     const row = (y: number) => (y + 1) * P + 1;
     for (let y = y0; y <= y1; y++) for (let x = x0, i = row(y) + x0; x <= x1; x++, i++) {
       const k = part[i]; if (!k) continue;
@@ -336,7 +410,7 @@ class Cleaner {
       else if (!part[i] && c === 4) { part[i] = part[from]; tone[i] = tone[from]; src[i] = src[from]; depth[i] = depth[from]; }
     }
     // Selective outline outside the silhouette: the darkened colour of the pixel it borders, softer along the top.
-    let minRow = h, maxRow = -1, clip = false;
+    let minRow = h, maxRow = -1, minCol = w, maxCol = -1, clip = false;
     const ox0 = Math.max(0, x0 - 1), ox1 = Math.min(w - 1, x1 + 1), oy0 = Math.max(0, y0 - 1), oy1 = Math.min(h - 1, y1 + 1);
     for (let y = oy0; y <= oy1; y++) for (let x = ox0, i = row(y) + ox0; x <= ox1; x++, i++) {
       let k = part[i], shade = 1 + tone[i], from = src[i];
@@ -346,14 +420,14 @@ class Cleaner {
         if (j < 0) continue;
         k = part[j]; shade = j === i - P ? 1 : 0; from = src[j];
       }
-      const o = ((cell.y + y) * W + cell.x + x) * 4, c = ramp[k][shade];
-      color[o] = c[0]; color[o + 1] = c[1]; color[o + 2] = c[2]; color[o + 3] = 255;
-      normal[o] = B[from]; normal[o + 1] = B[from + 1]; normal[o + 2] = B[from + 2]; normal[o + 3] = lit[k];
-      if (y < minRow) minRow = y; if (y > maxRow) maxRow = y;
+      const o = ((cell.y + y) * W + cell.x + x) * 4, e = entry[k] + shade;
+      A[o] = oct[from * 2]; A[o + 1] = oct[from * 2 + 1]; A[o + 2] = e & 255; A[o + 3] = 1 + (e >> 8);
+      if (y < minRow) minRow = y; if (y > maxRow) maxRow = y; if (x < minCol) minCol = x; if (x > maxCol) maxCol = x;
       if (x === 0 || y === 0 || x === w - 1 || y === h - 1) clip = true;
     }
     cell.below = maxRow < 0 ? 0 : Math.max(0, cell.ay - minRow);
     cell.top = maxRow < 0 ? 0 : maxRow + 1 - cell.ay;
+    drawn.set(cell, [minCol, minRow, maxCol, maxRow]);
     if (clip) { const an = animOrder.find(a => ci < (animOffset[a] + animFrames[a]) * DIRS)!; const key = `${sheet.figure.id}:${an}`; if (!clipped.includes(key)) clipped.push(key); }
   }
 }

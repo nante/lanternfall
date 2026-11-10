@@ -4,19 +4,33 @@ import { type MapData, type GameView, type Pos, type Effect, type Worn, grounds 
 import { defaultBalance, defaultRules as rules } from '../../../../packages/game/src/default-balance.ts';
 import { corpseMesh } from './actors.ts';
 import type { Key } from './clock-style.ts';
-import { stops } from './stops.ts';
+import { stops, PX } from './stops.ts';
 import { bake, BakeJob, frameIndex, type Atlas, type Sheet } from './figures/bake.ts';
 import { SpriteSheet, SpriteBody, setSpriteLight, spriteLight } from './figures/sprites.ts';
 import { STRIKE, type AnimName } from './figures/poses.ts';
-import { creatures, creatureFigure, heroFigureOf, identityOf, isCreature, isTownsfolk, plainHero, selfIdentity, starterWorn, townsfolkFigure, type Figure } from './figures/kit.ts';
+import { creatures, creatureFigure, heldFigure, heroFigureOf, identityOf, isCreature, isTownsfolk, plainHero, selfIdentity, starterWorn, townsfolkFigure, type Figure } from './figures/kit.ts';
 import { Particles } from './particles.ts';
 import { stepSwing, strike, swingFrame, tuning, prefersReducedMotion, knockOffset, kickPixels, type Swing, type FeelLevel } from './feel.ts';
 
 const mobDefs = defaultBalance.creatures;
 const STEP_MS = defaultBalance.progression.stepMs;
 const PLAY_PITCH = stops.play.pitch;
-/** Bakes are cached by pitch to a tenth of a degree; every stop names the pitch its figures are seen at. */
-const bakeKey = (pitch: number) => Math.round((pitch * 1800) / Math.PI);
+/** Bakes are told apart by pitch to a tenth of a degree; every stop names the pitch its figures are seen at. */
+const pitchKey = (pitch: number) => Math.round((pitch * 1800) / Math.PI);
+/**
+ * Texels per tile a figure can be baked at. The orthographic stops draw PX render px per tile; through a lens a figure
+ * is drawn at whatever its distance gives, and takes the nearest of these so its texels stay one render pixel wide.
+ * Steps of about 1.4× keep the mismatch within ±20%. Past what SHEET_CAP_BYTES allows a figure is magnified; only
+ * small ones, like the hands seen in first person, reach the last levels.
+ */
+const DENSITIES = [16, 24, 32, 44, 64, 88, 128, 176, 256, 352];
+/** A figure keeps its density until another is nearer by this much (log2), so one standing at a boundary never flickers between bakes. */
+const DENSITY_HOLD = 0.12;
+function densityFor(want: number, held: number) {
+  const off = (d: number) => Math.abs(Math.log2(d / want));
+  const best = DENSITIES.reduce((b, d) => (off(d) < off(b) ? d : b));
+  return off(held) <= off(best) + DENSITY_HOLD ? held : best;
+}
 
 export type ActorKind = 'self' | 'player' | 'npc' | 'monster';
 /** What the view needs from an actor: the server's tile, where the feet are drawn, how tall it is and how wide it stands (tiles). */
@@ -30,6 +44,8 @@ export type FrameContext = {
   hideSelf: boolean;
   /** The camera of the last frame: names and pick boxes follow the sprite planes, which face it. */
   camera: THREE.Camera;
+  /** Render buffer height in pixels: with the camera, how many pixels a tile covers where a figure stands. */
+  bufH: number;
   /** A name over a head on this tile would float over a wall that hides its actor. */
   occluded: (x: number, y: number) => boolean;
 };
@@ -51,7 +67,8 @@ function lookOf(kind: ActorKind, id: string, look: string, worn?: Worn): Look {
   return { figure: townsfolkFigure(isTownsfolk(look) ? look : 'vest'), stand: isTownsfolk(look) ? look : 'vest', cadence: 2 };
 }
 
-type Body = { sprite: SpriteBody; look: Look };
+/** `held` is what first person shows of the look: its hands and what they hold. */
+type Body = { sprite: SpriteBody; look: Look; held?: Look };
 type Actor = ActorHandle & {
   look: string; worn: string; body: Body; label?: HTMLDivElement; bar?: HTMLDivElement;
   from?: THREE.Vector3; startedAt?: number; stepMs: number; floorZ?: number; movingUntil: number;
@@ -61,15 +78,32 @@ type Actor = ActorHandle & {
   knockAt: number; knockDir: THREE.Vector2; flash: boolean; seed: number; striking: boolean;
   /** From the feet to where the drawn plane stands: sprites step towards the camera (see SpriteBody.set). */
   lift: THREE.Vector3;
+  /** The density this figure asks for, and the one its drawn bake has. */
+  px: number; shownPx: number;
 };
-type Corpse = { id: string; stage: number; x: number; y: number; z: number; figure?: Figure; dir: number; born: number; collapse: boolean; landed: boolean; sprite?: SpriteBody; mesh?: THREE.Group };
-/** A figure baked on its own, after the base: an outfit, or a creature the base bake leaves out. Baked a few ms per frame. */
-type Lazy = { job?: BakeJob; atlas?: Atlas; sheet?: SpriteSheet; steps: number; worst: number; used: number };
-/** Bake work per frame for lazy figures, so a new outfit spreads over several frames; the stand-in shows meanwhile. */
-const BAKE_BUDGET_MS = 4;
-/** A lazy bake nobody has drawn for this long is dropped: each holds about 6 MB of textures. */
+type Corpse = { id: string; stage: number; x: number; y: number; z: number; look?: Look; dir: number; born: number; collapse: boolean; landed: boolean; px: number; sprite?: SpriteBody; mesh?: THREE.Group };
+/**
+ * One figure baked on its own at one pitch and density: an outfit, a creature the base leaves out, or any figure at
+ * another stop's pitch or a lens's density. Baked a few ms per frame; `asked` is when a frame last wanted it, `used`
+ * when one last drew it. `bytes` is its GPU texture; the CPU copy is dropped once uploaded.
+ */
+type Lazy = { key: string; figure: Figure; pitch: number; px: number; job?: BakeJob; started: boolean; atlas?: Atlas; sheet?: SpriteSheet; bytes: number; steps: number; worst: number; asked: number; used: number };
+type Drawn = { atlas: Atlas; sheet: SpriteSheet; s: Sheet };
+/** Bake work per frame for lazy figures, so a new outfit spreads over several frames; a stand-in shows meanwhile. */
+const BAKE_BUDGET_MS = 5;
+/** A queued bake no frame has asked for this long is dropped before it starts: the figure walked through that density. */
+const ASK_KEEP_MS = 500;
+/** A lazy bake nobody has drawn for this long is dropped. */
 const LAZY_KEEP_MS = 30_000;
+/** GPU memory for lazy bakes; past it the least recently drawn are dropped, and densities are capped while it holds. */
+const LAZY_CAP_BYTES = 192 * 2 ** 20;
+/**
+ * The largest one figure's bake may be. A person stops at 128 texels per tile (17 MB, about 9 ms to upload), a boar at
+ * 176 (30 MB), the troll at 64 (29 MB); nearer than that they are magnified.
+ */
+const SHEET_CAP_BYTES = 32 * 2 ** 20;
 
+const mid = new THREE.Vector3(), probe = new THREE.Vector3();
 /** The contact shadow under a body `span` tiles wide: as wide as it stands, flattened by the view. */
 const blob = (span: number): [number, number] => [Math.max(0.18, span * 0.5), Math.max(0.1, span * 0.29)];
 const dirIndex = (facing: number) => ((Math.round(facing / (Math.PI / 4)) % 8) + 8) % 8;
@@ -83,13 +117,17 @@ export class ActorLayer {
   private readonly corpses = new Map<string, Corpse>();
   /** Camera kick in render pixels; the view adds it after pixel snapping and this layer decays it. */
   readonly kick = new THREE.Vector2();
+  /** The one eager bake: every base figure as Tilt sees it. Every other pitch and density is baked per figure, lazily. */
   readonly atlas: Atlas;
   private readonly sheet: SpriteSheet;
-  /** The base bake at each pitch a stop draws figures from. */
-  private readonly bases = new Map<number, { atlas: Atlas; sheet: SpriteSheet }>();
   private readonly lazy = new Map<string, Lazy>();
-  /** Lazy bakes as they finish, for the lab: which figure, at which pitch, ms of work, over how many frames. */
-  readonly bakes: { id: string; pitch: number; ms: number; steps: number; worst: number; phases: Atlas['phases'] }[] = [];
+  /** Finished lazy bakes by figure id, for stand-ins. */
+  private readonly ready = new Map<string, Lazy[]>();
+  private lazyBytes = 0;
+  /** Texture bytes per texel-per-tile squared, by figure id: how big a bake of it will be at any density. */
+  private readonly weight = new Map<string, number>();
+  /** Lazy bakes as they finish, for the lab: which figure, at which pitch and density, ms of work, over how many frames, GPU bytes. */
+  readonly bakes: { id: string; pitch: number; px: number; ms: number; steps: number; worst: number; bytes: number; phases: Atlas['phases'] }[] = [];
   private readonly particles = new Particles();
   feel: FeelLevel = 'heavy';
   motion: Motion = 'glide';
@@ -106,10 +144,6 @@ export class ActorLayer {
   constructor(readonly scene: THREE.Scene, readonly labels: HTMLElement, readonly map: MapData, readonly screen: (v: THREE.Vector3) => { x: number; y: number }) {
     this.atlas = bake(PLAY_PITCH);
     this.sheet = new SpriteSheet(this.atlas);
-    this.bases.set(bakeKey(PLAY_PITCH), { atlas: this.atlas, sheet: this.sheet });
-    // The other stops' bakes are made in idle time after the first paint, so the first change of view never stalls.
-    const idle = (globalThis as { requestIdleCallback?: (f: () => void, o?: { timeout: number }) => void }).requestIdleCallback ?? ((f: () => void) => setTimeout(f, 1500));
-    idle(() => { for (const st of Object.values(stops)) this.bakeFor(st.figures); }, { timeout: 4000 });
     console.info(`figures: baked ${this.atlas.cells} frames (${this.atlas.width}×${this.atlas.height}) in ${this.atlas.ms.toFixed(0)} ms`);
     this.particles.points.layers.set(ACTOR_LAYER); scene.add(this.particles.points);
   }
@@ -138,49 +172,126 @@ export class ActorLayer {
     const along = (px * hx + pz * hz) / len, side = Math.abs(px * hz - pz * hx) / len;
     return along > 0 && along < len - 0.5 && side < 0.8;
   }
-  /** The bake for a pitch, made the first time a stop needs it, then kept. */
-  private bakeFor(pitch: number) {
-    const key = bakeKey(pitch);
-    let b = this.bases.get(key);
-    if (!b) { const atlas = bake(pitch); b = { atlas, sheet: new SpriteSheet(atlas) }; this.bases.set(key, b); console.info(`figures: bake at ${(key / 10).toFixed(1)}° ${atlas.cells} frames in ${atlas.ms.toFixed(0)} ms`); }
-    return b;
-  }
   private serverNow() { const s = this.server; return s.time + Math.min(performance.now() - s.at, 250) * s.rate; }
   private makeBody(look: Look): Body { const sprite = this.sheet.body(); sprite.addTo(this.scene); return { sprite, look }; }
   private dropBody(b: Body) { b.sprite.dispose(); }
   private show(a: Actor, on: boolean) { a.body.sprite.visible = on; }
   /**
-   * The bake to draw `look` from at `pitch`: the base bake if it holds the figure, else the figure's own bake once it is
-   * done, else the stand-in from the base bake. Asking queues the figure's own bake.
+   * The bake to draw `look` from at `pitch` and `px` texels per tile: the base if that is what it asks for, else the
+   * figure's own bake once it is done. Until then the nearest stand-in: the figure at the same pitch and the nearest
+   * density, then the figure in the base, then at any pitch, then the base's plain look. With `ask`, queues the bake,
+   * and while nothing stands in at this pitch a quick one at PX too, so a new stop fills with the right view first.
    */
-  private sheetFor(look: Look, pitch: number, base: { atlas: Atlas; sheet: SpriteSheet }): { atlas: Atlas; sheet: SpriteSheet; s: Sheet } | undefined {
-    const own = base.atlas.sheets.get(look.figure.id);
-    if (own) return { ...base, s: own };
-    const key = `${look.figure.id}@${pitch.toFixed(4)}`;
-    let l = this.lazy.get(key);
-    if (!l) { l = { job: new BakeJob([look.figure], pitch), steps: 0, worst: 0, used: 0 }; this.lazy.set(key, l); }
-    l.used = performance.now();
-    if (l.atlas && l.sheet) return { atlas: l.atlas, sheet: l.sheet, s: l.atlas.sheets.get(look.figure.id)! };
-    const stand = look.stand && base.atlas.sheets.get(look.stand);
-    return stand ? { ...base, s: stand } : undefined;
+  private sheetFor(look: Look, pitch: number, px: number, now: number, ask: boolean): Drawn | undefined {
+    const { figure } = look, inBase = this.atlas.sheets.get(figure.id);
+    const base = (s: Sheet): Drawn => ({ atlas: this.atlas, sheet: this.sheet, s });
+    if (inBase && px === PX && pitchKey(pitch) === pitchKey(PLAY_PITCH)) return base(inBase);
+    const l = this.lazy.get(`${figure.id}@${pitchKey(pitch)}@${px}`) ?? (ask ? this.queue(figure, pitch, px, now) : undefined);
+    if (l && ask) l.asked = now;
+    const own = (r: Lazy): Drawn => { r.used = now; return { atlas: r.atlas!, sheet: r.sheet!, s: r.atlas!.sheets.get(figure.id)! }; };
+    if (l?.sheet) return own(l);
+    const done = this.ready.get(figure.id);
+    let same: Lazy | undefined;
+    if (done) for (const r of done) if (pitchKey(r.pitch) === pitchKey(pitch) && (!same || Math.abs(Math.log2(r.px / px)) < Math.abs(Math.log2(same.px / px)))) same = r;
+    if (same) return own(same);
+    if (ask && px > PX) (this.lazy.get(`${figure.id}@${pitchKey(pitch)}@${PX}`) ?? this.queue(figure, pitch, PX, now)).asked = now;
+    if (inBase) return base(inBase);
+    if (done) return own(done[0]);
+    const stand = look.stand && this.atlas.sheets.get(look.stand);
+    return stand ? base(stand) : undefined;
   }
-  /** Advance the oldest unfinished lazy bake by one frame's budget, and drop bakes no one draws any more. */
-  private bakeStep() {
-    const now = performance.now();
-    for (const [key, l] of this.lazy) if (now - l.used > LAZY_KEEP_MS) { l.sheet?.dispose(); this.lazy.delete(key); }
-    for (const [key, l] of this.lazy) {
-      if (!l.job) continue;
-      l.steps++;
-      const t0 = performance.now(), atlas = l.job.step(BAKE_BUDGET_MS);
-      l.worst = Math.max(l.worst, performance.now() - t0);
-      if (atlas) {
-        l.atlas = atlas; l.sheet = new SpriteSheet(atlas); l.job = undefined;
-        const work = atlas.phases.setup + atlas.phases.render + atlas.phases.clean;
-        this.bakes.push({ id: key, pitch: atlas.pitch, ms: work, steps: l.steps, worst: l.worst, phases: atlas.phases });
-        console.info(`figures: baked ${key} (${atlas.cells} frames) in ${work.toFixed(1)} ms of work over ${l.steps} frames, longest frame ${l.worst.toFixed(1)} ms`);
-      }
-      return;
+  private queue(figure: Figure, pitch: number, px: number, now: number) {
+    const key = `${figure.id}@${pitchKey(pitch)}@${px}`, l: Lazy = { key, figure, pitch, px, job: new BakeJob([figure], pitch, px), started: false, bytes: 0, steps: 0, worst: 0, asked: now, used: 0 };
+    this.lazy.set(key, l);
+    return l;
+  }
+  /**
+   * The densest bake of `look` that fits SHEET_CAP_BYTES, judged from any bake of it (or its stand-in) already made.
+   * A figure never seen bakes at PX first, which tells.
+   */
+  private densest(look: Look) {
+    const w = this.weightOf(look.figure.id) ?? (look.stand ? this.weightOf(look.stand) : undefined);
+    if (w === undefined) return PX;
+    let best = DENSITIES[0];
+    for (const d of DENSITIES) if (d * d * w <= SHEET_CAP_BYTES) best = d;
+    return best;
+  }
+  private weightOf(id: string) {
+    let w = this.weight.get(id);
+    if (w !== undefined) return w;
+    const inBase = this.atlas.sheets.get(id), r = this.ready.get(id)?.[0];
+    const s = inBase ? { s: inBase, px: PX } : r ? { s: r.atlas!.sheets.get(id)!, px: r.px } : undefined;
+    if (!s) return undefined;
+    w = s.s.frames.reduce((n, f) => n + f.w * f.h * 4, 0) / s.px ** 2;
+    this.weight.set(id, w);
+    return w;
+  }
+  /**
+   * The densest bake memory allows: while lazy bakes drawn this second fill the cap, no figure asks for more than it
+   * already has, so a crowd at the lens keeps what is baked instead of evicting itself.
+   */
+  private densityCap(now: number) {
+    let live = 0;
+    for (const l of this.lazy.values()) if (l.sheet && now - l.used < 1000) live += l.bytes;
+    return live > LAZY_CAP_BYTES * 0.8 ? PX * 2 : Infinity;
+  }
+  /**
+   * Advance one lazy bake by a frame's budget: the one already started, else the one a frame asked for that is worst
+   * served. A figure with nothing at its pitch comes first, cheapest first, so a new stop fills with the right view
+   * quickly; then the figure whose nearest stand-in is furthest from the density it wants. Drop queued bakes no one
+   * asks for, and finished ones past the keep time or the cap.
+   */
+  private bakeStep(now: number) {
+    const rank = (l: Lazy) => {
+      let off = Infinity;
+      for (const r of this.ready.get(l.figure.id) ?? []) if (pitchKey(r.pitch) === pitchKey(l.pitch)) off = Math.min(off, Math.abs(Math.log2(r.px / l.px)));
+      if (off === Infinity && pitchKey(l.pitch) === pitchKey(PLAY_PITCH) && this.atlas.sheets.has(l.figure.id)) off = Math.abs(Math.log2(PX / l.px));
+      return off === Infinity ? l.px : 1000 - off * 100;
+    };
+    let started: Lazy | undefined, next: Lazy | undefined, best = Infinity;
+    for (const l of this.lazy.values()) {
+      if (l.sheet) { if (now - l.used > LAZY_KEEP_MS) this.drop(l); }
+      else if (l.started) started = l;
+      else if (now - l.asked > ASK_KEEP_MS) this.lazy.delete(l.key);
+      else { const r = rank(l); if (r < best) { best = r; next = l; } }
     }
+    next = started ?? next;
+    if (!next?.job) return;
+    next.started = true; next.steps++;
+    const t0 = performance.now(), atlas = next.job.step(BAKE_BUDGET_MS);
+    next.worst = Math.max(next.worst, performance.now() - t0);
+    if (!atlas) return;
+    next.atlas = atlas; next.sheet = new SpriteSheet(atlas); next.job = undefined; next.used = now;
+    next.bytes = next.sheet.bytes;
+    this.lazyBytes += next.bytes;
+    const list = this.ready.get(next.figure.id) ?? []; list.push(next); this.ready.set(next.figure.id, list);
+    const work = atlas.phases.setup + atlas.phases.render + atlas.phases.clean;
+    this.bakes.push({ id: next.key, pitch: atlas.pitch, px: atlas.px, ms: work, steps: next.steps, worst: next.worst, bytes: next.bytes, phases: atlas.phases });
+    console.info(`figures: baked ${next.key} (${atlas.width}×${atlas.height}, ${(next.bytes / 2 ** 20).toFixed(1)} MB) in ${work.toFixed(1)} ms of work over ${next.steps} frames, longest frame ${next.worst.toFixed(1)} ms`);
+    // Past the cap the least recently drawn go, but never one drawn this last second: densityCap stops growth instead.
+    while (this.lazyBytes > LAZY_CAP_BYTES) {
+      let old: Lazy | undefined;
+      for (const l of this.lazy.values()) if (l.sheet && now - l.used > 1000 && (!old || l.used < old.used)) old = l;
+      if (!old) break;
+      this.drop(old);
+    }
+  }
+  private drop(l: Lazy) {
+    l.sheet?.dispose(); this.lazy.delete(l.key); this.lazyBytes -= l.bytes;
+    const list = this.ready.get(l.figure.id);
+    if (list) { list.splice(list.indexOf(l), 1); if (!list.length) this.ready.delete(l.figure.id); }
+  }
+  /** Whether `p` is in front of the camera and near enough the frame to be drawn soon. */
+  private inView(p: THREE.Vector3, ctx: FrameContext) {
+    const v = probe.copy(p).project(ctx.camera);
+    return v.z > -1 && v.z < 1 && Math.abs(v.x) < 1.3 && Math.abs(v.y) < 1.3;
+  }
+  /** Texels per tile `p` is drawn at this frame: PX in the orthographic stops, falling with distance through a lens. */
+  private drawnPx(p: THREE.Vector3, ctx: FrameContext) {
+    const cam = ctx.camera as THREE.PerspectiveCamera | THREE.OrthographicCamera, scale = (cam.projectionMatrix.elements[5] * ctx.bufH) / 2;
+    if (!(cam instanceof THREE.PerspectiveCamera)) return scale;
+    const e = cam.matrixWorldInverse.elements, depth = -(e[2] * p.x + e[6] * p.y + e[10] * p.z + e[14]);
+    return scale / Math.max(0.05, depth);
   }
   private clear() {
     for (const a of this.actors.values()) { this.dropBody(a.body); a.label?.remove(); }
@@ -200,13 +311,13 @@ export class ActorLayer {
       live.add(id);
       let a = this.actors.get(id);
       const wornKey = worn ? JSON.stringify(worn) : '';
-      if (a && a.worn !== wornKey) a.body.look = lookOf(kind, id, look, worn);
+      if (a && a.worn !== wornKey) { a.body.look = lookOf(kind, id, look, worn); a.body.held = undefined; }
       if (!a) {
         const body = this.makeBody(lookOf(kind, id, look, worn)), target = new THREE.Vector3(p.x, 0, p.y);
         a = {
           id, kind, name, look, worn: wornKey, body, target, position: target.clone(), height: 1, size: 1, visible: true, stepMs: STEP_MS, movingUntil: 0,
           facing: p.facing ?? 0, hp, max, attackAt, foe, clock: 0, stopUntil: 0, swing: { phase: 'rest' }, walk: 0, walkFrame: -1,
-          hurtAt: -1e9, castAt: -1e9, knockAt: -1e9, knockDir: new THREE.Vector2(), lift: new THREE.Vector3(), flash: false, seed: (id.length * 977 + id.charCodeAt(0) * 131) % 1300, striking: false,
+          hurtAt: -1e9, castAt: -1e9, knockAt: -1e9, knockDir: new THREE.Vector2(), lift: new THREE.Vector3(), px: PX, shownPx: PX, flash: false, seed: (id.length * 977 + id.charCodeAt(0) * 131) % 1300, striking: false,
         };
         if (kind !== 'self') {
           a.label = document.createElement('div'); a.label.className = `world-label ${kind}`;
@@ -256,7 +367,7 @@ export class ActorLayer {
       const who = this.gone.find(g => g.x === c.x && g.y === c.y && g.z === c.z);
       const figure = c.stage >= 2 ? undefined : c.kind === 'hero' ? (c.owner === self.id ? heroFigureOf(starterWorn, selfIdentity) : plainHero()) : isCreature(c.kind) ? creatureFigure(c.kind) : undefined;
       const fresh = !old && view.time - (c.born ?? 0) < 600;
-      const k: Corpse = { id: c.id, stage: c.stage, x: c.x, y: c.y, z: c.z, figure, dir: who ? dirIndex(who.facing) : (c.x * 7 + c.y) % 8, born: this.clock, collapse: fresh && tuning(this.feel, this.reduced).collapse, landed: !fresh };
+      const k: Corpse = { id: c.id, stage: c.stage, x: c.x, y: c.y, z: c.z, look: figure && { figure, cadence: 2 }, dir: who ? dirIndex(who.facing) : (c.x * 7 + c.y) % 8, born: this.clock, collapse: fresh && tuning(this.feel, this.reduced).collapse, landed: !fresh, px: PX };
       if (k.collapse) this.log.collapses++;
       if (figure) { k.sprite = this.sheet.body(); k.sprite.addTo(this.scene); }
       else { k.mesh = corpseMesh(c.kind); k.mesh.position.set(c.x, 0, c.y); k.mesh.rotation.y = (c.x * 7 + c.y) % 6; k.mesh.traverse(o => o.layers.set(ACTOR_LAYER)); this.scene.add(k.mesh); }
@@ -301,10 +412,10 @@ export class ActorLayer {
 
   frame(dt: number, t: number, ctx: FrameContext) {
     const tun = tuning(this.feel, this.reduced), dms = dt * 1000 * this.server.rate, sNow = this.serverNow();
-    const base = this.bakeFor(ctx.pitch), pitch = base.atlas.pitch;
+    const pitch = ctx.pitch, now = performance.now(), cap = this.densityCap(now);
     const turn = Math.round(ctx.yaw / (Math.PI / 4));
     spriteLight.uYaw.value = ctx.yaw;
-    this.bakeStep();
+    this.bakeStep(now);
     this.clock += dms;
     setSpriteLight(ctx.key, ctx.sunDir, ctx.floor === 1, ctx.wide);
     const sunStrength = ctx.floor === 1 ? 0 : ctx.key.shadows * Math.min(1, ctx.key.sunI / 2.5);
@@ -325,12 +436,20 @@ export class ActorLayer {
       if (was.phase !== 'windup' && next.phase === 'windup') this.log.windups++;
       if (was.phase === 'windup' && next.phase === 'recover') this.log.relaxed++;
       a.swing = next;
-      const shown = a.visible && !(a.kind === 'self' ? ctx.hideSelf : ctx.hiddenByRoof(Math.round(a.target.x), Math.round(a.target.z)));
+      // With the lens in the head the hero is drawn as their hands alone: the eye sees a raised torch, a swing.
+      const held = a.kind === 'self' && ctx.hideSelf;
+      const shown = a.visible && (held || !ctx.hiddenByRoof(Math.round(a.target.x), Math.round(a.target.z)));
+      const look = held ? (a.body.held ??= { figure: heldFigure(a.body.look.figure), cadence: a.body.look.cadence }) : a.body.look;
       const moving = sNow < a.movingUntil;
 
-      const drawn = this.sheetFor(a.body.look, pitch, base);
+      // Only a figure on screen asks for a bake; one out of view keeps whatever it last drew.
+      mid.copy(pos).setY(a.height / 2);
+      const seen = shown && this.inView(mid, ctx);
+      if (seen) a.px = Math.min(densityFor(this.drawnPx(mid, ctx), a.px), Math.max(cap, a.shownPx), this.densest(look));
+      const drawn = this.sheetFor(look, pitch, a.px, now, seen);
       if (drawn) {
-        a.size = drawn.s.span;
+        a.shownPx = drawn.atlas.px;
+        if (!held) a.size = drawn.s.span;
         let anim: AnimName = 'idle', frame = 0;
         const sf = swingFrame(a.swing, a.clock);
         if (sf !== null) { anim = 'attack'; frame = sf; }
@@ -352,14 +471,15 @@ export class ActorLayer {
         const kb = knockOffset(a.clock - a.knockAt, tun.knock);
         const ghost = a.kind !== 'self' && !!me && this.between(ctx.camera.position, me.position, pos);
         const foot = new THREE.Vector3(pos.x + a.knockDir.x * kb, 0, pos.z + a.knockDir.y * kb);
-        a.body.sprite.set(rect, foot, { flat: false, flash: a.flash, dim: 0, sun: ctx.sunDir, sunStrength, blob: blob(a.size), self: a.kind === 'self' ? 0.35 : 0, ghost }, pitch);
+        a.body.sprite.set(rect, foot, { flat: false, flash: a.flash, dim: 0, sun: ctx.sunDir, sunStrength, blob: blob(a.size), self: a.kind === 'self' ? 0.35 : 0, ghost });
         a.flash = false;
         a.body.sprite.visible = shown;
+        if (held) a.body.sprite.shadow.visible = false;
         // Where the shader puts the plane: stepped `front` towards the camera, rising to keep the feet on the tile, and
         // top rows over 1/c of a tile, c being the camera's level share.
         const e = ctx.camera.matrixWorldInverse.elements, c = Math.hypot(e[2], e[10]) || 1, front = a.body.sprite.front;
         a.lift.set((e[2] / c) * front, (front * e[6]) / c, (e[10] / c) * front);
-        a.height = (drawn.s.height * Math.cos(pitch)) / c;
+        if (!held) a.height = (drawn.s.height * Math.cos(drawn.atlas.pitch)) / c;
       } else a.body.sprite.visible = false;
 
       if (a.label) {
@@ -382,14 +502,17 @@ export class ActorLayer {
     }
 
     for (const k of this.corpses.values()) {
-      const drawn = k.figure && this.sheetFor({ figure: k.figure, cadence: 2 }, pitch, base);
-      if (!k.sprite || !drawn) continue;
+      if (!k.sprite || !k.look || !k.sprite.visible) continue;
+      const seen = this.inView(mid.set(k.x, 0.2, k.y), ctx);
+      if (seen) k.px = Math.min(densityFor(this.drawnPx(mid, ctx), k.px), Math.max(cap, PX), this.densest(k.look));
+      const drawn = this.sheetFor(k.look, pitch, k.px, now, seen);
+      if (!drawn) continue;
       // The collapse plays the die frames once; the body lies flat from the third frame on.
       const frame = k.collapse ? Math.min(3, Math.floor((this.clock - k.born) / 110)) : 3;
       if (frame === 3 && !k.landed) { k.landed = true; if (!this.reduced) this.particles.collapse(new THREE.Vector3(k.x, 0, k.y), 0.8); }
       k.sprite.use(drawn.sheet);
       const rect = drawn.s.frames[frameIndex('die', frame, (((k.dir - turn) % 8) + 8) % 8)];
-      k.sprite.set(rect, new THREE.Vector3(k.x, 0, k.y), { flat: frame >= 2, flash: false, dim: k.stage ? 0.55 : 0, sun: ctx.sunDir, sunStrength, blob: blob(drawn.s.span * 1.1) }, pitch);
+      k.sprite.set(rect, new THREE.Vector3(k.x, 0, k.y), { flat: frame >= 2, flash: false, dim: k.stage ? 0.55 : 0, sun: ctx.sunDir, sunStrength, blob: blob(drawn.s.span * 1.1) });
     }
   }
 }
