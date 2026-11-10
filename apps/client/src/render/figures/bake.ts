@@ -145,7 +145,8 @@ function baker() {
 /**
  * Bakes figures × animations × directions at `pitch` with an orthographic camera at exactly PX px per tile, then cleans
  * up on the CPU: 4-tone palette ramps by surface direction, a selective 1 px outline, no stray pixels. `step` does as
- * much as fits in a time budget, so a bake can spread over several frames; the GPU pass is one step, cleaning splits by cell.
+ * much as fits in a time budget, so a bake can spread over several frames: building the scene and each GPU pass are a
+ * step apiece, cleaning splits by cell.
  */
 export class BakeJob {
   private readonly t0 = performance.now();
@@ -154,6 +155,7 @@ export class BakeJob {
   private sheets = new Map<string, Sheet>();
   private W = WIDTH; private H = 0;
   private A?: Uint8Array; private B?: Uint8Array;
+  private gpu?: { scene: THREE.Scene; cam: THREE.OrthographicCamera; rt: THREE.WebGLRenderTarget; passes: [THREE.ShaderMaterial, Uint8Array][]; next: number; reading?: boolean };
   private color?: Uint8Array; private normal?: Uint8Array;
   private queue: [Sheet, number][] = [];
   private clipped: string[] = [];
@@ -166,7 +168,11 @@ export class BakeJob {
     while (!this.done && left() > 0) {
       const t = performance.now();
       if (!this.posedFigs) { this.layout(); this.phases.setup += performance.now() - t; continue; }
-      if (!this.A) { this.render(); this.phases.render += performance.now() - t; continue; }
+      if (!this.A) {
+        if (this.gpu?.reading) break;
+        if (!this.gpu) this.build(); else this.pass(budget === Infinity);
+        this.phases.render += performance.now() - t; continue;
+      }
       if (this.queue.length) {
         const cleaner = new Cleaner(this);
         while (this.queue.length && left() > 0) { const [sheet, ci] = this.queue.shift()!; cleaner.cell(sheet, ci); }
@@ -191,7 +197,7 @@ export class BakeJob {
     this.H = Math.ceil(y / 4) * 4;
   }
 
-  private render() {
+  private build() {
     const { W, H, sin, cos } = this;
     const camUp = new THREE.Vector3(0, cos, -sin), scene = new THREE.Scene();
     this.figs.forEach((f, fi) => {
@@ -216,20 +222,31 @@ export class BakeJob {
     });
     const cam = new THREE.OrthographicCamera(-W / 2 / PX, W / 2 / PX, H / 2 / PX, -H / 2 / PX, 0.1, 40);
     cam.position.set(0, sin * D, cos * D); cam.lookAt(0, 0, 0); cam.updateMatrixWorld();
-    const { renderer, ids, nrm } = baker();
+    const { ids, nrm } = baker();
     const rt = new THREE.WebGLRenderTarget(W, H, { depthBuffer: true, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, generateMipmaps: false });
-    const A = new Uint8Array(W * H * 4), B = new Uint8Array(W * H * 4);
-    renderer.setRenderTarget(rt);
-    for (const [mat, buf] of [[ids, A], [nrm, B]] as const) {
-      scene.overrideMaterial = mat;
-      renderer.clear(); renderer.render(scene, cam);
-      renderer.readRenderTargetPixels(rt, 0, 0, W, H, buf);
-    }
+    this.gpu = { scene, cam, rt, passes: [[ids, new Uint8Array(W * H * 4)], [nrm, new Uint8Array(W * H * 4)]], next: 0 };
+  }
+
+  /**
+   * One GPU pass and its read back: part ids, depth and grain first, then normals. A bake spread over frames reads back
+   * asynchronously, so waiting for the GPU never blocks a frame; the next step starts once the pixels are in.
+   */
+  private pass(sync: boolean) {
+    const g = this.gpu!, { renderer } = baker(), [mat, buf] = g.passes[g.next++];
+    renderer.setRenderTarget(g.rt);
+    g.scene.overrideMaterial = mat;
+    renderer.clear(); renderer.render(g.scene, g.cam);
+    if (sync) renderer.readRenderTargetPixels(g.rt, 0, 0, this.W, this.H, buf);
+    else { g.reading = true; void renderer.readRenderTargetPixelsAsync(g.rt, 0, 0, this.W, this.H, buf).then(() => { g.reading = false; if (g.next === g.passes.length) this.read(); }); }
     renderer.setRenderTarget(null);
-    rt.dispose();
-    for (const o of scene.children) { (o as THREE.InstancedMesh).geometry.dispose(); (o as THREE.InstancedMesh).dispose(); }
-    this.A = A; this.B = B;
-    this.color = new Uint8Array(W * H * 4); this.normal = new Uint8Array(W * H * 4);
+    if (sync && g.next === g.passes.length) this.read();
+  }
+  private read() {
+    const g = this.gpu!;
+    g.rt.dispose();
+    for (const o of g.scene.children) { (o as THREE.InstancedMesh).geometry.dispose(); (o as THREE.InstancedMesh).dispose(); }
+    this.A = g.passes[0][1]; this.B = g.passes[1][1];
+    this.color = new Uint8Array(this.W * this.H * 4); this.normal = new Uint8Array(this.W * this.H * 4);
     for (const sheet of this.sheets.values()) sheet.frames.forEach((_, i) => this.queue.push([sheet, i]));
   }
 

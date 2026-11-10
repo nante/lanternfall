@@ -53,7 +53,7 @@ type Actor = ActorHandle & {
 };
 type Corpse = { id: string; stage: number; x: number; y: number; z: number; figure?: Figure; dir: number; born: number; collapse: boolean; landed: boolean; sprite?: SpriteBody; mesh?: THREE.Group };
 /** A figure baked on its own, after the base: an outfit, or a creature the base bake leaves out. Baked a few ms per frame. */
-type Lazy = { job?: BakeJob; atlas?: Atlas; sheet?: SpriteSheet; steps: number };
+type Lazy = { job?: BakeJob; atlas?: Atlas; sheet?: SpriteSheet; steps: number; worst: number };
 /** Bake work per frame for lazy figures, so a new outfit never costs a hitch; the stand-in shows meanwhile. */
 const BAKE_BUDGET_MS = 4;
 
@@ -75,7 +75,7 @@ export class ActorLayer {
   private low?: { atlas: Atlas; sheet: SpriteSheet };
   private readonly lazy = new Map<string, Lazy>();
   /** Lazy bakes as they finish, for the lab: which figure, at which pitch, ms of work, over how many frames. */
-  readonly bakes: { id: string; pitch: number; ms: number; steps: number }[] = [];
+  readonly bakes: { id: string; pitch: number; ms: number; steps: number; worst: number; phases: Atlas['phases'] }[] = [];
   private readonly particles = new Particles();
   feel: FeelLevel = 'heavy';
   motion: Motion = 'glide';
@@ -130,7 +130,7 @@ export class ActorLayer {
     if (own) return { ...base, s: own };
     const key = `${look.figure.id}@${pitch.toFixed(4)}`;
     let l = this.lazy.get(key);
-    if (!l) { l = { job: new BakeJob([look.figure], pitch), steps: 0 }; this.lazy.set(key, l); }
+    if (!l) { l = { job: new BakeJob([look.figure], pitch), steps: 0, worst: 0 }; this.lazy.set(key, l); }
     if (l.atlas && l.sheet) return { atlas: l.atlas, sheet: l.sheet, s: l.atlas.sheets.get(look.figure.id)! };
     const stand = look.stand && base.atlas.sheets.get(look.stand);
     return stand ? { ...base, s: stand } : undefined;
@@ -140,12 +140,13 @@ export class ActorLayer {
     for (const [key, l] of this.lazy) {
       if (!l.job) continue;
       l.steps++;
-      const atlas = l.job.step(BAKE_BUDGET_MS);
+      const t0 = performance.now(), atlas = l.job.step(BAKE_BUDGET_MS);
+      l.worst = Math.max(l.worst, performance.now() - t0);
       if (atlas) {
         l.atlas = atlas; l.sheet = new SpriteSheet(atlas); l.job = undefined;
         const work = atlas.phases.setup + atlas.phases.render + atlas.phases.clean;
-        this.bakes.push({ id: key, pitch: atlas.pitch, ms: work, steps: l.steps });
-        console.info(`figures: baked ${key} (${atlas.cells} frames) in ${work.toFixed(1)} ms of work over ${l.steps} frames`);
+        this.bakes.push({ id: key, pitch: atlas.pitch, ms: work, steps: l.steps, worst: l.worst, phases: atlas.phases });
+        console.info(`figures: baked ${key} (${atlas.cells} frames) in ${work.toFixed(1)} ms of work over ${l.steps} frames, longest frame ${l.worst.toFixed(1)} ms`);
       }
       return;
     }

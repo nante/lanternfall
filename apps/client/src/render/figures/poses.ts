@@ -85,7 +85,7 @@ const human: Record<AnimName, Pose[]> = {
   ],
 };
 
-const boarWalkA: Pose = { t: { body: [0, -0.02, 0] }, r: { legFR: [-0.45, 0, 0], legBL: [-0.4, 0, 0], legFL: [0.45, 0, 0], legBR: [0.4, 0, 0], head: [0.05, 0, 0], tail: [0.3, 0, 0.3] } };
+const boarWalkA: Pose = { t: { body: [0, -0.025, 0] }, r: { legFR: [-0.55, 0, 0], legBL: [-0.5, 0, 0], legFL: [0.5, 0, 0], legBR: [0.5, 0, 0], head: [0.08, 0, 0], tail: [0.3, 0, 0.3] } };
 const boarWalkB: Pose = { t: { body: [0, 0.03, 0], legFL: [0, 0.05, 0], legBR: [0, 0.05, 0] }, r: { legFL: [-0.15, 0, 0], legBR: [-0.1, 0, 0], head: [0.12, 0, 0], tail: [0.2, 0, 0] } };
 const boar: Record<AnimName, Pose[]> = {
   idle: [

@@ -447,7 +447,7 @@ export function heroFigure(worn: Worn, who: Identity): Figure {
 // Front and back must differ in value and outline, so its facing reads from any of the 8 directions.
 const boarJoints: JointDef[] = [
   { name: 'root', at: [0, 0, 0] },
-  { name: 'body', parent: 'root', at: [0, 0.42, 0] },
+  { name: 'body', parent: 'root', at: [0, 0.5, 0] },
   { name: 'head', parent: 'body', at: [0, -0.07, 0.38] },
   { name: 'legFR', parent: 'body', at: [-0.15, -0.13, 0.19] },
   { name: 'legFL', parent: 'body', at: [0.15, -0.13, 0.19] },
@@ -470,8 +470,9 @@ const boarParts = () => parts(add => {
   const ridge = [[0.26, 0.2], [0.15, 0.3], [0.03, 0.29], [-0.09, 0.23], [-0.2, 0.15]] as const;
   for (const [z, h] of ridge) add('body', 'thorn', cone(0.07, h, [0, 0.31 - Math.abs(z - 0.1) * 0.2, z], [-0.5, 0, 0], 5));
   for (const leg of ['legFR', 'legFL', 'legBR', 'legBL']) {
-    add(leg, 'boarDark', limb(0.09, 0.058, 0.25));
-    add(leg, 'hoof', blob(0.058, 0.045, 0.068, [0, -0.28, 0.01], undefined, 6));
+    // Legs long enough to show under the barrel from above, so the trot reads and the boar is not a rolling blob.
+    add(leg, 'boarDark', limb(0.09, 0.058, 0.33));
+    add(leg, 'hoof', blob(0.058, 0.045, 0.068, [0, -0.36, 0.01], undefined, 6));
   }
   add('tail', 'boarHide', place(limb(0.028, 0.018, 0.14), [0, 0, 0], [-2.3, 0, 0]));
   add('tail', 'boarDark', blob(0.045, 0.06, 0.045, [0, 0.1, -0.12], undefined, 5));
@@ -592,7 +593,7 @@ export const creatures = {
   gutterRat: { label: 'Gutter rat', skeleton: 'rat', joints: ratJoints, parts: ratParts, scale: 0.8, cadence: 4 },
   mireGrub: { label: 'Mire grub', skeleton: 'grub', joints: grubJoints, parts: grubParts, scale: 1.1, cadence: 1.5 },
   caveBeetle: { label: 'Cave beetle', skeleton: 'beetle', joints: beetleJoints, parts: beetleParts, scale: 1.15, cadence: 3 },
-  thornboar: { label: 'Thornboar', skeleton: 'boar', joints: boarJoints, parts: boarParts, scale: 1.4, cadence: 2 },
+  thornboar: { label: 'Thornboar', skeleton: 'boar', joints: boarJoints, parts: boarParts, scale: 1.3, cadence: 2 },
   /** Display only: no mob kind uses it. It proves a giant is a row, at two and a half times a person. */
   barrowTroll: { label: 'Barrow troll', skeleton: 'human', joints: humanJoints, scale: 2.5, cadence: 1.5,
     stance: { spine: [0.38, 0, 0], neck: [-0.2, 0, 0], head: [-0.25, 0, 0], shoulderR: [-0.15, 0, -0.2], shoulderL: [-0.1, 0, 0.25], hipR: [-0.15, 0, 0], hipL: [-0.15, 0, 0], kneeR: [0.3, 0, 0], kneeL: [0.3, 0, 0] },

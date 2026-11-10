@@ -98,7 +98,7 @@ function watch(ctx: TabContext, seconds: number) {
       }
     }
     const L = layer.log, secs = (performance.now() - start) / 1000;
-    const lazy = layer.bakes.map(b => `${b.id.split('@')[0].replace(/^hero:[^:]+:[^:]+:\d:/, '')} ${b.ms.toFixed(0)} ms in ${b.steps}`).join(' · ');
+    const lazy = layer.bakes.map(b => `${b.id.split('@')[0].replace(/^hero:[^:]+:[^:]+:\d:/, '')} ${b.ms.toFixed(0)} ms in ${b.steps} (max ${b.worst.toFixed(1)}; layout ${b.phases.setup.toFixed(1)}, render ${b.phases.render.toFixed(1)}, clean ${b.phases.clean.toFixed(1)})`).join(' · ');
     const text = `figures · feel ${layer.feel} · ${layer.motion}${layer.reduced ? ' · reduced motion' : ''}\nbake ${layer.atlas ? `${layer.atlas.cells} frames ${layer.atlas.ms.toFixed(0)} ms (setup ${layer.atlas.phases.setup.toFixed(0)}, render ${layer.atlas.phases.render.toFixed(0)}, clean ${layer.atlas.phases.clean.toFixed(0)})` : "none"}\n` +
       `lazy bakes ${layer.bakes.length}${lazy ? `: ${lazy}` : ''}\ntime ${secs.toFixed(0)} s · frames ${frames}\neffects ${L.effects} (${L.restrikes} during a strike) · strikes drawn ${L.strikes}\nstrikes before effect ${L.early}\nwind-ups ${L.windups} · relaxed ${L.relaxed} · collapses ${L.collapses}\n` +
       `ring checks ${ring.checks} · off tile ${ring.off}${ring.first ? `\nfirst: ${ring.first}` : ''}`;
