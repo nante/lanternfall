@@ -45,7 +45,7 @@ export type SetPiece = Road | HollowKeepPiece | DragonPiece | CathedralCity | Di
 
 export const farScene: SetPiece[] = [
   // The street out of the bridge, the width of the map's path at the edge, widening into the riverside quarter.
-  { kind: 'road', x: 40.5, z0: -0.5, z1: -46, width: 2.2, far: 4, wander: 0, clearance: 4.2 },
+  { kind: 'road', x: 40.5, z0: -0.5, z1: -64, width: 2.2, far: 4, wander: 0, clearance: 4.2 },
   // The road south from the gate across the farmland, towards the windmill ridge.
   { kind: 'road', x: 42.5, z0: 67.5, z1: 330, width: 5, far: 3, wander: 6, clearance: 4 },
   { kind: 'hollowKeep', x: 34, z: -106 },
