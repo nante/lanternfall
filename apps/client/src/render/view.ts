@@ -27,6 +27,8 @@ import { Mood, moodUniforms } from './mood.ts';
 const REDUCED_MOTION = prefersReducedMotion();
 
 
+export type PickInfo = { button: number; actor?: string; drag?: boolean; shift?: boolean };
+
 export class WorldView {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
@@ -65,8 +67,15 @@ export class WorldView {
   readonly groundItems = new Map<string, THREE.Sprite>();
   private itemMats = new Map<string, THREE.SpriteMaterial>();
   itemIcon: (kind: string) => HTMLCanvasElement | null = () => null;
-  /** Return true to take over a press (e.g. start dragging an item off the floor). */
-  beforePick: (tile: Pos, e: PointerEvent) => boolean = () => false;
+  /**
+   * What a left press on the world becomes: 'own' hands it to the caller (an item or body drag, which ends in its own
+   * click or drop), 'hold' is open ground (leaving the pressed tile walks the hero towards the pointer until release),
+   * 'click' acts on release unless the pointer wandered off. Presses that start off the canvas never reach here.
+   */
+  onPress: (tile: Pos, e: PointerEvent, info: PickInfo) => 'own' | 'hold' | 'click' = () => 'click';
+  /** A right press (or the platform's context-menu gesture) on the world. */
+  onMenu: (tile: Pos, info: PickInfo, x: number, y: number) => void = () => {};
+  private press?: { pointer: number; x: number; y: number; cx: number; cy: number; tile: Pos; info: PickInfo; hold: boolean; walking: boolean; timer: number };
   readonly rays = new THREE.Group();
   readonly dust: THREE.Points;
   readonly marker: THREE.LineSegments;
@@ -172,7 +181,7 @@ export class WorldView {
   private projectiles: { mesh: THREE.Sprite; from: THREE.Vector3; to: THREE.Vector3; start: number }[] = [];
   private bursts: { mesh: THREE.Mesh; start: number; radius: number }[] = [];
   onEffect: (e: Effect, screen: { x: number; y: number }) => void = () => {};
-  onPick: (p: Pos, info: { button: number; actor?: string; corpse?: string; drag?: boolean; shift?: boolean }) => void = () => {};
+  onPick: (p: Pos, info: PickInfo) => void = () => {};
   onHover: (text: string | null, x: number, y: number) => void = () => {};
 
   constructor(readonly host: HTMLElement, readonly labels: HTMLElement, readonly map: MapData) {
@@ -219,9 +228,11 @@ export class WorldView {
     this.scene.add(this.marker, this.targetRing, this.routeLine);
 
     this.setFloor(0, {});
-    canvas.addEventListener('pointerdown', e => { canvas.focus({ preventScroll: true }); if (e.button === 0 || e.button === 2) this.click(e); });
-    canvas.addEventListener('contextmenu', e => e.preventDefault());
-    canvas.addEventListener('pointermove', e => { this.hover(e); if (e.buttons & 1) this.drag(e); });
+    canvas.addEventListener('pointerdown', e => { canvas.focus({ preventScroll: true }); if (e.button === 0 && !e.ctrlKey) this.down(e); });
+    canvas.addEventListener('contextmenu', e => { e.preventDefault(); this.menu(e); });
+    canvas.addEventListener('pointermove', e => { this.hover(e); if (this.press?.pointer === e.pointerId) { this.press.cx = e.clientX; this.press.cy = e.clientY; this.holdWalk(); } });
+    addEventListener('pointerup', e => this.up(e));
+    addEventListener('pointercancel', e => { if (this.press?.pointer === e.pointerId) this.endPress(); });
     canvas.addEventListener('pointerleave', () => this.onHover(null, 0, 0));
     canvas.addEventListener('wheel', e => {
       e.preventDefault();
@@ -396,26 +407,56 @@ export class WorldView {
     const id = this.shades.pick(e.clientX, e.clientY, v => this.screen(v)), t = id ? this.shades.tile(id) : undefined;
     return id && t ? { id, kind: 'monster' as const, name: 'Something', target: new THREE.Vector3(t.x, 0, t.y), position: new THREE.Vector3(t.x, 0, t.y), height: 0.6, size: 1, visible: true } : undefined;
   }
-  click(e: PointerEvent) {
+  /** The actor under the pointer, else the tile; an actor counts at its server tile. */
+  private pickAt(e: { clientX: number; clientY: number }) {
+    const actor = this.actorAt(e as PointerEvent);
+    const tile = actor ? { x: Math.round(actor.target.x), y: Math.round(actor.target.z), z: this.floor } : this.tileAt(e as PointerEvent);
+    return { actor, tile };
+  }
+  private down(e: PointerEvent) {
     // In the Vista, and while leaving it, a click only returns to play; it never walks or attacks.
     if (this.stop.vista || this.scenery > 0) { if (this.stop.vista) this.setStop(this.beforeVista); return; }
-    const actor = this.actorAt(e);
-    const tile = actor ? { x: Math.round(actor.target.x), y: Math.round(actor.target.z), z: this.floor } : this.tileAt(e);
+    this.endPress();
+    const { actor, tile } = this.pickAt(e);
     if (!tile) return;
-    if (!actor && e.button === 0 && !e.shiftKey && this.beforePick(tile, e)) return;
-    const corpse = this.view?.corpses.find(c => c.x === tile.x && c.y === tile.y && c.z === tile.z)?.id;
-    this.marker.position.set(tile.x, 0, tile.y);
-    this.onPick(tile, { button: e.button, actor: actor?.id, corpse, shift: e.shiftKey });
+    const info: PickInfo = { button: 0, actor: actor?.id, shift: e.shiftKey };
+    const kind = this.onPress(tile, e, info);
+    if (kind === 'own') return;
+    this.press = { pointer: e.pointerId, x: e.clientX, y: e.clientY, cx: e.clientX, cy: e.clientY, tile, info, hold: kind === 'hold', walking: false, timer: 0 };
+    // The camera follows the hero, so a still pointer moves over new ground while walking: look again every so often.
+    if (kind === 'hold') this.press.timer = window.setInterval(() => this.holdWalk(), 150);
   }
-  private lastDrag = { key: '', at: 0 };
-  drag(e: PointerEvent) {
-    if (this.stop.vista || this.scenery > 0) return;
-    const tile = this.tileAt(e); if (!tile) return;
+  private holdWalk() {
+    const p = this.press;
+    if (!p?.hold || this.stop.vista || this.scenery > 0) return;
+    const tile = this.tileAt({ clientX: p.cx, clientY: p.cy } as PointerEvent); if (!tile) return;
     const k = `${tile.x},${tile.y}`, now = performance.now();
+    if (!p.walking && tile.x === p.tile.x && tile.y === p.tile.y) return;
+    p.walking = true;
     if (k === this.lastDrag.key || now - this.lastDrag.at < 140) return;
     this.lastDrag = { key: k, at: now };
     this.onPick(tile, { button: 0, drag: true });
   }
+  private up(e: PointerEvent) {
+    const p = this.press;
+    if (!p || p.pointer !== e.pointerId) return;
+    this.endPress();
+    if (p.walking) return;
+    // A press that wandered off what it pressed is not a click.
+    const tile = this.tileAt(e);
+    const still = Math.hypot(e.clientX - p.x, e.clientY - p.y) < 8 || (!p.info.actor && tile?.x === p.tile.x && tile?.y === p.tile.y);
+    if (!still) return;
+    this.marker.position.set(p.tile.x, 0, p.tile.y);
+    this.onPick(p.tile, p.info);
+  }
+  private endPress() { if (this.press) clearInterval(this.press.timer); this.press = undefined; this.lastDrag = { key: '', at: 0 }; }
+  private menu(e: MouseEvent) {
+    if (this.stop.vista || this.scenery > 0) return;
+    this.endPress();
+    const { actor, tile } = this.pickAt(e);
+    if (tile) this.onMenu(tile, { button: 2, actor: actor?.id }, e.clientX, e.clientY);
+  }
+  private lastDrag = { key: '', at: 0 };
   hover(e: PointerEvent) {
     if (this.stop.vista || this.scenery > 0) { this.renderer.domElement.style.cursor = 'zoom-in'; this.onHover(null, 0, 0); return; }
     const actor = this.actorAt(e);

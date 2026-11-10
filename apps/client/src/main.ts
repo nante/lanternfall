@@ -4,7 +4,7 @@ import './style.css';
 import './chrome.css';
 import { buildTown, placeAt } from '../../../packages/game/src/town.ts';
 import {
-  type Action, type GameView, type GameItem, type ItemKind, type Notice, type Pos, type Effect, type SpellId, type NpcSpawn,
+  type Action, type Body, type GameView, type GameItem, type ItemKind, type Notice, type Pos, type Effect, type SpellId, type NpcSpawn,
   equipSlots, distance, G, T, grounds,
 } from '../../../packages/game/src/model.ts';
 import * as THREE from 'three';
@@ -67,10 +67,13 @@ $('#app').innerHTML = `
 <dialog class="menu" id="menu">
   <h2>Paused</h2>
   <dl class="help">
-    <div><dt>Click ground</dt><dd>Walk there</dd></div>
+    <div><dt>Click ground</dt><dd>Walk there. Hold and move the pointer to keep walking. <kbd>Esc</kbd> stops</dd></div>
+    <div><dt>Right-click</dt><dd>Everything you can do with it: attack, talk, open, use, look</dd></div>
     <div><dt>Click a creature</dt><dd>Attack it. <kbd>Space</kbd> picks the nearest</dd></div>
     <div><dt>Click a person</dt><dd>Talk. Ask about the words they highlight</dd></div>
     <div><dt>Click a body</dt><dd>Loot it</dd></div>
+    <div><dt>Drag what stands beside you</dt><dd>Push a creature, hero or body one tile</dd></div>
+    <div><dt>Pack items</dt><dd>Click to pick, double-click to eat, drink or wear</dd></div>
     <div><dt><kbd>WASD</kbd> or arrows</dt><dd>Step</dd></div>
     <div><dt><kbd>1</kbd>–<kbd>7</kbd></dt><dd>Spells, tonics, food</dd></div>
     <div><dt><kbd>I</kbd> · <kbd>C</kbd></dt><dd>Show or hide the pack · skills panel</dd></div>
@@ -105,13 +108,13 @@ let tradeMode: 'off' | 'buy' | 'sell' = 'off';
 const net = new Net({
   view: v => onView(v),
   notice: n => addLog(n),
-  error: text => toast(text),
+  error: text => addLog({ player: '', text, kind: 'error', at: Date.now() }),
   closed: reason => { hud.dataset.ready = 'false'; showGate(reason); },
 });
 /** Where actions go: the server, or the local engine in the Studio preview. */
 let send: (a: Action) => void = a => { net.send(a); };
 // Dev builds expose the view and the action sender, so a probe can drive and measure the real game.
-if (import.meta.env.DEV) Object.assign(window, { __game: { world, send: (a: Action) => send(a) } });
+if (import.meta.env.DEV) Object.assign(window, { __game: { world, send: (a: Action) => send(a), notice: (n: Notice) => addLog(n) } });
 
 // ---------------------------------------------------------------- chrome: the HUD frame (layout picked in the Studio's Look tab)
 const panels: Record<string, PanelDef> = {
@@ -204,7 +207,7 @@ if (previewScene !== null) {
   // Studio Look tab: no server. A local engine plays a scene through the real HUD, and the Studio streams style and layout changes in.
   $('#gate').hidden = true;
   hud.dataset.ready = 'true';
-  const play = (scene: string) => { view = undefined; log.length = 0; $('#log-lines').innerHTML = ''; const p = startPreview(map, scene, { view: onView, notice: addLog }); send = a => p.send(a); };
+  const play = (scene: string) => { view = undefined; log.length = 0; $('#log-lines').innerHTML = ''; const p = startPreview(map, scene, { view: onView, notice: addLog }, params.has('dark')); send = a => p.send(a); };
   play(previewScene);
   addEventListener('message', e => {
     if (!/^http:\/\/(127\.0\.0\.1|localhost):4174$/.test(e.origin)) return;
@@ -226,10 +229,16 @@ function onView(v: GameView) {
   world.setWorld(v.time, v.world ?? fallbackWorld);
   if (first) { mmFloor = -1; renderLogTabs(); }
   if (pending) resolvePending();
-  if (openContainer?.kind === 'corpse') { const c = v.corpses.find(c => c.id === (openContainer as { id: string }).id); if (!c || distance(v.self, c) > 1 || c.stage >= 2) openContainer = undefined; }
+  if (openContainer?.kind === 'corpse') {
+    const c = v.corpses.find(c => c.id === (openContainer as { id: string }).id);
+    // Out of reach, rotted away, or covered by a newer body or a living one: what lies there can no longer be taken.
+    if (!c || distance(v.self, c) > 1 || c.stage >= 2) openContainer = undefined;
+    else if (topCorpse(c)?.id !== c.id || bodyOn(c)) { openContainer = undefined; toast(bodyOn(c) ? 'Someone is standing on it.' : 'Something lies on top of it.'); }
+  }
   if (openContainer?.kind === 'ground' && (distance(v.self, openContainer.at) > 1 || !pileAt(openContainer.at).length)) openContainer = undefined;
   if (openContainer?.kind === 'vault' && distance(v.self, map.vault) > 2) openContainer = undefined;
-  if (!v.self.talking) tradeMode = 'off';
+  if (!v.self.talking) { tradeMode = 'off'; tradeAmount = 1; }
+  if (openMenuNow && !openMenuNow.alive()) closeMenu();
   renderHud();
 }
 function stats() {
@@ -250,6 +259,8 @@ function renderHud() {
   renderHotbar();
   renderDialogue();
   renderContainer();
+  if (tipFor && (!tipFor.anchor.isConnected || (tipFor.id && !findItem(tipFor.id)))) closeTooltip();
+  markSelected();
 }
 
 // ---------------------------------------------------------------- panel contents (one function per slot; the chrome places them)
@@ -361,7 +372,7 @@ function announce(name: string, sub: string, quiet: boolean) {
 
 // ---------------------------------------------------------------- log, toast, fx
 const logTabs: [string, string][] = [['all', 'All'], ['fight', 'Fight'], ['talk', 'People']];
-const logGroup = (n: Notice) => (n.kind === 'combat' || n.kind === 'loot' ? 'fight' : n.kind === 'npc' ? 'talk' : 'other');
+const logGroup = (n: Notice) => (n.kind === 'combat' || n.kind === 'loot' ? 'fight' : n.kind === 'npc' || n.kind === 'say' ? 'talk' : 'other');
 function renderLogTabs() {
   const cur = $('#log-lines').dataset.filter;
   patch($('#log-tabs'), logTabs.map(([id, label]) => `<button role="tab" data-action="logtab" data-tab="${id}" aria-selected="${cur === id}">${label}</button>`).join(''));
@@ -373,14 +384,51 @@ function addLog(n: Notice) {
   const li = document.createElement('li');
   li.className = n.kind; li.dataset.group = logGroup(n);
   const who = n.npc ? map.npcs.find(x => x.id === n.npc)?.name : undefined;
-  li.innerHTML = who && n.kind === 'npc' && !n.text.startsWith(who) ? `<b>${esc(who)}</b> ${esc(n.text)}` : esc(n.text);
+  const said = n.kind === 'say' ? speech(n) : undefined;
+  li.innerHTML = who && n.kind === 'npc' && !n.text.startsWith(who) ? `<b>${esc(who)}</b> ${esc(n.text)}` : said?.name ? `<b>${esc(said.name)}:</b> ${esc(said.words)}` : esc(n.text);
   ol.append(li);
   while (ol.children.length > 200) ol.firstElementChild?.remove();
   if (stick) scrollLog(true);
   if (n.kind === 'level') floatText(innerWidth / 2, innerHeight * 0.38, n.text, 'level');
+  if (n.kind === 'error') toast(n.text);
+  if (said && n.from) bubble(n.from, said.words);
+  // The merchant's answer to "trade" opens the shop, whether the word came from the chip or the chat.
+  if (n.kind === 'npc' && n.npc && n.npc === view?.self.talking && /^(.*: )?Have a look\.$/.test(n.text) && tradeMode === 'off') { const d = npcDefs[npcAt(n.npc)!.role]; tradeMode = d.sells.length ? 'buy' : 'sell'; }
   renderDialogue();
 }
 renderLogTabs();
+/** "<Name>: <words>" as the server sends speech, split so the log can bold the name and the bubble show the words. */
+function speech(n: Notice) {
+  const name = n.from ? (view?.self.id === n.from ? view.self.name : view?.players.find(p => p.id === n.from)?.name) : undefined;
+  if (name && n.text.startsWith(`${name}: `)) return { name, words: n.text.slice(name.length + 2) };
+  const i = n.text.indexOf(': ');
+  return i > 0 ? { name: n.text.slice(0, i), words: n.text.slice(i + 2) } : { name: '', words: n.text };
+}
+// ---------------------------------------------------------------- speech bubbles: over the speaker, where the name label sits
+const bubbles: { from: string; el: HTMLElement; until: number }[] = [];
+const BUBBLE_MS = 4000;
+function bubble(from: string, words: string) {
+  const el = document.createElement('div');
+  el.className = 'bubble'; el.textContent = words;
+  $('#labels').append(el);
+  bubbles.push({ from, el, until: performance.now() + BUBBLE_MS + Math.min(2000, words.length * 30) });
+  if (!bubbleLoop) bubbleLoop = requestAnimationFrame(placeBubbles);
+}
+let bubbleLoop = 0;
+function placeBubbles() {
+  const now = performance.now();
+  for (let i = bubbles.length - 1; i >= 0; i--) if (bubbles[i].until <= now) { bubbles[i].el.remove(); bubbles.splice(i, 1); }
+  // Newest lowest, nearest the head; older lines of the same speaker stack above it.
+  const lift = new Map<string, number>();
+  for (let i = bubbles.length - 1; i >= 0; i--) {
+    const b = bubbles[i], at = world.actors.overHead(b.from), up = lift.get(b.from) ?? 0;
+    b.el.style.visibility = at?.shown ? 'visible' : 'hidden';
+    if (at) b.el.style.transform = `translate3d(${at.x}px, ${at.y - 14 - up}px, 0) translate(-50%, -100%)`;
+    lift.set(b.from, up + b.el.offsetHeight + 3);
+    b.el.dataset.fading = String(b.until - now < 300);
+  }
+  bubbleLoop = bubbles.length ? requestAnimationFrame(placeBubbles) : 0;
+}
 let toastTimer = 0;
 function toast(text: string) {
   const t = $('#toast'); t.textContent = text; t.dataset.show = 'true';
@@ -411,27 +459,88 @@ world.onEffect = (e: Effect, p) => {
 
 // ---------------------------------------------------------------- input: world
 const npcAt = (id?: string) => map.npcs.find(n => n.id === id);
+const same = (a: Pos, b: Pos) => a.x === b.x && a.y === b.y && a.z === b.z;
+const thingAt = (p: Pos) => map.floors[p.z]?.thing[p.y * map.width + p.x];
+const usable = (p: Pos) => ([T.door, T.hatch, T.ladder, T.well, T.altar, T.vault] as number[]).includes(thingAt(p) ?? -1);
+/** A tile a body could stand on: walkable ground, not a wall, not an NPC. */
+function standable(q: Pos) {
+  const f = map.floors[q.z];
+  if (!f || q.x < 0 || q.y < 0 || q.x >= map.width || q.y >= map.height) return false;
+  const i = q.y * map.width + q.x, g = f.ground[i], t = f.thing[i];
+  return g !== G.water && g !== G.void && ([T.none, T.flowers, T.door, T.hatch] as number[]).includes(t) && !map.npcs.some(n => same(n, q));
+}
+/** Bodies on a tile, bottom first: the newest lies on top (ties by id). */
+const corpsesAt = (p: Pos) => (view?.corpses ?? []).filter(c => same(c, p) && c.stage < 2).sort((a, b) => a.born - b.born || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+const topCorpse = (p: Pos) => corpsesAt(p).at(-1);
+/** A living creature or another hero standing on the tile keeps what lies there out of reach. */
+const bodyOn = (p: Pos) => !!view && (view.monsters.some(m => m.hp > 0 && same(m, p)) || (view.shades ?? []).some(s => same(s, p)) || view.players.some(h => h.id !== view!.self.id && same(h, p)));
+type Who = { kind: 'foe' | 'npc' | 'player'; id: string; name: string; at: Pos };
+/** What an actor id under the pointer is. A shade (a creature seen only as a dark figure) is a foe like any other. */
+function who(id?: string): Who | undefined {
+  if (!view || !id) return;
+  const m = view.monsters.find(m => m.id === id); if (m) return { kind: 'foe', id, name: mobDefs[m.kind].name, at: m };
+  const s = view.shades?.find(s => s.id === id); if (s) return { kind: 'foe', id, name: 'Something', at: s };
+  const n = npcAt(id); if (n) return { kind: 'npc', id, name: n.name, at: n };
+  const h = view.players.find(h => h.id === id); if (h) return { kind: 'player', id, name: h.name, at: h };
+}
+function attack(id: string) { if (!view) return; pending = undefined; send({ kind: 'target', id: view.self.target === id ? null : id }); }
+function talkTo(npcId: string) { const npc = npcAt(npcId); if (!npc) return; approach(npc, 3); pending = { kind: 'talk', npc: npc.id }; resolvePending(); }
+/** Walk to a tile; your own tile stops a walk in progress. */
+function walkTo(tile: Pos) {
+  if (!view) return;
+  pending = undefined; closeMenu();
+  if (same(tile, view.self)) { if (view.route.length) send({ kind: 'stop' }); return; }
+  send({ kind: 'path', to: tile });
+}
+function useAt(tile: Pos) {
+  if (thingAt(tile) === T.vault) { pending = { kind: 'vault' }; send({ kind: 'useTile', to: tile }); resolvePending(); return; }
+  pending = undefined; send({ kind: 'useTile', to: tile });
+}
+function openCorpse(c: Body) {
+  if (topCorpse(c)?.id !== c.id) return toast('Something lies on top of it.');
+  if (bodyOn(c)) return toast('Someone is standing on it.');
+  pending = { kind: 'corpse', id: c.id }; if (view && distance(view.self, c) > 1) approach(c, 1); resolvePending();
+}
+function openPile(tile: Pos) { pending = { kind: 'ground', at: tile }; if (view && distance(view.self, tile) > 1) approach(tile, 1); resolvePending(); }
+const look = (at: Pos, actor?: string) => send({ kind: 'look', at, actor });
 world.onPick = (tile, info) => {
   if (!view) return;
-  closeTooltip();
-  const self = view.self;
-  if (info.shift) { send({ kind: 'look', at: tile, actor: info.actor }); return; }
-  if (info.drag) { pending = undefined; if (tile.x !== self.x || tile.y !== self.y) send({ kind: 'path', to: tile }); return; }
-  if (info.actor) {
-    const m = view.monsters.find(m => m.id === info.actor);
-    if (m) { if (self.target !== m.id) send({ kind: 'target', id: m.id }); pending = undefined; return; }
-    const npc = npcAt(info.actor);
-    if (npc) { approach(npc, 3); pending = { kind: 'talk', npc: npc.id }; resolvePending(); return; }
-  }
-  if (!info.corpse && pileAt(tile).length) { pending = { kind: 'ground', at: tile }; if (distance(self, tile) > 1) approach(tile, 1); resolvePending(); return; }
-  if (info.corpse) { pending = { kind: 'corpse', id: info.corpse }; const c = view.corpses.find(c => c.id === info.corpse)!; if (distance(self, c) > 1) approach(c, 1); resolvePending(); return; }
-  const t = map.floors[tile.z].thing[tile.y * map.width + tile.x];
-  if (t === T.vault) { pending = { kind: 'vault' }; send({ kind: 'useTile', to: tile }); resolvePending(); return; }
-  if (t === T.hatch || t === T.ladder || t === T.well || t === T.altar || (t === T.door && info.button === 2)) { pending = undefined; send({ kind: 'useTile', to: tile }); return; }
-  pending = undefined;
-  if (tile.x === self.x && tile.y === self.y) return;
-  send({ kind: 'path', to: tile });
+  closeTooltip(); closeMenu();
+  if (info.shift) { look(tile, info.actor); return; }
+  if (info.drag) { walkTo(tile); return; }
+  const w = who(info.actor);
+  if (w?.kind === 'foe') return attack(w.id);
+  if (w?.kind === 'npc') return talkTo(w.id);
+  // Another hero: stand beside them, never step into them.
+  if (w?.kind === 'player') { pending = undefined; approach(w.at, 1); return; }
+  const c = topCorpse(tile);
+  if (c) return openCorpse(c);
+  if (pileAt(tile).length) return openPile(tile);
+  const t = thingAt(tile);
+  if (t === T.vault || t === T.hatch || t === T.ladder || t === T.well || t === T.altar) return useAt(tile);
+  walkTo(tile);
 };
+/**
+ * A press within reach on something that can be dragged belongs to that drag: the top floor item, a creature or hero
+ * (push), or the top body (push). Released without moving, it is a click. Open ground may become hold-to-walk; anything
+ * else that can be clicked stays a click.
+ */
+world.onPress = (tile, e, info) => {
+  if (!view || info.shift) return 'click';
+  const self = view.self, w = who(info.actor);
+  if (w) {
+    if (w.kind !== 'npc' && distance(self, w.at) <= 1) { dragFrom(e, ghostLabel(w.name), () => world.onPick(tile, info), ev => pushTo(w.id, w.at, ev)); return 'own'; }
+    return 'click';
+  }
+  if (distance(self, tile) <= 1) {
+    const top = pileAt(tile).at(-1);
+    if (top) { dragFrom(e, icon(getDef(top.kind).icon), () => world.onPick(tile, info), ev => dropItemAt(top, ev)); return 'own'; }
+    const c = topCorpse(tile);
+    if (c) { dragFrom(e, ghostLabel(c.name), () => world.onPick(tile, info), ev => pushTo(c.id, c, ev)); return 'own'; }
+  }
+  return pileAt(tile).length || corpsesAt(tile).length || usable(tile) ? 'click' : 'hold';
+};
+world.onMenu = (tile, info, x, y) => { const m = worldMenu(tile, info.actor); if (m) openMenu(x, y, m); };
 // ---------------------------------------------------------------- items in the world: drop, throw, pick up
 world.itemIcon = kind => iconCanvas(getDef(kind as ItemKind).icon);
 const canvasEl = world.renderer.domElement;
@@ -448,37 +557,48 @@ canvasEl.addEventListener('drop', e => {
   const i = view?.items.find(x => x.id === e.dataTransfer?.getData('text/item'));
   if (i) dropOnTile(i, e.clientX, e.clientY);
 });
-// World → world or world → pack: press on a pile within reach and drag the top item; a plain click opens the pile.
-world.beforePick = (tile, e) => {
-  if (!view || distance(view.self, tile) > 1) return false;
-  const top = pileAt(tile).at(-1);
-  if (!top) return false;
-  const start = { x: e.clientX, y: e.clientY };
+const ghostLabel = (name: string) => `<span class="ghost-name">${esc(name)}</span>`;
+/** Follow the pointer with a ghost once it has moved; release runs `drop`, or `click` if it never moved. */
+function dragFrom(e: PointerEvent, ghostHtml: string, click: () => void, drop: (ev: PointerEvent) => void) {
+  const start = { x: e.clientX, y: e.clientY }, pointer = e.pointerId;
   let ghost: HTMLElement | null = null;
   const moveGhost = (ev: PointerEvent) => {
-    if (!ghost && Math.hypot(ev.clientX - start.x, ev.clientY - start.y) < 6) return;
-    if (!ghost) { ghost = document.createElement('div'); ghost.className = 'drag-ghost'; ghost.innerHTML = icon(getDef(top.kind).icon); document.body.append(ghost); closeTooltip(); }
+    if (ev.pointerId !== pointer || (!ghost && Math.hypot(ev.clientX - start.x, ev.clientY - start.y) < 6)) return;
+    if (!ghost) { ghost = document.createElement('div'); ghost.className = 'drag-ghost'; ghost.innerHTML = ghostHtml; document.body.append(ghost); closeTooltip(); closeMenu(); }
     ghost.style.transform = `translate(${ev.clientX - 16}px, ${ev.clientY - 16}px)`;
   };
   const end = (ev: PointerEvent) => {
-    removeEventListener('pointermove', moveGhost); removeEventListener('pointerup', end);
-    if (!ghost) { openContainer = { kind: 'ground', at: tile }; pending = undefined; renderContainer(); return; }
-    ghost.remove();
-    const item = view?.items.find(x => x.id === top.id) ?? top;
-    const cell = (document.elementFromPoint(ev.clientX, ev.clientY) as HTMLElement | null)?.closest<HTMLElement>('.cell');
-    if (cell) return move(item, cell.dataset.parent!, Number(cell.dataset.slot));
-    if (document.elementFromPoint(ev.clientX, ev.clientY) === canvasEl) dropOnTile(item, ev.clientX, ev.clientY);
+    if (ev.pointerId !== pointer) return;
+    removeEventListener('pointermove', moveGhost); removeEventListener('pointerup', end); removeEventListener('pointercancel', end);
+    const g = ghost as HTMLElement | null;
+    if (ev.type === 'pointercancel') { g?.remove(); return; }
+    if (!g) return click();
+    g.remove();
+    drop(ev);
   };
-  addEventListener('pointermove', moveGhost); addEventListener('pointerup', end);
-  return true;
-};
+  addEventListener('pointermove', moveGhost); addEventListener('pointerup', end); addEventListener('pointercancel', end);
+}
+function dropItemAt(top: GameItem, ev: PointerEvent) {
+  const item = view?.items.find(x => x.id === top.id) ?? view?.ground.find(x => x.id === top.id) ?? top;
+  const under = document.elementFromPoint(ev.clientX, ev.clientY) as HTMLElement | null;
+  const cell = under?.closest<HTMLElement>('.cell');
+  if (cell) return move(item, cell.dataset.parent!, Number(cell.dataset.slot));
+  if (under === canvasEl) dropOnTile(item, ev.clientX, ev.clientY);
+}
+/** A dragged creature, hero or body dropped on a neighbouring tile: the server decides whether it moves. */
+function pushTo(id: string, from: Pos, ev: PointerEvent) {
+  if (document.elementFromPoint(ev.clientX, ev.clientY) !== canvasEl) return;
+  const to = world.tileAtPoint(ev.clientX, ev.clientY);
+  if (!to || same(to, from)) return;
+  if (distance(from, to) > 1) return toast('Push it to a tile next to it.');
+  send({ kind: 'push', id, to });
+}
 
 function approach(p: Pos, within: number) {
   if (!view || distance(view.self, p) <= within) return;
   const options: Pos[] = [];
   for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (dx || dy) options.push({ x: p.x + dx, y: p.y + dy, z: p.z });
-  const free = options.filter(q => { const i = q.y * map.width + q.x; const g = map.floors[q.z].ground[i], t = map.floors[q.z].thing[i]; return g !== G.water && g !== G.void && [T.none, T.flowers, T.door, T.hatch].includes(t) && !map.npcs.some(n => n.x === q.x && n.y === q.y); })
-    .sort((a, b) => distance(view!.self, a) - distance(view!.self, b));
+  const free = options.filter(standable).sort((a, b) => distance(view!.self, a) - distance(view!.self, b));
   if (free[0]) send({ kind: 'path', to: free[0] });
 }
 function resolvePending() {
@@ -490,28 +610,140 @@ function resolvePending() {
   else if (pending.kind === 'ground') { const at = pending.at; if (!pileAt(at).length) pending = undefined; else if (distance(self, at) <= 1) { openContainer = { kind: 'ground', at }; pending = undefined; renderContainer(); } }
 }
 
+// ---------------------------------------------------------------- context menu: right-click on the world or an item
+type Entry = { label: string; run: () => void };
+/** `alive` is asked on every update; the menu closes once what it was opened on is gone. */
+type Menu = { title: string; entries: Entry[]; alive: () => boolean };
+function worldMenu(tile: Pos, actorId?: string): Menu | undefined {
+  if (!view) return;
+  const self = view.self, w = who(actorId), entries: Entry[] = [];
+  if (w?.kind === 'foe') entries.push({ label: self.target === w.id ? 'Stop attacking' : 'Attack', run: () => attack(w.id) });
+  if (w?.kind === 'npc') entries.push({ label: 'Talk', run: () => talkTo(w.id) });
+  const c = topCorpse(tile), pile = pileAt(tile).length > 0;
+  // A body under a living creature or another hero stays shut until they move or are moved.
+  if (c && !bodyOn(c)) entries.push({ label: pile ? 'Open body' : 'Open', run: () => openCorpse(c) });
+  if (pile) entries.push({ label: c ? 'Open pile' : 'Open', run: () => openPile(tile) });
+  if (!w && usable(tile)) entries.push({ label: 'Use', run: () => useAt(tile) });
+  if (!w && !c && !pile && !usable(tile) && !same(tile, self) && standable(tile)) entries.push({ label: 'Walk here', run: () => walkTo(tile) });
+  if (!w && same(tile, self) && view.route.length) entries.push({ label: 'Stop walking', run: () => walkTo(tile) });
+  entries.push({ label: 'Look', run: () => look(tile, w?.id) });
+  const title = w?.name ?? c?.name ?? (pile ? 'On the ground' : placeAt(map, tile));
+  const alive = () => (w ? !!who(w.id) : true) && (!c || corpsesAt(tile).some(x => x.id === c.id)) && (!pile || pileAt(tile).length > 0);
+  return { title, entries, alive };
+}
+const findItem = (id: string) => view?.items.find(x => x.id === id) ?? view?.ground.find(x => x.id === id);
+/** What a double-click (and the first menu entry) does with an item, as a word for the menu. */
+function primaryLabel(i: GameItem): string | undefined {
+  if (!view) return;
+  const def = getDef(i.kind), eq = `equip:${view.self.id}`;
+  if (!carried().some(c => c.id === i.id)) return 'Take';
+  if (openContainer?.kind === 'vault' && !i.parent.startsWith('equip:')) return 'Store';
+  if (def.food) return 'Eat';
+  if (def.heal || def.mana) return 'Drink';
+  if (def.slots && !def.slot) return openPouch === i.id ? 'Close' : 'Open';
+  if (i.parent === eq) return def.slot === 'pack' ? undefined : 'Unequip';
+  if (def.slot) return 'Equip';
+}
+function itemMenu(i: GameItem): Menu | undefined {
+  if (!view) return;
+  const main = primaryLabel(i), mine = carried().some(c => c.id === i.id), entries: Entry[] = [];
+  if (main) entries.push({ label: main, run: () => { const now = findItem(i.id); if (now) primary(now); } });
+  if (mine) entries.push({ label: 'Drop', run: () => { const now = findItem(i.id); if (now && view) move(now, groundKey(view.self), 0); } });
+  entries.push({ label: 'Look', run: () => { if (view) send({ kind: 'look', at: { x: view.self.x, y: view.self.y, z: view.self.z }, item: i.id }); } });
+  return { title: `${getDef(i.kind).name}${i.count > 1 ? ` × ${i.count}` : ''}`, entries, alive: () => !!findItem(i.id) };
+}
+const menuEl = Object.assign(document.createElement('div'), { className: 'ctx', hidden: true });
+menuEl.setAttribute('role', 'menu');
+document.body.append(menuEl);
+let openMenuNow: Menu | undefined;
+let menuReturn: HTMLElement | null = null;
+function openMenu(x: number, y: number, m: Menu) {
+  closeTooltip(); held.clear();
+  menuReturn = document.activeElement as HTMLElement | null;
+  menuEl.setAttribute('aria-label', m.title);
+  menuEl.innerHTML = `<p class="ctx-title" aria-hidden="true">${esc(m.title)}</p>${m.entries.map((en, i) => `<button type="button" role="menuitem" tabindex="-1" data-i="${i}">${esc(en.label)}</button>`).join('')}`;
+  menuEl.querySelectorAll<HTMLButtonElement>('[data-i]').forEach(b => b.addEventListener('click', () => { const en = m.entries[Number(b.dataset.i)]; closeMenu(); en.run(); }));
+  menuEl.hidden = false; openMenuNow = m;
+  const w = menuEl.offsetWidth, h = menuEl.offsetHeight;
+  const left = Math.max(8, Math.min(innerWidth - w - 8, x)), top = Math.max(8, Math.min(innerHeight - h - 8, y));
+  menuEl.style.left = `${left}px`; menuEl.style.top = `${top}px`;
+  menuEl.style.transformOrigin = `${x - left}px ${y - top}px`;
+  menuEl.querySelector<HTMLElement>('[data-i]')?.focus({ preventScroll: true });
+}
+function closeMenu() {
+  if (menuEl.hidden) return;
+  const back = menuEl.contains(document.activeElement) ? menuReturn : null;
+  menuEl.hidden = true; menuEl.innerHTML = ''; openMenuNow = undefined;
+  if (back?.isConnected && back !== document.body) back.focus({ preventScroll: true }); else if (back) canvasEl.focus({ preventScroll: true });
+}
+menuEl.addEventListener('keydown', e => {
+  const items = [...menuEl.querySelectorAll<HTMLElement>('[data-i]')], i = items.indexOf(document.activeElement as HTMLElement);
+  const go = (n: number) => { e.preventDefault(); items[(n + items.length) % items.length]?.focus(); };
+  if (e.key === 'ArrowDown') go(i + 1);
+  else if (e.key === 'ArrowUp') go(i - 1);
+  else if (e.key === 'Home') go(0);
+  else if (e.key === 'End') go(items.length - 1);
+  else if (e.key === 'Escape' || e.key === 'Tab') { e.preventDefault(); closeMenu(); }
+  else if (e.key !== 'Enter' && e.key !== ' ') return;
+  // Keys the menu uses never reach the world: arrows would walk, Escape would stop or pause, Space would target.
+  e.stopPropagation();
+});
+document.addEventListener('pointerdown', e => { if (!menuEl.hidden && !menuEl.contains(e.target as Node)) closeMenu(); }, true);
+addEventListener('blur', closeMenu);
+addEventListener('resize', closeMenu);
+// The browser's own menu never opens over the game; text fields keep theirs, for paste.
+document.addEventListener('contextmenu', e => {
+  const t = e.target as HTMLElement;
+  if (t.closest('input, textarea') || !(hud.contains(t) || menuEl.contains(t))) return;
+  e.preventDefault();
+  const b = t.closest<HTMLElement>('.item[data-id]'), i = b && findItem(b.dataset.id!);
+  const m = i && itemMenu(i); if (m) openMenu(e.clientX, e.clientY, m);
+});
+
 // ---------------------------------------------------------------- input: keyboard
 const held = new Set<string>();
 const dirs: Record<string, [number, number]> = { arrowup: [0, -1], w: [0, -1], arrowdown: [0, 1], s: [0, 1], arrowleft: [-1, 0], a: [-1, 0], arrowright: [1, 0], d: [1, 0] };
 let lastStep = 0;
-setInterval(() => {
-  if (!view || !held.size || document.activeElement === $('#chat-input')) return;
+const typing = () => document.activeElement === $('#chat-input');
+/** Something modal is up: the gate, the pause menu, or a context menu. Held keys never walk behind it. */
+const blocked = () => !$('#gate').hidden || $<HTMLDialogElement>('#menu').open || !menuEl.hidden;
+function heldStep() {
   let dx = 0, dy = 0;
   for (const k of held) { const d = dirs[k]; if (d) { dx += d[0]; dy += d[1]; } }
-  [dx, dy] = world.walkStep(Math.sign(dx), Math.sign(dy));
+  return world.walkStep(Math.sign(dx), Math.sign(dy));
+}
+function step(dx: number, dy: number) { if (!dx && !dy) return; lastStep = performance.now(); pending = undefined; send({ kind: 'walk', dx, dy }); }
+setInterval(() => {
+  if (!view || !held.size || typing()) return;
+  if (blocked()) { held.clear(); return; }
+  const [dx, dy] = heldStep();
   // Send the next step as the current one is finishing, so held keys follow the real step time.
-  if ((dx || dy) && serverNow() >= view.self.moveAt - 90 && performance.now() - lastStep > 120) { lastStep = performance.now(); pending = undefined; send({ kind: 'walk', dx, dy }); }
+  if (serverNow() >= view.self.moveAt - 90 && performance.now() - lastStep > 120) step(dx, dy);
 }, 30);
+/** Focus is on the world (or nowhere): Space, Enter and Tab are the game's. On a button or a field they are the page's. */
+const worldFocus = () => { const f = document.activeElement; return !f || f === document.body || f === canvasEl; };
 addEventListener('keydown', e => {
-  if (!$('#gate').hidden || $<HTMLDialogElement>('#menu').open) return;
+  // Cmd, Ctrl or Alt mean a browser or system shortcut; on macOS the key-up of a key pressed with Cmd never arrives.
+  if (e.key === 'Meta' || e.key === 'Control' || e.key === 'Alt') { held.clear(); return; }
+  if (e.key === 'Escape' && !menuEl.hidden) { closeMenu(); return; }
+  if (blocked()) return;
   const input = $<HTMLInputElement>('#chat-input');
-  if (document.activeElement === input) { if (e.key === 'Escape') { input.value = ''; input.blur(); world.renderer.domElement.focus(); } return; }
+  if (typing()) { if (e.key === 'Escape') { input.value = ''; input.blur(); canvasEl.focus(); } return; }
   if ((e.target as HTMLElement).closest?.('input, textarea')) return;
   const k = e.key.toLowerCase();
-  if (dirs[k]) { e.preventDefault(); if (!held.has(k)) { held.add(k); lastStep = 0; } return; }
-  if (e.key === 'Enter') { e.preventDefault(); input.focus(); return; }
-  if (/^[1-7]$/.test(e.key)) { hotbarSlots()[Number(e.key) - 1]?.run(); return; }
-  if (k === ' ' || k === 'tab') { e.preventDefault(); cycleTarget(); return; }
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (dirs[k]) {
+    e.preventDefault();
+    if (held.has(k)) return;
+    held.add(k);
+    // A tap steps at once: the poll alone can miss a key that is down for less than its interval.
+    if (view) step(...heldStep());
+    return;
+  }
+  const own = worldFocus();
+  if (e.key === 'Enter') { if (!own) return; e.preventDefault(); input.focus(); return; }
+  if (/^[1-7]$/.test(e.key)) { if (!e.repeat) hotbarSlots()[Number(e.key) - 1]?.run(); return; }
+  if (k === ' ' || k === 'tab') { if (!own) return; e.preventDefault(); if (!e.repeat) cycleTarget(); return; }
   if (k === 'i') { chrome.toggle('pack'); world.resize(); return; }
   if (k === 'c') { chrome.toggle('skills'); world.resize(); return; }
   if (e.key === '-') { world.stepStop(1); return; }
@@ -519,26 +751,33 @@ addEventListener('keydown', e => {
   if (k === 'q' || k === 'e') { world.turn(k === 'q' ? 1 : -1); saveView(); return; }
   if (k === 'v') { toggleVista(); return; }
   if (e.key === 'Escape') {
-    if (openContainer) openContainer = undefined;
+    // First stop walking, then close what is open, then drop the target, then pause.
+    if (view?.route.length) send({ kind: 'stop' });
+    else if (openContainer) openContainer = undefined;
     else if (view?.self.talking) send({ kind: 'talk', npc: null });
     else if (view?.self.target) send({ kind: 'target', id: null });
-    else $<HTMLDialogElement>('#menu').showModal();
+    else { held.clear(); $<HTMLDialogElement>('#menu').showModal(); }
     renderHud();
   }
 });
-addEventListener('keyup', e => held.delete(e.key.toLowerCase()));
+addEventListener('keyup', e => { held.delete(e.key.toLowerCase()); if (e.key === 'Meta') held.clear(); });
 addEventListener('blur', () => held.clear());
 function cycleTarget() {
   if (!view) return;
-  const list = view.monsters.filter(m => m.z === view!.self.z).sort((a, b) => distance(view!.self, a) - distance(view!.self, b)).filter(m => distance(view!.self, m) <= 7);
+  const self = view.self;
+  // Shades count: a creature seen only as a dark figure can still be fought.
+  const foes: { id: string; at: Pos }[] = [...view.monsters.map(m => ({ id: m.id, at: m as Pos })), ...(view.shades ?? []).map(s => ({ id: s.id, at: s as Pos }))];
+  const list = foes.filter(f => f.at.z === self.z && distance(self, f.at) <= 7).sort((a, b) => distance(self, a.at) - distance(self, b.at));
   if (!list.length) { toast('Nothing to fight nearby.'); return; }
-  const i = list.findIndex(m => m.id === view!.self.target);
+  const i = list.findIndex(f => f.id === self.target);
   send({ kind: 'target', id: list[(i + 1) % list.length].id });
 }
 $('#chat').addEventListener('submit', e => {
   e.preventDefault();
   const input = $<HTMLInputElement>('#chat-input'); const text = input.value.trim();
   if (text) send({ kind: 'say', text });
+  const npc = view?.self.talking ? npcAt(view.self.talking) : undefined, def = npc && npcDefs[npc.role];
+  if (def && /\btrade\b/i.test(text) && (def.sells.length || def.buys.length) && tradeMode === 'off') { tradeMode = def.sells.length ? 'buy' : 'sell'; renderDialogue(); }
   input.value = ''; input.blur(); world.renderer.domElement.focus();
 });
 $('#resume').addEventListener('click', () => $<HTMLDialogElement>('#menu').close());
@@ -625,12 +864,28 @@ function describe(i: GameItem) {
   if (d.slots) bits.push(`${d.slots} slots`); if (d.heal) bits.push(`Restores ~${d.heal} health`); if (d.mana) bits.push(`Restores ~${d.mana} mana`); if (d.food) bits.push(`Feeds ${Math.round(d.food / 60000)} min`);
   bits.push(`${(d.weight * i.count).toFixed(1)} oz`);
   if (d.sell) bits.push(`Sells for ${d.sell}`);
-  return `<b>${esc(d.name)}${i.count > 1 ? ` × ${i.count}` : ''}</b><span>${bits.join(' · ')}</span>`;
+  const use = primaryLabel(i), mine = carried().some(c => c.id === i.id);
+  const how = use ? `${mine ? 'Double-click' : 'Click'}: ${use.toLowerCase()} · right-click for more` : 'Right-click for more';
+  return `<b>${esc(d.name)}${i.count > 1 ? ` × ${i.count}` : ''}</b><span>${bits.join(' · ')}</span><span class="tip-how">${how}</span>`;
+}
+/** Pack and doll: one click selects, a second click soon after uses. Loot, vault and floor windows take on one click. */
+let selected: string | undefined;
+let lastItemClick = { id: '', at: 0 };
+function itemClick(i: GameItem) {
+  closeTooltip();
+  const now = performance.now(), twice = lastItemClick.id === i.id && now - lastItemClick.at < 400;
+  lastItemClick = twice ? { id: '', at: 0 } : { id: i.id, at: now };
+  if (!carried().some(c => c.id === i.id) || twice) { primary(i); return; }
+  selected = i.id; markSelected();
+}
+function markSelected() {
+  if (selected && !findItem(selected)) selected = undefined;
+  for (const b of document.querySelectorAll<HTMLElement>('.item[data-id]')) b.classList.toggle('selected', b.dataset.id === selected);
 }
 function wireItems(root: HTMLElement) {
   root.querySelectorAll<HTMLButtonElement>('.item').forEach(b => {
-    const it = () => view?.items.find(i => i.id === b.dataset.id);
-    b.addEventListener('click', () => { const i = it(); if (i) primary(i); });
+    const it = () => findItem(b.dataset.id!);
+    b.addEventListener('click', () => { const i = it(); if (i) itemClick(i); });
     b.addEventListener('dragstart', e => { e.dataTransfer?.setData('text/item', b.dataset.id!); b.classList.add('dragging'); closeTooltip(); });
     b.addEventListener('dragend', () => b.classList.remove('dragging'));
     b.addEventListener('pointerenter', () => { const i = it(); if (i) showTooltip(b, describe(i)); });
@@ -643,7 +898,10 @@ function wireItems(root: HTMLElement) {
   });
 }
 let tipShown = 0;
+/** The item cell the tooltip describes; the tooltip closes when that item goes away or its cell is redrawn. */
+let tipFor: { anchor: HTMLElement; id?: string } | undefined;
 function showTooltip(anchor: HTMLElement, html: string) {
+  tipFor = { anchor, id: anchor.dataset.id };
   const t = $('#tooltip'); t.innerHTML = html;
   const r = anchor.getBoundingClientRect();
   t.dataset.show = 'true';
@@ -653,7 +911,7 @@ function showTooltip(anchor: HTMLElement, html: string) {
   t.style.top = `${r.top - t.offsetHeight - 8}px`;
   tipShown = performance.now();
 }
-function closeTooltip() { const t = $('#tooltip'); if (t.dataset.show) tipShown = performance.now(); delete t.dataset.show; }
+function closeTooltip() { const t = $('#tooltip'); if (t.dataset.show) tipShown = performance.now(); delete t.dataset.show; tipFor = undefined; }
 world.onHover = (text, x, y) => {
   const t = $('#tooltip');
   if (!text) { if (t.dataset.world) { delete t.dataset.show; delete t.dataset.world; } return; }
@@ -662,6 +920,15 @@ world.onHover = (text, x, y) => {
 };
 
 // ---------------------------------------------------------------- dialogue
+/** How many a Buy or Sell press trades. One by default, so nothing goes in bulk unless the player picks it. */
+const tradeAmounts = [1, 10, 'all'] as const;
+let tradeAmount: (typeof tradeAmounts)[number] = 1;
+const sellable = (k: ItemKind) => carried().filter(i => i.kind === k && !i.parent.startsWith('equip:')).reduce((n, i) => n + i.count, 0);
+/** The amount, cut to what you can pay for or have, and to the server's 50 per trade. */
+function tradeCount(k: ItemKind) {
+  const d = getDef(k), most = tradeMode === 'buy' ? Math.floor(count('gold') / Math.max(1, d.buy)) : sellable(k);
+  return Math.max(0, Math.min(50, most, tradeAmount === 'all' ? most : tradeAmount));
+}
 function renderDialogue() {
   const el = $('#dialogue');
   const npc = view?.self.talking ? npcAt(view.self.talking) : undefined;
@@ -674,11 +941,10 @@ function renderDialogue() {
   let trade = '';
   if (tradeMode !== 'off') {
     const list = tradeMode === 'buy' ? def.sells : def.buys;
-    trade = `<div class="trade"><div class="seg" role="tablist">${def.sells.length ? `<button role="tab" aria-selected="${tradeMode === 'buy'}" data-mode="buy">Buy</button>` : ''}${def.buys.length ? `<button role="tab" aria-selected="${tradeMode === 'sell'}" data-mode="sell">Sell</button>` : ''}<span class="gold">${icon('gold')}<b class="num">${count('gold')}</b></span></div><ul>${list.map(k => {
-      const d = getDef(k), have = carried().filter(i => i.kind === k && !i.parent.startsWith('equip:')).reduce((n, i) => n + i.count, 0);
-      const price = tradeMode === 'buy' ? d.buy : d.sell;
-      const disabled = tradeMode === 'buy' ? count('gold') < price : have < 1;
-      return `<li><span class="ico">${icon(d.icon)}</span><span class="nm">${esc(d.name)}<small>${d.attack ? `Attack ${d.attack}` : d.defense ? `Defense ${d.defense}` : d.armor ? `Armor ${d.armor}` : d.heal ? `+${d.heal} health` : d.mana ? `+${d.mana} mana` : d.slots ? `${d.slots} slots` : tradeMode === 'sell' ? `You have ${have}` : ''}</small></span><span class="price num">${price}</span><button class="small" data-trade="${k}" ${disabled ? 'disabled' : ''}>${tradeMode === 'buy' ? 'Buy' : have > 1 ? `Sell ${Math.min(have, 50)}` : 'Sell'}</button></li>`;
+    const amounts = tradeAmounts.map(a => `<button role="radio" aria-checked="${tradeAmount === a}" data-amount="${a}">${a === 'all' ? 'All' : a}</button>`).join('');
+    trade = `<div class="trade"><div class="seg" role="tablist">${def.sells.length ? `<button role="tab" aria-selected="${tradeMode === 'buy'}" data-mode="buy">Buy</button>` : ''}${def.buys.length ? `<button role="tab" aria-selected="${tradeMode === 'sell'}" data-mode="sell">Sell</button>` : ''}<span class="amount" role="radiogroup" aria-label="How many">${amounts}</span><span class="gold" title="Your gold">${icon('gold')}<b class="num">${count('gold')}</b></span></div><ul>${list.map(k => {
+      const d = getDef(k), have = sellable(k), price = tradeMode === 'buy' ? d.buy : d.sell, n = tradeCount(k);
+      return `<li><span class="ico">${icon(d.icon)}</span><span class="nm">${esc(d.name)}<small>${d.attack ? `Attack ${d.attack}` : d.defense ? `Defense ${d.defense}` : d.armor ? `Armor ${d.armor}` : d.heal ? `+${d.heal} health` : d.mana ? `+${d.mana} mana` : d.slots ? `${d.slots} slots` : tradeMode === 'sell' ? `You have ${have}` : ''}</small></span><span class="price num" title="Each">${price}</span><button class="small" data-trade="${k}" ${n < 1 ? 'disabled' : ''} title="${n > 0 ? `${n} for ${n * price} gold` : tradeMode === 'buy' ? 'Not enough gold' : 'You have none'}">${tradeMode === 'buy' ? 'Buy' : 'Sell'}${n > 1 ? ` ${n}` : ''}</button></li>`;
     }).join('')}</ul></div>`;
   }
   if (!patch(el, `<header><div><b>${esc(npc.name)}</b><small>${role[npc.role]}</small></div><button class="close" aria-label="End conversation" data-bye>×</button></header>
@@ -686,23 +952,43 @@ function renderDialogue() {
     <div class="chips">${topics.map(t => `<button class="chip ${t === 'trade' && tradeMode !== 'off' ? 'on' : ''}" data-topic="${t}">${t}</button>`).join('')}<button class="chip quiet" data-topic="bye">bye</button></div>${trade}`)) return;
   el.querySelectorAll<HTMLButtonElement>('[data-topic]').forEach(b => b.addEventListener('click', () => {
     const t = b.dataset.topic!;
-    if (t === 'trade') { tradeMode = tradeMode === 'off' ? (def.sells.length ? 'buy' : 'sell') : 'off'; }
+    // Turning the shop off is the client's business; only turning it on says "trade".
+    if (t === 'trade' && tradeMode !== 'off') { tradeMode = 'off'; renderDialogue(); return; }
+    if (t === 'trade') tradeMode = def.sells.length ? 'buy' : 'sell';
     send({ kind: 'say', text: t });
     renderDialogue();
   }));
   el.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach(b => b.addEventListener('click', () => { tradeMode = b.dataset.mode as 'buy' | 'sell'; renderDialogue(); }));
+  el.querySelectorAll<HTMLButtonElement>('[data-amount]').forEach(b => b.addEventListener('click', () => { const a = b.dataset.amount!; tradeAmount = a === 'all' ? 'all' : Number(a) as 1 | 10; renderDialogue(); }));
   el.querySelector('[data-bye]')?.addEventListener('click', () => send({ kind: 'talk', npc: null }));
   el.querySelectorAll<HTMLButtonElement>('[data-trade]').forEach(b => b.addEventListener('click', () => {
-    const item = b.dataset.trade as ItemKind;
-    const have = carried().filter(i => i.kind === item && !i.parent.startsWith('equip:')).reduce((n, i) => n + i.count, 0);
-    send({ kind: 'trade', npc: npc.id, item, mode: tradeMode === 'buy' ? 'buy' : 'sell', count: tradeMode === 'sell' ? Math.max(1, Math.min(50, have)) : 1 });
+    const item = b.dataset.trade as ItemKind, n = tradeCount(item);
+    if (n > 0) send({ kind: 'trade', npc: npc.id, item, mode: tradeMode === 'buy' ? 'buy' : 'sell', count: n });
   }));
 }
 
 // ---------------------------------------------------------------- loot / vault window
+/** Beside the hero, in open view: to the right of them, else to the left, never over them or under a glass rail. */
+let windowPlacedFor = '';
+function placeWindow(el: HTMLElement, key: string) {
+  if (!view || windowPlacedFor === key) return;
+  const head = world.actors.overHead(view.self.id), vp = $('#viewport').getBoundingClientRect();
+  if (!head) return;
+  windowPlacedFor = key;
+  let lo = 12, hi = vp.width - 12;
+  for (const z of document.querySelectorAll<HTMLElement>('.c-zone')) {
+    const r = z.getBoundingClientRect();
+    if (r.width === 0 || r.bottom < vp.top || r.top > vp.bottom || r.right <= vp.left || r.left >= vp.right) continue;
+    if (r.left - vp.left > vp.width / 2) hi = Math.min(hi, r.left - vp.left - 12); else lo = Math.max(lo, r.right - vp.left + 12);
+  }
+  const w = el.offsetWidth, h = el.offsetHeight, hx = head.x - vp.left, hy = head.y - vp.top, gap = 56;
+  const left = hx + gap + w <= hi ? hx + gap : Math.max(lo, hx - gap - w);
+  el.style.left = `${Math.round(left)}px`;
+  el.style.top = `${Math.round(Math.max(12, Math.min(vp.height - h - 12, hy - h / 3)))}px`;
+}
 function renderContainer() {
   const el = $('#container');
-  if (!view || !openContainer) { el.dataset.open = 'false'; patch(el, ''); return; }
+  if (!view || !openContainer) { el.dataset.open = 'false'; windowPlacedFor = ''; patch(el, ''); return; }
   el.dataset.open = 'true';
   let title = '', parent = '', size = 0;
   if (openContainer.kind === 'vault') { title = 'Your vault'; parent = `vault:${view.self.id}`; size = 30; }
@@ -714,7 +1000,8 @@ function renderContainer() {
   if (!patch(el, `<header><b>${esc(title)}</b><div>${openContainer.kind !== 'vault' && kids.length ? '<button class="small" data-all>Take all</button>' : ''}<button class="close" aria-label="Close" data-close>×</button></div></header>
     ${empty ? '<p class="muted">Nothing left.</p>' : openContainer.kind === 'ground' ? pileList(parent) : `<div class="grid">${grid(parent, size)}</div>`}
     ${nested.map(n => `<h3>${esc(getDef(n.kind).name)}</h3><div class="grid">${grid(n.id, getDef(n.kind).slots!)}</div>`).join('')}
-    ${openContainer.kind === 'vault' ? '<p class="hint">Click items in your pack to store them. Click here to take them back.</p>' : openContainer.kind === 'ground' ? '<p class="hint">Click to pick up, or drag to your pack or onto the world.</p>' : ''}`)) return;
+    ${openContainer.kind === 'vault' ? '<p class="hint">Double-click items in your pack to store them. Click here to take them back.</p>' : openContainer.kind === 'ground' ? '<p class="hint">Click to pick up, or drag to your pack or onto the world.</p>' : ''}`)) return placeWindow(el, JSON.stringify(openContainer));
+  placeWindow(el, JSON.stringify(openContainer));
   el.querySelector('[data-close]')?.addEventListener('click', () => { openContainer = undefined; renderContainer(); });
   el.querySelector('[data-all]')?.addEventListener('click', () => {
     // Moves go out together before the next view arrives, so reserve the empty slots we hand out.
