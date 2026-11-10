@@ -49,7 +49,7 @@ function rootMatrix(fig: Figure, pose: Pose, dir: number) {
     .multiply(new THREE.Matrix4().makeRotationY(dirAngle(dir)));
 }
 type Posed = { anim: AnimName; frame: number; dir: number; pose: Pose; parts: THREE.Matrix4[] };
-/** Every frame of a figure as part matrices relative to its feet; a smear part on a frame without a strike is null. */
+/** Every frame of a figure as part matrices relative to its feet; a smear part on a frame without a strike is scaled to nothing. */
 function posed(fig: Figure): Posed[] {
   const out: Posed[] = [];
   for (const anim of animOrder) for (let frame = 0; frame < animFrames[anim]; frame++) {

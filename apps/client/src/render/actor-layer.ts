@@ -53,9 +53,11 @@ type Actor = ActorHandle & {
 };
 type Corpse = { id: string; stage: number; x: number; y: number; z: number; figure?: Figure; dir: number; born: number; collapse: boolean; landed: boolean; sprite?: SpriteBody; mesh?: THREE.Group };
 /** A figure baked on its own, after the base: an outfit, or a creature the base bake leaves out. Baked a few ms per frame. */
-type Lazy = { job?: BakeJob; atlas?: Atlas; sheet?: SpriteSheet; steps: number; worst: number };
-/** Bake work per frame for lazy figures, so a new outfit never costs a hitch; the stand-in shows meanwhile. */
+type Lazy = { job?: BakeJob; atlas?: Atlas; sheet?: SpriteSheet; steps: number; worst: number; used: number };
+/** Bake work per frame for lazy figures, so a new outfit spreads over several frames; the stand-in shows meanwhile. */
 const BAKE_BUDGET_MS = 4;
+/** A lazy bake nobody has drawn for this long is dropped: each holds about 6 MB of textures. */
+const LAZY_KEEP_MS = 30_000;
 
 /** The contact shadow under a body `span` tiles wide: as wide as it stands, flattened by the view. */
 const blob = (span: number): [number, number] => [Math.max(0.18, span * 0.5), Math.max(0.1, span * 0.29)];
@@ -130,13 +132,16 @@ export class ActorLayer {
     if (own) return { ...base, s: own };
     const key = `${look.figure.id}@${pitch.toFixed(4)}`;
     let l = this.lazy.get(key);
-    if (!l) { l = { job: new BakeJob([look.figure], pitch), steps: 0, worst: 0 }; this.lazy.set(key, l); }
+    if (!l) { l = { job: new BakeJob([look.figure], pitch), steps: 0, worst: 0, used: 0 }; this.lazy.set(key, l); }
+    l.used = performance.now();
     if (l.atlas && l.sheet) return { atlas: l.atlas, sheet: l.sheet, s: l.atlas.sheets.get(look.figure.id)! };
     const stand = look.stand && base.atlas.sheets.get(look.stand);
     return stand ? { ...base, s: stand } : undefined;
   }
-  /** Advance the oldest unfinished lazy bake by one frame's budget. */
+  /** Advance the oldest unfinished lazy bake by one frame's budget, and drop bakes no one draws any more. */
   private bakeStep() {
+    const now = performance.now();
+    for (const [key, l] of this.lazy) if (now - l.used > LAZY_KEEP_MS) { l.sheet?.dispose(); this.lazy.delete(key); }
     for (const [key, l] of this.lazy) {
       if (!l.job) continue;
       l.steps++;
