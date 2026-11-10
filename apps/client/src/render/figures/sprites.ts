@@ -123,6 +123,8 @@ void main() {
     vec3 f = fieldAt(p, 0.0, lv) * uFGain;
     // The side facing the light takes it; the far side keeps a quarter, so the silhouette still reads.
     if (dot(f, f) > 0.0) light += f * (0.25 + 0.75 * band(max(dot(n, fieldDir(p)), 0.0)));
+    // Whoever stands in the ring our hero can make out in the dark is as faintly seen as the ground there.
+    light = max(light, vec3(0.74, 0.8, 1.0) * selfGlow(p));
   }
   // Your own figure never drops below a faint read of its colours, so you never lose yourself in the dark. Presentation only:
   // the server never sends what the dark hides, so this reveals nothing.

@@ -105,7 +105,7 @@ export class WorldView {
     const m = this.clock.dayT * 40;
     if (Math.abs(m - this.minute) > 0.002) this.setMinute(m);
     // Carried lights: the server's (other players' torches, and ours once darkness is a rule) plus any the lab adds.
-    const served = (this.view as (GameView & { lights?: LightSource[] }) | undefined)?.lights ?? [];
+    const served = this.view ? this.carriedLights(this.view) : [];
     const carried = [...served, ...this.carried.filter(c => !served.some(s => s.id === c.id))];
     const sources = staticSources(this.map, time, world).concat(carried);
     this.lastSources = sources;
@@ -124,6 +124,16 @@ export class WorldView {
     f.update(sources, this.view?.doors ?? {}, this.clock, { x: this.center.x, y: this.center.z });
     // Lamps and the Lantern are drawn faint in full daylight, as the rule says they add nothing then; they bloom as the sky darkens.
     fieldUniforms.uFGain.value = this.fieldGain * (this.floor === 1 ? 1 : 1 - 0.8 * outdoorAmbient(this.clock) / 7);
+  }
+  /**
+   * The torches heroes carry. Under the darkness rule the server sends them (and hides the ones we may not see);
+   * without it the server sends none, so they are read from what each visible hero wears.
+   */
+  private carriedLights(view: GameView): LightSource[] {
+    const served = (view as GameView & { lights?: LightSource[] }).lights;
+    if (served) return served;
+    const level = defaultBalance.items.torch.light ?? 0;
+    return [view.self, ...view.players].filter(h => h.worn?.shield === 'torch' && level > 0).map(h => ({ id: `torch:${h.id}`, x: h.x, y: h.y, z: h.z, level, color: 'amber' as const }));
   }
   field() { return this.fields[this.floor]; }
   setFieldOn(on: boolean) { fieldUniforms.uFOn.value = on ? 1 : 0; }
@@ -440,7 +450,9 @@ export class WorldView {
     // Loot and shades take the light of this view, not of the last frame.
     const vw = (view as GameView & { world?: WorldLight; lights?: LightSource[] });
     const wl = vw.world ? { dayMs: vw.world.dayMs, dayOffset: vw.world.dayOffset } : this.lastWorld;
-    if (wl) { this.clock = clockAt(view.time, wl); this.lastSources = staticSources(this.map, view.time, wl).concat(vw.lights ?? [], this.carried.filter(c => !(vw.lights ?? []).some(s => s.id === c.id))); }
+    const lights = this.carriedLights(view);
+    if (wl) { this.clock = clockAt(view.time, wl); this.lastSources = staticSources(this.map, view.time, wl).concat(lights, this.carried.filter(c => !lights.some(s => s.id === c.id))); }
+    fieldUniforms.uFSelf.value.set(view.self.x, view.self.y, 1);
     const shades = (view as GameView & { shades?: Shade[] }).shades ?? [];
     this.shades.sync(shades, this.floor, (x, y) => lightLevel(this.map, { x, y, z: this.floor }, this.lastSources, view.doors, this.clock));
 

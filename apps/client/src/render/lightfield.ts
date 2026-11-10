@@ -17,6 +17,8 @@ export const fieldUniforms = {
   uFSrc: { value: Array.from({ length: MAX_SOURCES }, () => new THREE.Vector4()) },
   uFCol: { value: Array.from({ length: MAX_SOURCES }, () => new THREE.Color()) },
   uFOutdoor: { value: 7 },
+  /** Our hero's tile (x, z) and whether the glow is on. See `selfGlow`. */
+  uFSelf: { value: new THREE.Vector3(0, 0, 0) },
   uFGain: { value: 1 },
   uFOn: { value: 1 },
   uFCloud: { value: 0 },
@@ -52,9 +54,18 @@ export const fieldVertexMain = /* glsl */`
 export const fieldFragment = /* glsl */`
 uniform sampler2D uFMask; uniform sampler2D uFAmb; uniform vec2 uFSize;
 uniform vec4 uFSrc[${MAX_SOURCES}]; uniform vec3 uFCol[${MAX_SOURCES}];
-uniform float uFOutdoor; uniform float uFGain; uniform float uFOn; uniform float uFCloud; uniform float uFTime; uniform float uFNear; uniform float uFBlocks; uniform float uFCut; uniform vec3 uFAxis; uniform float uFGround;
+uniform float uFOutdoor; uniform vec3 uFSelf; uniform float uFGain; uniform float uFOn; uniform float uFCloud; uniform float uFTime; uniform float uFNear; uniform float uFBlocks; uniform float uFCut; uniform vec3 uFAxis; uniform float uFGround;
 varying vec3 vFPos; varying vec3 vFNrm;
 // Each level a readable step brighter than the last, so a pool falls off in rings and its edge still shows ground.
+// What our hero makes out around themselves with no light at all: the tiles beside them faintly, the ring after
+// that fainter still, nothing beyond. It is how the picture shows the rule's sense of what stands within reach in the
+// dark; it lights nothing for anyone else and a torch outshines it at once.
+float selfGlow(vec2 p) {
+  if (uFSelf.z < 0.5) return 0.0;
+  vec2 d = abs(floor(p + 0.5) - uFSelf.xy);
+  float ring = max(d.x, d.y);
+  return ring < 1.5 ? 0.42 : ring < 2.5 ? 0.2 : 0.0;
+}
 float fieldCurve(float lv) { return lv <= 0.0 ? 0.0 : lv * (0.21 + lv * 0.007); }
 // The Lantern on upright stone: half strength, as saturated teal on grey stone snaps to scattered single teal pixels.
 float fHighWall = 1.0;
@@ -197,7 +208,8 @@ vec3 fieldRadiance() {
   float climb = uFOutdoor < 0.5 ? 2.4 : 1.2;
   float up = max(sheen, 1.0 - smoothstep(climb, climb + 2.0, vFPos.y));
   fHighWall = mix(0.45, 1.0, abs(vFNrm.y));
-  return fieldAt(p, bayer4[bi] / 16.0 * 0.5, lv) * uFGain * up;
+  vec3 lit = fieldAt(p, bayer4[bi] / 16.0 * 0.5, lv) * uFGain * up;
+  return max(lit, vec3(0.74, 0.8, 1.0) * selfGlow(p) * up);
 }
 `;
 
