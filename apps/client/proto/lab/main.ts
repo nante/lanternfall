@@ -57,6 +57,12 @@ seg($('tabs'), Object.entries(tabs), state.tab, id => { state.tab = id as Tab; w
 seg($('places'), Object.entries(places).map(([id, p]) => [id, p.label]), state.at, id => { state.at = id; write(true); });
 
 const map = buildTown();
+// A prop sheet: every placeable thing in two rows across the market, just north of the hero (renderer only; the engine's map is untouched).
+if (q('props', '0') === '1') {
+  const kinds = [T.crate, T.barrel, T.counter, T.table, T.well, T.rock, T.vault, T.altar, T.shelf, T.pillar, T.bed, T.anvil, T.brazier, T.stump, T.lamp, T.fence, T.fence, T.bush, T.flowers, T.tree, T.pine, T.hatch];
+  const xs = [35, 36, 37, 38, 39, 41, 42, 43, 44, 45, 46];
+  kinds.forEach((k, i) => { const x = xs[i % xs.length], y = 30 + 2 * Math.floor(i / xs.length); map.floors[0].thing[y * map.width + x] = k; });
+}
 const stage = $('stage');
 let view: GameView | undefined;
 
@@ -227,6 +233,7 @@ if (q('bench', '0') === '1') setTimeout(() => { document.title = `bench: ${(wind
   const L = w.lock;
   return `median ${times[60].toFixed(2)} ms p95 ${times[114].toFixed(2)} ms · buffer ${L.bufW}x${L.bufH} · sources ${w.field()?.sources.length ?? 0} · calls ${w.renderer.info.render.calls}`;
 };
+(window as unknown as { labInfo: () => string }).labInfo = () => { const i = w.renderer.info; i.autoReset = false; i.reset(); w.frame(performance.now()); i.autoReset = true; return `triangles ${i.render.triangles} calls ${i.render.calls}`; };
 if (q('bench', '0') === '1') setTimeout(() => { document.title = `bench: ${(window as unknown as { labBench: () => string }).labBench()}`; }, 1500);
 if (q('probe', '0') === '1') setTimeout(() => { document.title = `probe: ${(window as unknown as { labProbe: () => string }).labProbe()}`; }, 2500);
 if (q('verify', '0') === '1') setTimeout(() => { document.title = `verify: ${(window as unknown as { labVerify: () => string }).labVerify()}`; }, 2500);

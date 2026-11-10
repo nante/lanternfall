@@ -5,6 +5,7 @@ import { groundAtlas, wallTexture, roofTexture, plankTexture } from './textures.
 import { tuftMesh, type TuftKind } from './tufts.ts';
 import { buildTrees } from './trees.ts';
 import { ramps } from './palette.ts';
+import { propModel, type PropPart } from './props.ts';
 
 export const WALL_H = 2.0;
 export const SUN_DIR = new THREE.Vector3(-7, 6.4, -4.6).normalize();
@@ -266,18 +267,14 @@ export function buildFloor(map: MapData, z: number, doorsOpen: Record<string, bo
   }
 
   // Trees, bushes, rocks.
-  const trunks: Inst[] = [], rocks: Inst[] = [], trees: { x: number; y: number; kind: 'tree' | 'pine' | 'bush' }[] = [];
+  const trees: { x: number; y: number; kind: 'tree' | 'pine' | 'bush' }[] = [];
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-    const t = at(x, y), r = hash2(x * 3.1, y * 1.7);
+    const t = at(x, y);
     if (t === T.tree) trees.push({ x, y, kind: 'tree' });
     else if (t === T.pine) trees.push({ x, y, kind: 'pine' });
     else if (t === T.bush) trees.push({ x, y, kind: 'bush' });
-    else if (t === T.rock) rocks.push({ x: x + (r - 0.5) * 0.3, y: 0.18, z: y, sx: 0.45 + r * 0.2, sy: 0.32 + r * 0.15, sz: 0.4, ry: r * 6, color: z ? '#5a554e' : '#7d796d' });
-    else if (t === T.stump) trunks.push({ x, y: 0.1, z: y, sx: 0.38, sy: 0.2, sz: 0.38, color: '#4a3a2e' });
   }
   group.add(buildTrees(trees));
-  if (trunks.length) group.add(instanced(box, lambert('#ffffff'), trunks));
-  group.add(instanced(new THREE.DodecahedronGeometry(0.6, 0), lambert('#ffffff', { flatShading: true }), rocks));
   if (z === 0) group.add(...rubble(map, gr, at));
 
   // Building walls, grouped per building for cut-away.
@@ -311,55 +308,45 @@ export function buildFloor(map: MapData, z: number, doorsOpen: Record<string, bo
   group.add(instanced(box, wallMat('rampart'), crenel));
   if (cave.length) group.add(instanced(box, worldMapped(wallTexture('cave')), cave));
 
-  // Props.
+  // Props: one model per thing kind and variant (`props.ts`), instanced per part.
   const plank = lambert('#ffffff', { map: plankTexture() }), darkPlank = lambert('#ffffff', { map: plankTexture(true) });
   const props: { mat: THREE.Material; geo: THREE.BufferGeometry; list: Inst[] }[] = [];
   const add = (mat: THREE.Material, geo: THREE.BufferGeometry, inst: Inst) => { let p = props.find(p => p.mat === mat && p.geo === geo); if (!p) { p = { mat, geo, list: [] }; props.push(p); } p.list.push(inst); };
-  const iron = lambert('#2c2a2a'), stone = worldMapped(wallTexture('stone')), white = lambert('#ffffff');
-  const cyl = new THREE.CylinderGeometry(0.5, 0.5, 1, 10), cyl6 = new THREE.CylinderGeometry(0.5, 0.5, 1, 6);
+  const iron = lambert('#2c2a2a');
   const lanternMat = new THREE.MeshBasicMaterial({ color: '#ffc27a' });
   const fireMat = new THREE.MeshBasicMaterial({ color: '#ff9a3a' });
+  const tinted = (m: THREE.MeshLambertMaterial) => { m.vertexColors = true; return m; };
+  const partMat: Record<PropPart, THREE.Material> = {
+    wood: tinted(worldMapped(plankTexture())), darkWood: tinted(worldMapped(plankTexture(true))), stone: tinted(worldMapped(wallTexture('stone'))),
+    paint: lambert('#ffffff', { vertexColors: true }), fire: fireMat,
+  };
   const isFenceLike = (x: number, y: number) => { const t = at(x, y); return t === T.fence || t === T.rampart || t === T.wall; };
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
     const t = at(x, y), r = hash2(x * 2.3, y * 4.1);
+    const model = propModel(t, Math.floor(hash2(x * 5.7, y * 3.3) * 97));
+    if (model) {
+      // Loose things sit a little askew; fixtures stand square to the room.
+      const loose = t === T.crate || t === T.barrel || t === T.rock || t === T.stump;
+      const inst: Inst = { x: x + (t === T.rock ? (r - 0.5) * 0.2 : 0), y: 0, z: y, ry: loose ? (t === T.crate ? (r - 0.5) * 0.4 : r * 6.28) : 0, color: t === T.rock && z ? '#8a8378' : undefined };
+      for (const [part, geo] of Object.entries(model) as [PropPart, THREE.BufferGeometry][]) add(partMat[part], geo, inst);
+    }
+    if (t === T.lamp) {
+      add(lanternMat, box, { x: x + 0.32, y: 1.64, z: y, sx: 0.15, sy: 0.25, sz: 0.15 });
+      lamps.push({ pos: new THREE.Vector3(x + 0.3, 1.7, y), color: new THREE.Color('#ffb066'), strength: 1, flicker: r * 10 });
+    } else if (t === T.altar) {
+      add(lanternMat, box, { x, y: 1.0, z: y - 0.1, sx: 0.16, sy: 0.22, sz: 0.16 });
+      lamps.push({ pos: new THREE.Vector3(x, 1.2, y), color: new THREE.Color('#ffd08a'), strength: 1.2, flicker: r * 10 });
+    } else if (t === T.brazier) lamps.push({ pos: new THREE.Vector3(x, 1.1, y), color: new THREE.Color('#ff8a3a'), strength: 1.3, flicker: r * 10 });
     switch (t) {
       case T.fence: {
-        add(darkPlank, box, { x, y: 0.4, z: y, sx: 0.14, sy: 0.8, sz: 0.14 });
-        if (isFenceLike(x + 1, y)) for (const hy of [0.3, 0.62]) add(plank, box, { x: x + 0.5, y: hy, z: y, sx: 1, sy: 0.08, sz: 0.06 });
-        if (isFenceLike(x, y + 1)) for (const hy of [0.3, 0.62]) add(plank, box, { x, y: hy, z: y + 0.5, sx: 0.06, sy: 0.08, sz: 1 });
+        // A split-rail fence: squared posts with a weathered cap, two rails that sit on the posts' faces and sag a touch.
+        add(darkPlank, box, { x, y: 0.42, z: y, sx: 0.16, sy: 0.84, sz: 0.16 });
+        add(plank, box, { x, y: 0.86, z: y, sx: 0.2, sy: 0.05, sz: 0.2 });
+        const sag = (hash2(x * 1.7, y * 2.3) - 0.5) * 0.06;
+        if (isFenceLike(x + 1, y)) for (const hy of [0.3, 0.64]) add(plank, box, { x: x + 0.5, y: hy + sag, z: y + 0.09, sx: 1.04, sy: 0.1, sz: 0.06, rz: sag * 0.3 });
+        if (isFenceLike(x, y + 1)) for (const hy of [0.3, 0.64]) add(plank, box, { x: x + 0.09, y: hy + sag, z: y + 0.5, sx: 0.06, sy: 0.1, sz: 1.04, rx: sag * 0.3 });
         break;
       }
-      case T.lamp: {
-        add(iron, box, { x, y: 1.0, z: y, sx: 0.09, sy: 2.0, sz: 0.09 });
-        add(iron, box, { x: x + 0.15, y: 1.95, z: y, sx: 0.38, sy: 0.06, sz: 0.06 });
-        add(lanternMat, box, { x: x + 0.3, y: 1.75, z: y, sx: 0.16, sy: 0.22, sz: 0.16 });
-        add(iron, box, { x: x + 0.3, y: 1.9, z: y, sx: 0.22, sy: 0.05, sz: 0.22 });
-        lamps.push({ pos: new THREE.Vector3(x + 0.3, 1.7, y), color: new THREE.Color('#ffb066'), strength: 1, flicker: r * 10 });
-        break;
-      }
-      case T.brazier: {
-        add(iron, cyl6, { x, y: 0.35, z: y, sx: 0.12, sy: 0.7, sz: 0.12 });
-        add(iron, cyl6, { x, y: 0.72, z: y, sx: 0.5, sy: 0.14, sz: 0.5 });
-        add(fireMat, box, { x, y: 0.86, z: y, sx: 0.26, sy: 0.2, sz: 0.26, ry: r });
-        lamps.push({ pos: new THREE.Vector3(x, 1.1, y), color: new THREE.Color('#ff8a3a'), strength: 1.3, flicker: r * 10 });
-        break;
-      }
-      case T.crate: add(plank, box, { x, y: 0.33, z: y, sx: 0.66, sy: 0.66, sz: 0.66, ry: (r - 0.5) * 0.3 }); break;
-      case T.barrel: add(darkPlank, cyl, { x, y: 0.36, z: y, sx: 0.56, sy: 0.72, sz: 0.56 }); add(iron, cyl, { x, y: 0.5, z: y, sx: 0.59, sy: 0.06, sz: 0.59 }); add(iron, cyl, { x, y: 0.2, z: y, sx: 0.59, sy: 0.06, sz: 0.59 }); break;
-      case T.counter: add(darkPlank, box, { x, y: 0.4, z: y, sx: 1, sy: 0.8, sz: 0.62 }); add(plank, box, { x, y: 0.82, z: y, sx: 1.04, sy: 0.06, sz: 0.7 }); break;
-      case T.table: add(plank, box, { x, y: 0.62, z: y, sx: 0.86, sy: 0.07, sz: 0.86 }); for (const [dx, dz] of [[-0.35, -0.35], [0.35, -0.35], [-0.35, 0.35], [0.35, 0.35]]) add(darkPlank, box, { x: x + dx, y: 0.3, z: y + dz, sx: 0.08, sy: 0.6, sz: 0.08 }); if (r > 0.4) add(lambert('#c9a46a'), cyl6, { x: x + 0.1, y: 0.72, z: y, sx: 0.14, sy: 0.14, sz: 0.14 }); break;
-      case T.shelf: {
-        add(darkPlank, box, { x, y: 0.85, z: y - 0.25, sx: 0.96, sy: 1.7, sz: 0.4 });
-        const cols = ['#b5523e', '#4b7ab0', '#6aa05a', '#d4b04a', '#8b5aa0'];
-        for (let i = 0; i < 6; i++) add(white, box, { x: x - 0.35 + (i % 3) * 0.33, y: 0.55 + Math.floor(i / 3) * 0.55, z: y - 0.08, sx: 0.12, sy: 0.2, sz: 0.12, color: cols[Math.floor(hash2(x + i, y) * 5 * 0.999)] });
-        break;
-      }
-      case T.well: add(stone, cyl, { x, y: 0.3, z: y, sx: 0.95, sy: 0.6, sz: 0.95 }); add(lambert('#13282c'), cyl, { x, y: 0.58, z: y, sx: 0.7, sy: 0.04, sz: 0.7 }); for (const dx of [-0.42, 0.42]) add(darkPlank, box, { x: x + dx, y: 0.9, z: y, sx: 0.09, sy: 1.2, sz: 0.09 }); add(darkPlank, box, { x, y: 1.5, z: y, sx: 1.1, sy: 0.08, sz: 0.5, rx: 0 }); break;
-      case T.vault: add(darkPlank, box, { x, y: 0.32, z: y, sx: 0.8, sy: 0.64, sz: 0.6 }); add(iron, box, { x, y: 0.5, z: y, sx: 0.84, sy: 0.07, sz: 0.64 }); add(lambert('#d0a84a'), box, { x, y: 0.4, z: y + 0.31, sx: 0.12, sy: 0.14, sz: 0.04 }); break;
-      case T.altar: add(stone, box, { x, y: 0.42, z: y, sx: 1.4, sy: 0.84, sz: 0.7 }); add(lanternMat, box, { x, y: 1.0, z: y, sx: 0.18, sy: 0.3, sz: 0.18 }); lamps.push({ pos: new THREE.Vector3(x, 1.2, y), color: new THREE.Color('#ffd08a'), strength: 1.2, flicker: r * 10 }); break;
-      case T.pillar: add(stone, cyl, { x, y: WALL_H / 2, z: y, sx: 0.5, sy: WALL_H, sz: 0.5 }); break;
-      case T.bed: add(darkPlank, box, { x, y: 0.22, z: y, sx: 0.8, sy: 0.3, sz: 0.95 }); add(lambert('#8a3a34'), box, { x, y: 0.4, z: y + 0.1, sx: 0.74, sy: 0.08, sz: 0.7 }); add(lambert('#e2d6bc'), box, { x, y: 0.42, z: y - 0.32, sx: 0.6, sy: 0.1, sz: 0.24 }); break;
-      case T.anvil: add(iron, box, { x, y: 0.25, z: y, sx: 0.36, sy: 0.5, sz: 0.3 }); add(lambert('#3e3c3c'), box, { x, y: 0.56, z: y, sx: 0.8, sy: 0.16, sz: 0.34 }); break;
       case T.hatch: add(lambert('#1a1512'), box, { x, y: 0.03, z: y, sx: 0.96, sy: 0.06, sz: 0.96 }); add(plank, box, { x, y: 0.07, z: y - 0.04, sx: 0.8, sy: 0.05, sz: 0.74 }); add(iron, box, { x, y: 0.11, z: y + 0.2, sx: 0.3, sy: 0.04, sz: 0.06 }); break;
       case T.ladder: for (const dx of [-0.25, 0.25]) add(darkPlank, box, { x: x + dx, y: 1.5, z: y - 0.38, sx: 0.08, sy: 3, sz: 0.08 }); for (let i = 0; i < 7; i++) add(plank, box, { x, y: 0.25 + i * 0.4, z: y - 0.38, sx: 0.5, sy: 0.05, sz: 0.06 }); break;
       case T.door: {
