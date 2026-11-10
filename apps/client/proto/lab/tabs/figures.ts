@@ -1,31 +1,52 @@
-// PROTOTYPE. Figures tab: baked sprites against the box rigs, feel levels, glide or snap, a line-up, a loupe, a turntable.
+// PROTOTYPE. Figures tab: feel levels, glide or snap, a line-up, a loupe, a turntable.
 import * as THREE from 'three';
 import type { TabContext } from '../main.ts';
 import { places } from '../harness.ts';
-import { frameIndex, DIRS, type Atlas } from '../../../src/render/figures/bake.ts';
+import { bake, frameIndex, DIRS, type Atlas } from '../../../src/render/figures/bake.ts';
 import { animOrder, animFrames, type AnimName } from '../../../src/render/figures/poses.ts';
-import type { Extra, Motion, Variant } from '../../../src/render/actor-layer.ts';
+import { creatureFigure, heroFigureOf, identityOf, isCreature, type Figure } from '../../../src/render/figures/kit.ts';
+import type { Extra, Motion } from '../../../src/render/actor-layer.ts';
 import type { FeelLevel } from '../../../src/render/feel.ts';
+import type { Worn } from '../../../../../packages/game/src/model.ts';
 
+/** Six kits, bare to fully armed, so the line-up shows each worn item on the body. */
+export const kits: Record<string, Worn> = {
+  bare: {},
+  starter: { weapon: 'cudgel', head: 'cap', body: 'tunic', feet: 'boots', pack: 'pack' },
+  scout: { weapon: 'shortsword', shield: 'buckler', body: 'tunic', feet: 'boots', pack: 'pack' },
+  torch: { weapon: 'hatchet', shield: 'torch', head: 'cap', body: 'jerkin', feet: 'boots' },
+  knight: { weapon: 'blade', shield: 'banded', head: 'coif', body: 'jerkin', feet: 'boots', pack: 'pack' },
+  woodman: { weapon: 'hatchet', head: 'coif', body: 'tunic' },
+};
+type Row = [dx: number, dy: number, look: string, name: string, kind: 'npc' | 'monster', facing: number, worn?: Worn];
+const heroRow = (dy: number): Row[] => Object.entries(kits).map(([k, w], i) => [i * 1.5 - 4, dy, 'hero', k, 'npc', 0, w]);
 /** The line-up stands near the start tile: hero is live, the rest are display figures. */
-const lineups: Record<string, [dx: number, dy: number, look: string, name: string, kind: 'npc' | 'monster', facing: number][]> = {
+const lineups: Record<string, Row[]> = {
   '1': [[-2, 2, 'robe', 'Sister Wren', 'npc', 0], [2, 2, 'guard', 'Warden Corin', 'npc', Math.PI / 4], [0, 3, 'gutterRat', 'Gutter rat', 'monster', Math.PI / 2]],
   all: [
-    [-5, 3, 'hero', 'Wayfarer', 'npc', 0], [-4, 3, 'other', 'Traveller', 'npc', 0], [-3, 3, 'robe', 'Sister Wren', 'npc', 0], [-2, 3, 'apron', 'Brann', 'npc', 0],
-    [-1, 3, 'dress', 'Mabel', 'npc', 0], [0, 3, 'coat', 'Odo', 'npc', 0], [1, 3, 'vest', 'Pell', 'npc', 0], [2, 3, 'guard', 'Warden Corin', 'npc', 0],
-    [3, 3, 'thornboar', 'Thornboar', 'monster', Math.PI / 2], [5, 3, 'gutterRat', 'Gutter rat', 'monster', Math.PI / 2],
+    [-5, 3, 'robe', 'Sister Wren', 'npc', 0], [-4, 3, 'apron', 'Brann', 'npc', 0], [-3, 3, 'dress', 'Mabel', 'npc', 0],
+    [-2, 3, 'coat', 'Odo', 'npc', 0], [-1, 3, 'vest', 'Pell', 'npc', 0], [0, 3, 'guard', 'Warden Corin', 'npc', 0],
+    [1.5, 3, 'gutterRat', 'Gutter rat', 'monster', Math.PI / 2], [2.5, 3, 'mireGrub', 'Mire grub', 'monster', Math.PI / 2],
+    [3.7, 3, 'caveBeetle', 'Cave beetle', 'monster', Math.PI / 2], [5, 3, 'thornboar', 'Thornboar', 'monster', Math.PI / 2],
+    ...heroRow(5), [5, 6, 'barrowTroll', 'Barrow troll', 'monster', -Math.PI / 4],
   ],
+  /** Every creature at its size beside a person, side on, then the giant. */
+  sizes: [
+    [-3, 3, 'hero', 'starter', 'npc', Math.PI / 2, kits.starter], [-2, 3, 'gutterRat', 'Gutter rat', 'monster', Math.PI / 2], [-1, 3, 'mireGrub', 'Mire grub', 'monster', Math.PI / 2],
+    [0.3, 3, 'caveBeetle', 'Cave beetle', 'monster', Math.PI / 2], [1.7, 3, 'thornboar', 'Thornboar', 'monster', Math.PI / 2], [3.5, 3, 'hero', 'knight', 'npc', Math.PI / 2, kits.knight],
+    [5.5, 3.5, 'barrowTroll', 'Barrow troll', 'monster', Math.PI / 2],
+  ],
+  heroes: [...heroRow(3), ...heroRow(5).map((r): Row => [r[0], r[1], r[2], r[3], r[4], Math.PI, r[6]])],
 };
 
 export function mount(ctx: TabContext) {
   const { url, view } = ctx, layer = view.actors;
   const q = (k: string, d: string) => url.searchParams.get(k) ?? d;
   const set = (k: string, v: string) => { url.searchParams.set(k, v); ctx.write(false); };
-  layer.setVariant(q('fig', 'baked') as Variant);
   layer.feel = q('feel', 'heavy') as FeelLevel;
   layer.motion = q('move', 'glide') as Motion;
   const at = (places[q('at', 'meadow')] ?? places.meadow).at;
-  const placeLineup = (id: string) => layer.setExtras((lineups[id] ?? []).map(([dx, dy, look, name, kind, facing], i): Extra => ({ id: `lineup:${i}`, name, kind, look, x: at.x + dx, y: at.y + dy, z: at.z, facing })));
+  const placeLineup = (id: string) => layer.setExtras((lineups[id] ?? []).map(([dx, dy, look, name, kind, facing, worn], i): Extra => ({ id: `lineup:${i}`, name, kind, look, worn, x: at.x + dx, y: at.y + dy, z: at.z, facing })));
   placeLineup(q('cast', '1'));
 
   const group = (label: string, items: [string, string][], key: string, fallback: string, apply: (v: string) => void) => {
@@ -42,13 +63,14 @@ export function mount(ctx: TabContext) {
   };
   group('Slow', [['100', '1×'], ['400', '¼×']], 'tick', '100', () => ctx.write(true));
   group('View', [['0', 'Scene'], ['1', 'Turntable']], 'turn', '0', () => ctx.write(true));
-  group('Line-up', [['0', 'Off'], ['1', 'Three'], ['all', 'All']], 'cast', '1', placeLineup);
+  group('Line-up', [['0', 'Off'], ['1', 'Three'], ['all', 'All'], ['sizes', 'Sizes'], ['heroes', 'Heroes']], 'cast', '1', placeLineup);
   group('Move', [['glide', 'Glide'], ['snap', 'Snap']], 'move', 'glide', v => { layer.motion = v as Motion; });
   group('Feel', [['off', 'Off'], ['subtle', 'Subtle'], ['heavy', 'Heavy']], 'feel', 'heavy', v => { layer.feel = v as FeelLevel; });
-  group('Figures', [['boxes', 'Boxes'], ['baked', 'Baked']], 'fig', 'baked', v => layer.setVariant(v as Variant));
 
-  const atlas = layer.atlas;
-  if (q('turn', '0') === '1' && atlas) turntable(atlas, q('anim', 'all') as AnimName | 'all', q('who', ''), q('chan', 'color'), q('frame', ''), Number(q('tz', '0')));
+  // `who` may name figures outside the base bake (kits, creatures), comma-separated; the turntable bakes them on the spot.
+  const who = q('who', ''), extra = who.split(',').map(lookup).filter((f): f is Figure => !!f);
+  const atlas = extra.length ? bake(Number(q('tpitch', String(layer.atlas.pitch))), extra) : layer.atlas;
+  if (q('turn', '0') === '1') turntable(atlas, q('anim', 'all') as AnimName | 'all', extra.length === 1 ? extra[0].id : extra.length ? '' : who, q('chan', 'color'), q('frame', ''), Number(q('tz', '0')));
   if (q('loupe', '0') !== '0') loupe(ctx, Number(q('loupe', '6')), q('lid', ''));
   watch(ctx, Number(q('log', '0')));
 }
@@ -61,7 +83,7 @@ function watch(ctx: TabContext, seconds: number) {
   const w = ctx.view, layer = w.actors, start = performance.now();
   const ring = { checks: 0, off: 0, first: '' };
   const panel = document.createElement('pre'); panel.className = 'lab-read num'; panel.id = 'fig-log';
-  Object.assign(panel.style, { top: 'auto', bottom: '64px', right: 'auto', left: '12px', display: 'block', margin: '0' });
+  Object.assign(panel.style, { top: 'auto', bottom: '64px', right: 'auto', left: '12px', margin: '0' });
   document.body.append(panel);
   let done = false, frames = 0;
   const tick = () => {
@@ -76,8 +98,9 @@ function watch(ctx: TabContext, seconds: number) {
       }
     }
     const L = layer.log, secs = (performance.now() - start) / 1000;
-    const text = `figures ${layer.variant} · feel ${layer.feel} · ${layer.motion}${layer.reduced ? ' · reduced motion' : ''}\nbake ${layer.atlas ? `${layer.atlas.cells} frames ${layer.atlas.ms.toFixed(0)} ms (setup ${layer.atlas.phases.setup.toFixed(0)}, render ${layer.atlas.phases.render.toFixed(0)}, clean ${layer.atlas.phases.clean.toFixed(0)})` : "none"}\n` +
-      `time ${secs.toFixed(0)} s · frames ${frames}\neffects ${L.effects} (${L.rigEffects} by box rigs, ${L.restrikes} during a strike) · strikes drawn ${L.strikes}\nstrikes before effect ${L.early}\nwind-ups ${L.windups} · relaxed ${L.relaxed} · collapses ${L.collapses}\n` +
+    const lazy = layer.bakes.map(b => `${b.id.split('@')[0].replace(/^hero:[^:]+:[^:]+:\d:/, '')} ${b.ms.toFixed(0)} ms in ${b.steps}`).join(' · ');
+    const text = `figures · feel ${layer.feel} · ${layer.motion}${layer.reduced ? ' · reduced motion' : ''}\nbake ${layer.atlas ? `${layer.atlas.cells} frames ${layer.atlas.ms.toFixed(0)} ms (setup ${layer.atlas.phases.setup.toFixed(0)}, render ${layer.atlas.phases.render.toFixed(0)}, clean ${layer.atlas.phases.clean.toFixed(0)})` : "none"}\n` +
+      `lazy bakes ${layer.bakes.length}${lazy ? `: ${lazy}` : ''}\ntime ${secs.toFixed(0)} s · frames ${frames}\neffects ${L.effects} (${L.restrikes} during a strike) · strikes drawn ${L.strikes}\nstrikes before effect ${L.early}\nwind-ups ${L.windups} · relaxed ${L.relaxed} · collapses ${L.collapses}\n` +
       `ring checks ${ring.checks} · off tile ${ring.off}${ring.first ? `\nfirst: ${ring.first}` : ''}`;
     if (frames % 15 === 0 || frames < 30) panel.textContent = text;
     if (seconds > 0 && !done && secs >= seconds) { done = true; panel.textContent = text; document.title = text.replace(/\n/g, ' | '); console.info(text); }
@@ -139,7 +162,7 @@ function turntable(atlas: Atlas, anim: AnimName | 'all', who: string, chan: stri
     const W = Math.round(innerWidth * devicePixelRatio), H = Math.round(innerHeight * devicePixelRatio);
     if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
     const g = cv.getContext('2d')!; g.imageSmoothingEnabled = false; g.clearRect(0, 0, W, H);
-    const total = span.reduce((n, x) => n + x.top + x.below, 0), colW = Math.max(...span.map(x => x.s.figure.cell.w));
+    const total = span.reduce((n, x) => n + x.top + x.below, 0), colW = Math.max(...span.map(x => x.s.cell.w));
     const S = zoom || Math.max(1, Math.floor(Math.min((H - 140) / total, (W - 220) / (colW * DIRS))));
     let y = 80;
     g.font = `600 ${13 * devicePixelRatio}px Inter Variable, sans-serif`; g.fillStyle = '#ece2c8'; g.textBaseline = 'middle';
@@ -157,4 +180,10 @@ function turntable(atlas: Atlas, anim: AnimName | 'all', who: string, chan: stri
     requestAnimationFrame(draw);
   };
   requestAnimationFrame(draw);
+}
+
+/** A figure by turntable name: a kit (`kit:knight`) or a creature kind. */
+function lookup(who: string): Figure | undefined {
+  if (who.startsWith('kit:') && kits[who.slice(4)]) return heroFigureOf(kits[who.slice(4)], identityOf(who));
+  return isCreature(who) ? creatureFigure(who) : undefined;
 }

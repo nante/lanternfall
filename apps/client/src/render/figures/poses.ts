@@ -138,12 +138,92 @@ const rat: Record<AnimName, Pose[]> = {
   ],
 };
 
+// Beetle legs move in tripods: front and back of one side with the middle of the other. A leg turns about y to swing
+// (forward is +y on the right, −y on the left) and about z to lift (−z on the right, +z on the left); mirror() swaps sides.
+const tripod = (swing: number, lift: number, plant: number): Record<string, Vec3> => ({
+  legFR: [0, swing, -lift], legML: [0, -swing, lift], legBR: [0, swing, -lift],
+  legFL: [0, plant, 0], legMR: [0, -plant, 0], legBL: [0, plant, 0],
+});
+const jaws = (open: number): Record<string, Vec3> => ({ jawR: [0, -open, 0], jawL: [0, open, 0] });
+const cases = (open: number): Record<string, Vec3> => ({ caseR: [0, 0, -open], caseL: [0, 0, open] });
+const curl = (k: number): Record<string, Vec3> => Object.fromEntries(['F', 'M', 'B'].flatMap(n => [[`leg${n}R`, [0, 0, -0.5 * k]], [`leg${n}L`, [0, 0, 0.5 * k]], [`shin${n}R`, [0, 0, 1.1 * k]], [`shin${n}L`, [0, 0, -1.1 * k]]]));
+const beetleWalkA: Pose = { t: { body: [0, 0.012, 0] }, r: { ...tripod(0.4, 0.3, 0.3), ...jaws(0.1), head: [0, 0.08, 0] } };
+const beetleWalkB: Pose = { r: { legFL: [0, 0, 0.25], legMR: [0, 0, -0.25], legBL: [0, 0, 0.25], ...jaws(-0.1) } };
+const beetle: Record<AnimName, Pose[]> = {
+  idle: [
+    { r: { ...jaws(-0.15) } },
+    { t: { body: [0, 0.012, 0] }, r: { ...jaws(0.35), ...cases(0.1), head: [-0.08, 0, 0] } },
+  ],
+  walk: [beetleWalkA, beetleWalkB, mirror(beetleWalkA), mirror(beetleWalkB)],
+  attack: [
+    { t: { root: [0, 0, -0.06], body: [0, 0.03, 0] }, r: { body: [-0.22, 0, 0], head: [-0.2, 0, 0], ...jaws(0.6), ...cases(0.3), legFR: [0, 0.25, -0.45], legFL: [0, -0.25, 0.45] } },
+    { t: { root: [0, 0, -0.1], body: [0, 0.05, 0] }, r: { body: [-0.34, 0, 0], head: [-0.25, 0, 0], ...jaws(0.75), ...cases(0.55), legFR: [0, 0.35, -0.6], legFL: [0, -0.35, 0.6] } },
+    { t: { root: [0, 0, 0.2], body: [0, -0.01, 0] }, smear: true, r: { body: [0.16, 0, 0], head: [0.3, 0, 0], ...jaws(-0.4), ...cases(0.35), legBR: [0, -0.45, 0], legBL: [0, 0.45, 0], legFR: [0, 0.5, 0], legFL: [0, -0.5, 0] } },
+    { t: { root: [0, 0, 0.07] }, r: { body: [0.05, 0, 0], head: [0.1, 0, 0], ...jaws(0.1), ...cases(0.12) } },
+  ],
+  hurt: [{ t: { root: [0, 0, -0.06], body: [0, 0.03, 0] }, r: { body: [-0.18, 0, 0.14], head: [-0.25, 0, 0], ...cases(0.35), ...jaws(0.5), ...curl(0.3) } }],
+  die: [
+    { roll: 0.6, t: { body: [0, 0.03, 0] }, r: { ...cases(0.25), ...curl(0.3) } },
+    { roll: 1.6, t: { body: [0, 0.06, 0] }, r: { ...cases(0.2), ...curl(0.6) } },
+    { roll: 2.6, t: { body: [0, 0.05, 0] }, r: { ...curl(0.9), ...jaws(0.4) } },
+    { roll: 3.0, t: { body: [0, 0.04, 0] }, r: { ...curl(1.1), ...jaws(0.5) } },
+  ],
+  cast: [
+    { t: { body: [0, 0.02, 0] }, r: { body: [-0.12, 0, 0], ...cases(0.7), ...jaws(0.4) } },
+    { t: { body: [0, 0.04, 0] }, r: { body: [-0.2, 0, 0], ...cases(1.05), ...jaws(0.6) } },
+  ],
+};
+
+// The grub crawls by a hump that runs from tail to head: each segment rises in turn and the body bunches behind it.
+const GRUB_SEGS = 6;
+function crawl(phase: number): Pose {
+  const t: Record<string, Vec3> = {}, r: Record<string, Vec3> = {};
+  let below = 0;
+  for (let i = GRUB_SEGS - 1; i >= 0; i--) {
+    const w = Math.sin(2 * Math.PI * ((GRUB_SEGS - 1 - i) / 4 - phase)), up = 0.045 * Math.max(0, w);
+    t[`seg${i}`] = [0, up - below, i === GRUB_SEGS - 1 ? 0 : -0.018 * Math.max(0, w)];
+    r[`seg${i}`] = [-0.12 * Math.cos(2 * Math.PI * ((GRUB_SEGS - 1 - i) / 4 - phase)), 0, 0];
+    below = up;
+  }
+  return { t, r: { ...r, head: [0.05 * Math.sin(2 * Math.PI * phase), 0, 0] } };
+}
+const rear = (k: number, head: number): Record<string, Vec3> => ({ seg3: [-0.1 * k, 0, 0], seg2: [-0.28 * k, 0, 0], seg1: [-0.26 * k, 0, 0], seg0: [-0.16 * k, 0, 0], head: [head, 0, 0] });
+const coil = (k: number): Record<string, Vec3> => Object.fromEntries(Array.from({ length: GRUB_SEGS - 1 }, (_, i) => [`seg${i}`, [0, 0.32 * k, 0]]));
+const grub: Record<AnimName, Pose[]> = {
+  idle: [
+    { r: { seg2: [0, 0.05, 0], seg0: [0, -0.04, 0] } },
+    { t: { seg3: [0, 0.015, 0] }, r: { seg2: [0, -0.06, 0], seg1: [-0.06, 0, 0], seg0: [-0.05, 0.05, 0], head: [-0.12, 0, 0] } },
+  ],
+  walk: [crawl(0), crawl(0.25), crawl(0.5), crawl(0.75)],
+  attack: [
+    { t: { root: [0, 0, -0.05] }, r: rear(0.8, 0.35) },
+    { t: { root: [0, 0, -0.09] }, r: rear(1.15, 0.5) },
+    { t: { root: [0, 0, 0.16] }, smear: true, r: { seg2: [0.12, 0, 0], seg1: [0.22, 0, 0], seg0: [0.18, 0, 0], head: [-0.1, 0, 0] } },
+    { t: { root: [0, 0, 0.05] }, r: { seg1: [0.06, 0, 0], head: [0.05, 0, 0] } },
+  ],
+  hurt: [{ t: { root: [0, 0, -0.06] }, r: { ...coil(0.35), seg1: [-0.2, 0.32, 0], head: [-0.35, 0, 0] } }],
+  die: [
+    { roll: 0.3, r: coil(0.3) },
+    { roll: 0.8, t: { seg5: [0, -0.02, 0] }, r: coil(0.55) },
+    { roll: 1.3, t: { seg5: [0, -0.04, 0] }, r: coil(0.75) },
+    { roll: Math.PI / 2, t: { seg5: [0, -0.05, 0] }, r: { ...coil(0.85), head: [0.3, 0, 0] } },
+  ],
+  cast: [
+    { r: rear(0.9, 0.1) },
+    { t: { root: [0, 0, -0.03] }, r: rear(1.3, -0.1) },
+  ],
+};
+
 /** Added under every frame: the rat's tail curls to one side so it reads as a tail and not a stick. */
 export const basePose: Record<Skeleton, Pose> = {
   human: {},
   boar: {},
   rat: { r: { tail1: [0.15, 0.35, 0], tail2: [0, 0.55, 0], tail3: [0, 0.65, 0] } },
+  beetle: {},
+  grub: {},
 };
-export const poses: Record<Skeleton, Record<AnimName, Pose[]>> = { human, boar, rat };
-/** The joint a quadruped rolls about when it dies. */
-export const rollJoint: Record<Skeleton, string> = { human: 'pelvis', boar: 'body', rat: 'body' };
+export const poses: Record<Skeleton, Record<AnimName, Pose[]>> = { human, boar, rat, beetle, grub };
+/** The joint a body rolls about when it dies. */
+export const rollJoint: Record<Skeleton, string> = { human: 'pelvis', boar: 'body', rat: 'body', beetle: 'body', grub: 'seg5' };
+/** Animations in which a figure's held joints (a raised torch, a carried shield) keep their hold. */
+export const holds: Record<AnimName, boolean> = { idle: true, walk: true, attack: true, cast: true, hurt: false, die: false };

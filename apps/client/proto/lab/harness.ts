@@ -1,7 +1,7 @@
 // PROTOTYPE. A local Engine like src/preview.ts, but the Engine is exposed so the lab can drive time and scenes.
 import { Engine } from '../../../../packages/game/src/engine.ts';
 import { defaultBalance } from '../../../../packages/game/src/default-balance.ts';
-import { distance, type Action, type GameView, type MapData, type MobKind, type Notice, type Pos, type Hero } from '../../../../packages/game/src/model.ts';
+import { distance, equipSlots, type Action, type EquipSlot, type GameView, type ItemKind, type MapData, type MobKind, type Notice, type Pos, type Hero } from '../../../../packages/game/src/model.ts';
 
 export type Place = { at: Pos; prey?: MobKind; label: string };
 export const places: Record<string, Place> = {
@@ -26,6 +26,17 @@ export function startLab(map: MapData, placeId: string, opts: { hunt: boolean; t
   const put = (p: Hero, dx: number, dy: number) => Object.assign(p, e.geo.near({ ...place.at, x: place.at.x + dx, y: place.at.y + dy }, q => e.occupied(q, p.id)));
   const hero = e.createPlayer('Wayfarer'), friends = [e.createPlayer('Ash'), e.createPlayer('Mira')];
   put(hero, 0, 0); put(friends[0], -2, 1); put(friends[1], 2, -1);
+  // Each hero in different gear, so shots show what is worn. `null` empties a slot; a removed pack goes to the vault.
+  const dress = (p: Hero, kit: Partial<Record<EquipSlot, ItemKind | null>>) => {
+    for (const [slot, kind] of Object.entries(kit) as [EquipSlot, ItemKind | null][]) {
+      const old = e.equipped(p, slot);
+      if (old && slot === 'pack') Object.assign(old, { parent: `vault:${p.id}`, slot: 0 }); else if (old) delete e.state.items[old.id];
+      if (kind) e.add(kind, `equip:${p.id}`, equipSlots.indexOf(slot));
+    }
+  };
+  dress(hero, { weapon: 'shortsword', shield: 'buckler', body: 'jerkin' });
+  dress(friends[0], { weapon: 'hatchet', shield: 'banded', head: 'coif' });
+  dress(friends[1], { weapon: 'blade', shield: 'torch', head: null, body: 'jerkin', pack: null });
   for (const p of [hero, ...friends]) { p.xp = 900; p.hp = e.stats(p).maxHp; }
   hero.xp = e.rules.xpAt(14) + 900; hero.melee = e.rules.meleeAt(31) + 40; hero.shielding = e.rules.shieldingAt(24) + 30; hero.magic = e.rules.magicAt(3) + 500;
   hero.hp = e.stats(hero).maxHp; hero.mana = e.stats(hero).maxMana;
