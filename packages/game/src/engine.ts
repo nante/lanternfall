@@ -365,6 +365,7 @@ export class Engine {
         if (a.chase !== undefined) { p.chase = a.chase; if (!a.chase && !p.manual) p.path = []; }
         break;
       case 'look': this.note(p, this.describe(p, a.at, a.actor), 'info'); break;
+      case 'push': throw new GameError('Pushing is not in this build yet.');
       default: { const exhaustive: never = a; return exhaustive; }
     }
   }
