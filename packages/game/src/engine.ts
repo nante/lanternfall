@@ -154,7 +154,7 @@ export class Engine {
   dropOnGround(p: Hero, i: GameItem, to: Pos, count: number) {
     const w = this.balance.world, key = groundKey(to);
     if (to.z !== p.z || distance(p, to) > w.throwRange) throw new GameError('That is too far away to throw.');
-    if (!this.geo.sight(p, to)) throw new GameError('You cannot throw there.');
+    if (!this.geo.sight(p, to, this.state.doors)) throw new GameError('You cannot throw there.');
     if (!this.canHoldItems(to)) throw new GameError('There is no room there.');
     const pile = this.children(key).filter(j => j.id !== i.id);
     let n = Math.min(i.count, count);
@@ -304,7 +304,7 @@ export class Engine {
     if (!hello) return p.talking ? this.npcNear(p, p.talking) : undefined;
     const name = hello[1];
     const greeted = (n: NpcSpawn) => !name || n.name.toLowerCase() === name || n.name.toLowerCase().split(' ').includes(name);
-    return this.map.npcs.filter(n => n.z === p.z && distance(n, p) <= 3 && greeted(n) && this.geo.sight(p, n))
+    return this.map.npcs.filter(n => n.z === p.z && distance(n, p) <= 3 && greeted(n) && this.geo.sight(p, n, this.state.doors))
       .sort((a, b) => distance(p, a) - distance(p, b))[0];
   }
   /** Every present hero within earshot on the speaker's floor hears the line. */
@@ -354,7 +354,7 @@ export class Engine {
       }
       case 'stop': p.path = []; p.target = null; break;
       case 'target': {
-        if (a.id) { const m = this.state.monsters[a.id]; if (!m || m.hp <= 0 || m.z !== p.z) throw new GameError('That creature is not here.'); if (this.geo.pz(p)) throw new GameError('You may not attack from a protection zone.'); if (this.balance.world.darkness && !this.targetVisible(p, m)) throw new GameError('You cannot see that creature.'); }
+        if (a.id) { const m = this.state.monsters[a.id]; if (!m || m.hp <= 0 || m.z !== p.z) throw new GameError('That creature is not here.'); if (this.geo.pz(p)) throw new GameError('You may not attack from a protection zone.'); if (!this.geo.sight(p, m, this.state.doors)) throw new GameError('You cannot see that creature.'); if (this.balance.world.darkness && !this.targetVisible(p, m)) throw new GameError('You cannot see that creature.'); }
         p.target = a.id; p.path = []; p.manual = false; break;
       }
       case 'useTile': {
@@ -475,7 +475,7 @@ export class Engine {
       // A ring of fire around the caster: every creature it can see within the radius burns.
       if (this.geo.pz(p)) throw new GameError('You may not attack from a protection zone.');
       const r = spell.radius;
-      const caught = Object.values(this.state.monsters).filter(m => m.hp > 0 && m.z === p.z && (m.x - p.x) ** 2 + (m.y - p.y) ** 2 <= r * r + r && this.geo.sight(p, m));
+      const caught = Object.values(this.state.monsters).filter(m => m.hp > 0 && m.z === p.z && (m.x - p.x) ** 2 + (m.y - p.y) ** 2 <= r * r + r && this.geo.sight(p, m, this.state.doors));
       this.effect('burst', p, 0, p);
       for (const m of caught) { const dmg = power + this.random(spell.spread); this.effect('ember', m, dmg, p); this.hurt(p, m, dmg); }
       p.combatUntil = this.state.time + this.balance.world.fightLockSec * 1000;
@@ -483,7 +483,7 @@ export class Engine {
       if (this.geo.pz(p)) throw new GameError('You may not attack from a protection zone.');
       const m = p.target ? this.state.monsters[p.target] : undefined;
       if (!m || m.hp <= 0) throw new GameError('Choose a target first.');
-      if (distance(p, m) > spell.range || !this.geo.sight(p, m)) throw new GameError('Your target is out of reach.');
+      if (distance(p, m) > spell.range || !this.geo.sight(p, m, this.state.doors)) throw new GameError('Your target is out of reach.');
       if (this.balance.world.darkness && this.perception(p, m) !== 'full') throw new GameError('Your target is not lit.');
       const dmg = power + this.random(spell.spread);
       this.effect('ember', m, dmg, p);
@@ -724,7 +724,7 @@ export class Engine {
     let p = current && this.present(current) && this.onScreen(current, m) && !this.geo.pz(current) ? current : undefined;
     if (!p) {
       const light = w.darkness ? this.lighting() : undefined;
-      p = watching.filter(h => !this.geo.pz(h) && distance(h, m) <= def.aggro && this.geo.sight(m, h)
+      p = watching.filter(h => !this.geo.pz(h) && distance(h, m) <= def.aggro && this.geo.sight(m, h, this.state.doors)
         && (!light || distance(h, m) <= 3 || light.levelAt(h) >= 2))
         .sort((a, b) => distance(m, a) - distance(m, b))[0];
     }

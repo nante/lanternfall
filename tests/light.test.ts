@@ -79,7 +79,7 @@ test('a real closed shrine door blocks light but an open door passes it', () => 
   const source: LightSource = { id: 'test-lamp', x: 22, y: 24, z: 0, level: 6, color: 'amber' };
   const outside = { x: 22, y: 26, z: 0 };
   assert.equal(geo.thing(door), T.door);
-  assert.equal(geo.sight(source, outside), true);
+  assert.equal(geo.sight(source, outside, {}), false, 'sight stops at the closed door too');
   assert.equal(lightPasses(map, source, outside, {}), false);
   assert.equal(lightPasses(map, source, outside, { [key(door)]: false }), false);
   assert.equal(lightLevel(map, outside, [source], {}, night), 1);
@@ -98,8 +98,8 @@ test('light rays use the same intermediate tiles as sight when doors are open', 
   for (const from of [{ x: 22, y: 24, z: 0 }, { x: 38, y: 15, z: 0 }, { x: 55, y: 46, z: 1 }]) {
     for (let dy = -5; dy <= 5; dy++) for (let dx = -5; dx <= 5; dx++) {
       const to = { x: from.x + dx, y: from.y + dy, z: from.z };
-      assert.equal(lightPasses(map, from, to, doors), geo.sight(from, to), `${key(from)} to ${key(to)}`);
-      assert.equal(lightPasses(map, to, from, doors), geo.sight(to, from), `${key(to)} to ${key(from)}`);
+      assert.equal(lightPasses(map, from, to, doors), geo.sight(from, to, doors), `${key(from)} to ${key(to)}`);
+      assert.equal(lightPasses(map, to, from, doors), geo.sight(to, from, doors), `${key(to)} to ${key(from)}`);
     }
   }
 });

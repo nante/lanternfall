@@ -1,4 +1,5 @@
-import { type MapData, type Pos, type State, G, T, key, distance, thingBlocks, thingHidesSight } from './model.ts';
+import { type MapData, type Pos, type State, G, T, key, distance, thingBlocks } from './model.ts';
+import { lightPasses } from './light.ts';
 
 export class Geography {
   private readonly npcTiles: Set<string>;
@@ -58,13 +59,6 @@ export class Geography {
     }
     throw Error(`No open tile near ${key(p)}`);
   }
-  sight(a: Pos, b: Pos) {
-    if (a.z !== b.z) return false;
-    const n = Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
-    for (let i = 1; i < n; i++) {
-      const q = { x: Math.round(a.x + ((b.x - a.x) * i) / n), y: Math.round(a.y + ((b.y - a.y) * i) / n), z: a.z };
-      if (thingHidesSight(this.thing(q))) return false;
-    }
-    return true;
-  }
+  /** Line of sight on one floor: walls, trees and closed doors between the two tiles block it, the same rays light takes. */
+  sight(a: Pos, b: Pos, doors: Record<string, boolean>) { return lightPasses(this.data, a, b, doors); }
 }

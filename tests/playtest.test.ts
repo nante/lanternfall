@@ -315,3 +315,46 @@ test('a door cannot be closed on anyone standing in it', () => {
   e.state.corpses.c = { id: 'c', ...door, name: 'Dead rat', kind: 'gutterRat', owner: '', protectedUntil: 0, expiresAt: 1e12, born: 0, stage: 0 };
   assert.throws(() => e.action(ann, { kind: 'useTile', to: door }), /lies in the doorway/);
 });
+
+// ---- C4 a closed door blocks sight ---------------------------------------------------------------
+const shopDoor = () => {
+  const e = new Engine(map, balance);
+  for (const id of Object.keys(e.state.monsters)) if (e.state.monsters[id].kind !== 'gutterRat') delete e.state.monsters[id];
+  const rats = Object.values(e.state.monsters);
+  for (const m of rats.slice(1)) delete e.state.monsters[m.id];
+  const rat = Object.assign(rats[0], { x: 49, y: 45, z: 0, home: { x: 49, y: 45, z: 0 }, target: null, hp: 1000 });
+  const p = place(e.createPlayer('Tess'), 49, 49);
+  p.xp = e.rules.xpAt(20); p.mana = 999; p.hp = 1e6;
+  const door = { x: 49, y: 47, z: 0 };
+  return { e, p, rat, door, open: () => { e.state.doors['49,47,0'] = true; } };
+};
+
+test('a creature behind a closed door does not notice you', () => {
+  const { e, rat, open } = shopDoor();
+  e.tick(); assert.equal(rat.target, null);
+  open(); e.tick();
+  assert.notEqual(rat.target, null);
+});
+
+test('you cannot target, cast at or burn a creature behind a closed door', () => {
+  const { e, p, rat, open } = shopDoor();
+  assert.throws(() => e.action(p, { kind: 'target', id: rat.id }), /cannot see/);
+  p.target = rat.id;
+  assert.throws(() => e.action(p, { kind: 'cast', spell: 'ember' }), /out of reach/);
+  rat.y = 46; p.y = 48;
+  e.action(p, { kind: 'cast', spell: 'cinderburst' });
+  assert.equal(rat.hp, 1000, 'the burst stops at the door');
+  open(); p.spellAt = 0;
+  e.action(p, { kind: 'target', id: rat.id });
+  e.action(p, { kind: 'cast', spell: 'ember' });
+  assert.ok(rat.hp < 1000);
+});
+
+test('you cannot throw through a closed door', () => {
+  const { e, p, open } = shopDoor();
+  const loaf = e.carried(p).find(i => i.kind === 'loaf')!;
+  const throwTo = () => e.action(p, { kind: 'moveItem', id: loaf.id, parent: 'ground:49,45,0', slot: 0, count: 1, version: e.state.items[loaf.id].version });
+  assert.throws(throwTo, /cannot throw/);
+  open(); throwTo();
+  assert.equal(e.children('ground:49,45,0')[0].kind, 'loaf');
+});
