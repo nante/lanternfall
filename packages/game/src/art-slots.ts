@@ -1,6 +1,6 @@
 // Texture slots that hand-made PNGs may replace. A slot without a PNG keeps its procedural generator.
 export const artFamilies = {
-  ground: { width: 48, height: 48, note: '2×2 world tiles, 24 px per tile', kinds: ['grass', 'meadow', 'dirt', 'cobble', 'plank', 'stone', 'sand', 'moss', 'flagstone'] },
+  ground: { width: 64, height: 64, note: '2×2 world tiles, 32 px per tile', kinds: ['grass', 'meadow', 'dirt', 'cobble', 'plank', 'stone', 'sand', 'moss', 'flagstone'] },
   wall: { width: 16, height: 32, note: '1 tile wide, 2 tiles tall', kinds: ['plaster', 'stone', 'timber', 'rampart', 'cave'] },
   roof: { width: 16, height: 16, note: 'tiles along the roof slope', kinds: ['slate', 'clay', 'thatch', 'teal'] },
 } as const;

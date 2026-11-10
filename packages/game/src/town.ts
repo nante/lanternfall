@@ -1,6 +1,9 @@
 import { type Building, type Floor, type MapData, type NpcSpawn, type Place, type Pos, type Spawn, G, T, key } from './model.ts';
 
-export const W = 84, H = 68;
+/** The original town is 84 wide; the east reach (x ≥ 84) holds example areas for the look and is generated from its own
+ * random stream, so everything west of it is laid out exactly as before. */
+const OLD_W = 84;
+export const W = 104, H = 68;
 
 function rng(seed: number) { return () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 2 ** 32; }; }
 export function hash2(x: number, y: number) { const n = Math.sin(x * 127.1 + y * 311.7) * 43758.5453; return n - Math.floor(n); }
@@ -159,9 +162,10 @@ export function buildTown(): MapData {
   s.t(67, 46, T.lamp);
 
   // Trees, bushes and flowers.
-  const occupied = (x: number, y: number) => s.t(x, y) !== T.none || [G.water, G.cobble, G.plank, G.flagstone, G.sand].includes(s.g(x, y)) || (x >= 38 && x <= 43);
+  // x ≥ OLD_W counts as occupied, as it did when the map ended there, so the original scatter is unchanged.
+  const occupied = (x: number, y: number) => x >= OLD_W || s.t(x, y) !== T.none || [G.water, G.cobble, G.plank, G.flagstone, G.sand].includes(s.g(x, y)) || (x >= 38 && x <= 43);
   const clear = (x: number, y: number, rad: number) => { for (let dy = -rad; dy <= rad; dy++) for (let dx = -rad; dx <= rad; dx++) if (occupied(x + dx, y + dy) && !(dx === 0 && dy === 0 && !occupied(x, y))) return false; return !occupied(x, y); };
-  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+  for (let y = 0; y < H; y++) for (let x = 0; x < OLD_W; x++) {
     const inside = x >= wx0 && x <= wx1 && y >= wy0 && y <= wy1;
     const forest = smooth(x + 100, y + 30, 6);
     const p = r();
@@ -183,6 +187,48 @@ export function buildTown(): MapData {
   // The meadow south of the gate: open hunting ground with stumps.
   s.rect(26, 57, 58, 67, (x, y) => { if (s.t(x, y) === T.tree || s.t(x, y) === T.pine) s.t(x, y, r() < 0.3 ? T.stump : T.none); });
   for (const [x, y] of [[30, 60], [36, 63], [47, 59], [53, 64], [44, 65], [33, 66]]) spawns.push({ kind: 'thornboar', x, y, z: 0 });
+
+  // --- East reach ----------------------------------------------------------
+  // Two small example areas for the look, kept small on purpose (the map gets its own pass later):
+  // Whisperwood, an old wood with a winding path under the canopy, and the Fallen chapel, a ruin on the rise above it.
+  const re = rng(9133);
+  const path = new Set<string>();
+  {
+    // The path enters from the meadow at the south edge and winds north to the chapel door.
+    let px = 92;
+    for (let y = 63; y >= 26; y--) {
+      // The last stretch bends to the chapel door (x 93–94).
+      px = y <= 34 ? px + Math.sign(93 - px) : Math.max(86, Math.min(100, px + Math.round(Math.sin(y / 4.3) * 1.2)));
+      for (const dx of [0, 1]) { path.add(`${px + dx},${y}`); s.g(px + dx, y, G.dirt); }
+    }
+  }
+  // The chapel: flagstone floor, a broken outline of walls with gaps, two rows of pillars (some fallen), and fallen stone where an altar stood.
+  const cx0 = 87, cy0 = 14, cx1 = 99, cy1 = 25;
+  s.rect(cx0, cy0, cx1, cy1, (x, y) => {
+    s.g(x, y, hash2(x * 3, y * 7) > 0.25 ? G.flagstone : G.grass);
+    const edge = x === cx0 || x === cx1 || y === cy0 || y === cy1;
+    const door = y === cy1 && (x === 93 || x === 94);
+    if (edge && !door && hash2(x * 5, y * 11) > 0.3) s.t(x, y, T.wall);
+  });
+  for (const y of [17, 20, 23]) for (const x of [90, 96]) s.t(x, y, re() < 0.7 ? T.pillar : T.rock);
+  // No altar: altars are permanent lights in the rule, and this reach must not change play. A fallen stone in its place.
+  s.t(93, 15, T.rock);
+  for (let i = 0; i < 14; i++) {
+    const x = cx0 - 2 + Math.floor(re() * (cx1 - cx0 + 5)), y = cy0 - 2 + Math.floor(re() * (cy1 - cy0 + 6));
+    if (s.in(x, y) && s.t(x, y) === T.none && !path.has(`${x},${y}`) && !(x > cx0 && x < cx1 && y > cy0 && y < cy1 && (x === 93 || x === 94))) s.t(x, y, T.rock);
+  }
+  // Whisperwood: dense old trees with pines among them, the path kept clear, flowers in the small clearings.
+  for (let y = 0; y < H; y++) for (let x = OLD_W; x < W; x++) {
+    const p = re();
+    if (s.g(x, y) === G.water || s.g(x, y) === G.sand || s.t(x, y) !== T.none || path.has(`${x},${y}`)) continue;
+    if (x >= cx0 - 1 && x <= cx1 + 1 && y >= cy0 - 1 && y <= cy1 + 1) continue;
+    const nearPath = path.has(`${x - 1},${y}`) || path.has(`${x + 1},${y}`);
+    const wood = y >= 28 && y <= 62;
+    if (wood && !nearPath && p < 0.5) s.t(x, y, re() < 0.25 ? T.pine : T.tree);
+    else if (wood && p < 0.58) s.t(x, y, T.bush);
+    else if (!wood && p < 0.12) s.t(x, y, y < 12 ? T.pine : T.tree);
+    else if (p < 0.7 && s.g(x, y) !== G.dirt) { if (re() < 0.25) s.t(x, y, T.flowers); }
+  }
 
   // --- Undercroft ---------------------------------------------------------
   const carve = (x: number, y: number) => { if (x > 0 && y > 0 && x < W - 1 && y < H - 1) { u.t(x, y, T.none); u.g(x, y, smooth(x, y, 3) > 0.62 ? G.moss : G.stone); } };
@@ -243,6 +289,8 @@ export function buildTown(): MapData {
     { name: 'Vault', x0: 30, y0: 16, x1: 36, y1: 21, z: 0 },
     { name: 'Thornboar meadow', x0: 0, y0: 55, x1: W - 1, y1: H - 1, z: 0 },
     { name: 'North bridge', x0: 30, y0: 0, x1: 52, y1: 12, z: 0 },
+    { name: 'Fallen chapel', x0: 85, y0: 12, x1: 101, y1: 27, z: 0 },
+    { name: 'Whisperwood', x0: OLD_W, y0: 28, x1: W - 1, y1: 62, z: 0 },
     { name: 'Lanternfall', x0: wx0, y0: wy0, x1: wx1, y1: wy1, z: 0 },
     { name: 'Wildwood', x0: 0, y0: 0, x1: W - 1, y1: H - 1, z: 0 },
     { name: 'Rat warrens', x0: 48, y0: 40, x1: 70, y1: 54, z: 1 },

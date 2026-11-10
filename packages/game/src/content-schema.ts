@@ -33,6 +33,7 @@ export const Progression = z.object({
 /** World rules modelled on 7.6-era behaviour: luring, respawn, corpse decay. Defaults let older files parse. */
 export const World = z.object({
   viewX: int(1).max(12), viewY: int(1).max(10),
+  dayMs: int(1).default(2_400_000), dayOffset: z.number().int().default(0), darkness: z.boolean().default(false),
   lureLimit: int(5).max(200), wanderRadius: int(0).max(10),
   respawnMin: z.number().min(0.1).max(1), respawnMax: z.number().min(0.1).max(2), blockRange: int(0).max(15),
   corpseStages: z.tuple([int(1), int(1), int(1)]), heroCorpseStages: z.tuple([int(1), int(1), int(1)]),
@@ -50,6 +51,7 @@ export const World = z.object({
 }).strict().refine(w => w.respawnMin <= w.respawnMax, { message: 'Respawn min must not exceed max', path: ['respawnMin'] });
 export const defaultWorld: z.infer<typeof World> = {
   viewX: 8, viewY: 6, lureLimit: 50, wanderRadius: 3,
+  dayMs: 2_400_000, dayOffset: 0, darkness: false,
   respawnMin: 0.5, respawnMax: 1, blockRange: 7,
   corpseStages: [300, 300, 60], heroCorpseStages: [600, 600, 300],
   lootProtectSec: 0, throwRange: 7, tileItemLimit: 20,
@@ -61,6 +63,7 @@ export const defaultWorld: z.infer<typeof World> = {
 export const ItemDef = z.object({
   name: z.string().min(1).max(40), icon: z.string().min(1), weight: n(0), buy: int(0), sell: int(0),
   slot: z.enum(equipSlots).optional(), attack: n(0).optional(), defense: n(0).optional(), armor: n(0).optional(),
+  light: int(0).max(7).optional(),
   slots: int(1).max(40).optional(), stack: z.boolean().optional(), food: int(1).optional(), heal: int(1).optional(), mana: int(1).optional(),
 }).strict();
 
@@ -88,7 +91,9 @@ export const Merchant = z.object({
 export const Balance = z.object({
   progression: Progression,
   world: World.default(defaultWorld),
-  items: exhaustive(itemKinds, ItemDef),
+  items: exhaustive(itemKinds, ItemDef).extend({
+    torch: ItemDef.default({ name: 'Torch', icon: 'club', weight: 4, buy: 8, sell: 0, slot: 'shield', defense: 0, light: 6 }),
+  }),
   creatures: exhaustive(mobKinds, CreatureDef),
   spells: z.object({ mend: HealSpell, ember: AttackSpell, renew: HealSpell, cinderburst: AreaSpell }).strict(),
   merchants: exhaustive(npcRoles, Merchant),

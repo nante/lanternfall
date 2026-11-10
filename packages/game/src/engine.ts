@@ -1,11 +1,12 @@
 import {
-  type Action, type State, type Hero, type Mob, type Pos, type GameItem, type ItemKind, type Notice, type GameView, type MapData, type Effect, type NpcSpawn, type SpellId,
+  type Action, type State, type Hero, type Mob, type Pos, type GameItem, type ItemKind, type Notice, type GameView, type MapData, type Effect, type NpcSpawn, type SpellId, type Shade,
   key, distance, equipSlots, stackMax, T, G,
 } from './model.ts';
 import { Geography } from './world.ts';
 import type { Balance } from './content-schema.ts';
 import { createRules, type Rules } from './rules.ts';
 import { grounds, things } from './ids.ts';
+import { clockAt, lightLevel, lightPasses, perceive, sourceLevelAt, staticSources, type LightSource } from './light.ts';
 
 const uid = () => crypto.randomUUID();
 export class GameError extends Error {}
@@ -31,6 +32,11 @@ export class Engine {
   private effectId = 0;
   readonly rules: Rules;
   readonly balance: Balance;
+  private staticLightCache?: { time: number; dayMs: number; dayOffset: number; sources: LightSource[] };
+  /** Who holds a torch in the shield slot: one item scan per tick, dropped on any action that may move items. */
+  private torchCache?: { time: number; carriers: string[] };
+  /** Light level per tile, shared by every viewer within a tick; keyed on the carriers' positions so a step mid-tick refreshes it. */
+  private lightMemo?: { key: string; levels: Map<number, number> };
   constructor(readonly map: MapData, balance: Balance, public state: State = emptyState()) {
     this.balance = balance;
     this.rules = createRules(balance);
@@ -194,6 +200,43 @@ export class Engine {
       || this.map.npcs.some(n => distance(n, pos) === 0);
   }
   present(p: Hero) { return p.connected || p.combatUntil > this.state.time; }
+
+  private lighting() {
+    const world = this.balance.world, time = this.state.time;
+    let cached = this.staticLightCache;
+    if (!cached || cached.time !== time || cached.dayMs !== world.dayMs || cached.dayOffset !== world.dayOffset) {
+      cached = { time, dayMs: world.dayMs, dayOffset: world.dayOffset, sources: staticSources(this.map, time, world) };
+      this.staticLightCache = cached;
+    }
+    if (this.torchCache?.time !== time) {
+      const shield = equipSlots.indexOf('shield'), carriers: string[] = [];
+      for (const it of Object.values(this.state.items)) if (it.kind === 'torch' && it.slot === shield && it.parent.startsWith('equip:')) carriers.push(it.parent.slice(6));
+      this.torchCache = { time, carriers };
+    }
+    const level = this.balance.items.torch.light ?? 0, carried: LightSource[] = [];
+    if (level > 0) for (const id of this.torchCache.carriers) {
+      const p = this.state.players[id];
+      if (p && this.present(p)) carried.push({ id: `torch:${p.id}`, x: p.x, y: p.y, z: p.z, level, color: 'amber' });
+    }
+    const clock = clockAt(time, world), sources = cached.sources.concat(carried);
+    const memoKey = `${time}|${world.dayMs}|${world.dayOffset}|${carried.map(c => `${c.x},${c.y},${c.z}`).join(';')}`;
+    if (this.lightMemo?.key !== memoKey) this.lightMemo = { key: memoKey, levels: new Map() };
+    const memo = this.lightMemo.levels, W = this.map.width, H = this.map.height;
+    const levelAt = (q: Pos) => {
+      const k = (q.z * H + q.y) * W + q.x;
+      let v = memo.get(k);
+      if (v === undefined) { v = lightLevel(this.map, q, sources, this.state.doors, clock); memo.set(k, v); }
+      return v;
+    };
+    return { clock, sources, carried, levelAt };
+  }
+  private perception(viewer: Pos, target: Pos, light = this.lighting()) {
+    return perceive(this.map, viewer, target, light.sources, this.state.doors, light.clock, light.levelAt(target));
+  }
+  private visibleTile(viewer: Pos, target: Pos, light: ReturnType<Engine['lighting']>) {
+    return light.levelAt(target) >= 1 && lightPasses(this.map, viewer, target, this.state.doors);
+  }
+  private targetVisible(p: Hero, target: Mob) { return distance(p, target) <= 1 || this.perception(p, target) === 'full'; }
   createPlayer(name: string) {
     const id = uid();
     const pos = this.geo.near(this.map.shrine, q => this.occupied(q));
@@ -264,6 +307,7 @@ export class Engine {
 
   // ---- Actions -------------------------------------------------------------
   action(p: Hero, a: Action) {
+    this.torchCache = undefined; this.lightMemo = undefined;
     switch (a.kind) {
       case 'walk': if (!a.dx && !a.dy) return; p.path = [{ x: p.x + a.dx, y: p.y + a.dy, z: p.z }]; p.manual = true; break;
       case 'path': {
@@ -275,7 +319,7 @@ export class Engine {
       }
       case 'stop': p.path = []; p.target = null; break;
       case 'target': {
-        if (a.id) { const m = this.state.monsters[a.id]; if (!m || m.hp <= 0 || m.z !== p.z) throw new GameError('That creature is not here.'); if (this.geo.pz(p)) throw new GameError('You may not attack from a protection zone.'); }
+        if (a.id) { const m = this.state.monsters[a.id]; if (!m || m.hp <= 0 || m.z !== p.z) throw new GameError('That creature is not here.'); if (this.geo.pz(p)) throw new GameError('You may not attack from a protection zone.'); if (this.balance.world.darkness && !this.targetVisible(p, m)) throw new GameError('You cannot see that creature.'); }
         p.target = a.id; p.path = []; p.manual = false; break;
       }
       case 'useTile': {
@@ -363,6 +407,7 @@ export class Engine {
       const m = p.target ? this.state.monsters[p.target] : undefined;
       if (!m || m.hp <= 0) throw new GameError('Choose a target first.');
       if (distance(p, m) > spell.range || !this.geo.sight(p, m)) throw new GameError('Your target is out of reach.');
+      if (this.balance.world.darkness && this.perception(p, m) !== 'full') throw new GameError('Your target is not lit.');
       const dmg = power + this.random(spell.spread);
       this.effect('ember', m, dmg, p);
       this.hurt(p, m, dmg);
@@ -448,6 +493,7 @@ export class Engine {
       if (p.talking && !this.npcNear(p, p.talking)) p.talking = null;
       const target = p.target ? this.state.monsters[p.target] : undefined;
       if (p.target && (!target || target.hp <= 0 || target.z !== p.z || distance(p, target) > 12)) { this.dropTarget(p); }
+      if (this.balance.world.darkness && p.target && target && !this.targetVisible(p, target)) this.dropTarget(p);
       if (p.target && this.geo.pz(p)) { this.dropTarget(p); this.note(p, 'You may not attack from a protection zone.', 'error'); }
       // Chase mode walks after the target; a manual walk takes priority until its path is done. Stand mode never moves.
       if (target && p.target && p.chase && !(p.manual && p.path.length) && distance(p, target) > 1 && (!p.path.length || distance(p.path[p.path.length - 1], target) > 1) && p.moveAt <= now) {
@@ -479,6 +525,7 @@ export class Engine {
         }
       }
       if (p.target && this.geo.pz(p)) { this.dropTarget(p); this.note(p, 'You may not attack from a protection zone.', 'error'); }
+      if (this.balance.world.darkness && p.target && target && !this.targetVisible(p, target)) this.dropTarget(p);
       if (target && p.target && target.hp > 0 && distance(p, target) <= 1 && p.attackAt <= now) {
         const weapon = this.equipped(p, 'weapon');
         const base = weapon ? this.rules.item(weapon.kind).attack ?? 7 : 7; // bare fists hit like a light club
@@ -495,6 +542,10 @@ export class Engine {
       }
     }
     for (const m of Object.values(this.state.monsters)) this.think(m, now);
+    if (this.balance.world.darkness) for (const p of Object.values(this.state.players)) {
+      const target = p.target && this.state.monsters[p.target];
+      if (target && !this.targetVisible(p, target)) this.dropTarget(p);
+    }
     this.decay(now);
   }
   /** Corpses rot in three stages: fresh and decaying keep their loot; at the final stage the loot is gone. */
@@ -519,9 +570,11 @@ export class Engine {
   /** Look: a short description of what is at a tile, in our own words. */
   describe(p: Hero, at: Pos, actor?: string): string {
     const a = (n: string) => (/^[aeiou]/i.test(n) ? `an ${n}` : `a ${n}`);
+    const light = this.balance.world.darkness ? this.lighting() : undefined;
+    if (light && !this.visibleTile(p, at, light)) return 'It is too dark to make out.';
     if (actor) {
       const m = this.state.monsters[actor];
-      const seen = (q: Pos) => this.onScreen(q, p);
+      const seen = (q: Pos) => this.onScreen(q, p) && (!light || this.perception(p, q, light) === 'full');
       if (m && m.hp > 0 && seen(m)) { const def = this.balance.creatures[m.kind]; const hurt = m.hp < def.hp ? (m.hp < def.hp / 3 ? ' It is badly wounded.' : ' It is wounded.') : ''; return `You see ${a(def.name.toLowerCase())}.${hurt}`; }
       const h = this.state.players[actor];
       if (h && this.present(h) && seen(h)) return h.id === p.id ? `You see yourself. You are level ${this.rules.level(h.xp)}.` : `You see ${h.name}. They are level ${this.rules.level(h.xp)}.`;
@@ -543,7 +596,7 @@ export class Engine {
     }
     const thing = things[this.geo.thing(at)];
     const thingText: Partial<Record<string, string>> = {
-      wall: 'a wall', rampart: 'the town wall', tree: 'an old tree', pine: 'a pine', bush: 'a bush', fence: 'a wooden fence', lamp: 'a lamp post. Its flame never goes out',
+      wall: 'a wall', rampart: 'the town wall', tree: 'an old tree', pine: 'a pine', bush: 'a bush', fence: 'a wooden fence', lamp: light ? 'a lamp post. Its flame burns from blue hour to dawn' : 'a lamp post. Its flame never goes out',
       door: this.state.doors[key(at)] ? 'an open door' : 'a closed door', hatch: 'a hatch in the ground', ladder: 'a ladder leading up', crate: 'a crate', barrel: 'a barrel', counter: 'a counter',
       table: 'a table', well: 'a well', rock: 'a rock', vault: 'a vault chest', altar: 'an altar with a lantern', flowers: 'some flowers', shelf: 'a shelf full of jars', cavewall: 'rough cave rock',
       pillar: 'a stone pillar', bed: 'a bed', anvil: 'an anvil', brazier: 'a burning brazier', stump: 'a tree stump',
@@ -583,7 +636,12 @@ export class Engine {
     if (!watching.length) { m.target = null; return; }
     const current = m.target ? this.state.players[m.target] : undefined;
     let p = current && this.present(current) && this.onScreen(current, m) && !this.geo.pz(current) ? current : undefined;
-    if (!p) p = watching.filter(h => !this.geo.pz(h) && distance(h, m) <= def.aggro && this.geo.sight(m, h)).sort((a, b) => distance(m, a) - distance(m, b))[0];
+    if (!p) {
+      const light = w.darkness ? this.lighting() : undefined;
+      p = watching.filter(h => !this.geo.pz(h) && distance(h, m) <= def.aggro && this.geo.sight(m, h)
+        && (!light || distance(h, m) <= 3 || light.levelAt(h) >= 2))
+        .sort((a, b) => distance(m, a) - distance(m, b))[0];
+    }
     m.target = p?.id ?? null;
     if (p) {
       if (distance(m, p) <= 1) {
@@ -636,7 +694,7 @@ export class Engine {
   view(p: Hero): GameView {
     const safe = (h: Hero) => { const { token: _t, path: _p, ...rest } = h; return rest; };
     const near = (q: Pos) => distance(p, q) < 22;
-    return {
+    const view: GameView = {
       revision: this.state.revision, time: this.state.time, self: safe(p), route: p.path,
       players: Object.values(this.state.players).filter(h => h.id !== p.id && this.present(h) && near(h)).map(safe),
       monsters: Object.values(this.state.monsters).filter(m => m.hp > 0 && near(m)),
@@ -646,5 +704,62 @@ export class Engine {
       doors: this.state.doors,
       effects: this.effects.filter(e => near(e.at)),
     };
+    if (!this.balance.world.darkness) return view;
+    const light = this.lighting(), shades: Shade[] = [];
+    const perceivedPlayers = new Set([p.id]);
+    const addShade = (actor: Hero | Mob, size: Shade['size']) => {
+      shades.push({ id: actor.id, x: actor.x, y: actor.y, z: actor.z, facing: actor.facing, size });
+    };
+    view.players = view.players.filter(h => {
+      const seen = this.perception(p, h, light);
+      if (seen !== 'none') perceivedPlayers.add(h.id);
+      if (seen === 'shade') shades.push({ id: h.id, x: h.x, y: h.y, z: h.z, facing: h.facing, size: 2 });
+      return seen === 'full';
+    });
+    view.monsters = view.monsters.filter(m => {
+      const seen = this.perception(p, m, light);
+      if (seen === 'shade') addShade(m, m.kind === 'gutterRat' || m.kind === 'caveBeetle' ? 1 : m.kind === 'mireGrub' ? 3 : 2);
+      return seen === 'full';
+    });
+    view.corpses = view.corpses.filter(c => this.visibleTile(p, c, light));
+    // Many items share a tile: decide each tile once per view.
+    const seenTiles = new Map<string, boolean>();
+    view.ground = view.ground.filter(item => {
+      let ok = seenTiles.get(item.parent);
+      if (ok === undefined) { const pos = groundPos(item.parent); ok = !!pos && this.visibleTile(p, pos, light); seenTiles.set(item.parent, ok); }
+      return ok;
+    });
+    const ownTile = (q: Pos) => distance(p, q) === 0;
+    view.effects = this.effects.filter(e => (near(e.at) || !!e.from && ownTile(e.from)) && (ownTile(e.at) || !!e.from && ownTile(e.from) || this.visibleTile(p, e.at, light)))
+      .map(e => {
+        if (!e.from || ownTile(e.from) || this.visibleTile(p, e.from, light)) return e;
+        const { from: _from, ...redacted } = e;
+        return redacted;
+      });
+    view.shades = shades;
+    view.lights = [];
+    let anonymous = 0;
+    for (const source of light.carried) {
+      if (distance(p, source) > 22 + 6) continue;
+      if (perceivedPlayers.has(source.id.slice('torch:'.length))) {
+        view.lights.push(source);
+        continue;
+      }
+      const radius = source.level - 1;
+      let visible = false;
+      for (let y = Math.max(0, p.y - 21, source.y - radius); y <= Math.min(this.map.height - 1, p.y + 21, source.y + radius) && !visible; y++) {
+        for (let x = Math.max(0, p.x - 21, source.x - radius); x <= Math.min(this.map.width - 1, p.x + 21, source.x + radius); x++) {
+          const tile = { x, y, z: p.z };
+          if (sourceLevelAt(source, tile) >= 1 && lightPasses(this.map, source, tile, this.state.doors) && lightPasses(this.map, p, tile, this.state.doors)) {
+            visible = true;
+            break;
+          }
+        }
+      }
+      if (visible) view.lights.push({ ...source, id: `torch:anon:${anonymous++}` });
+    }
+    const { dayMs, dayOffset, darkness } = this.balance.world;
+    view.world = { dayMs, dayOffset, darkness };
+    return view;
   }
 }

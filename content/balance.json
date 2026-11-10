@@ -262,6 +262,16 @@
       "buy": 0,
       "sell": 16,
       "stack": true
+    },
+    "torch": {
+      "name": "Torch",
+      "icon": "club",
+      "weight": 4,
+      "buy": 8,
+      "sell": 0,
+      "slot": "shield",
+      "defense": 0,
+      "light": 6
     }
   },
   "creatures": {
@@ -491,7 +501,8 @@
       "sells": [
         "pack",
         "pouch",
-        "loaf"
+        "loaf",
+        "torch"
       ],
       "buys": [
         "tail",

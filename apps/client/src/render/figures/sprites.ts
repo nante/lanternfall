@@ -1,0 +1,220 @@
+import * as THREE from 'three';
+import { fieldFragment, fieldVertex, fieldUniforms, MAX_SOURCES } from '../lightfield.ts';
+import type { Key } from '../clock-style.ts';
+import { PX } from '../stops.ts';
+/** Render layer for figures, shades and their effects; cameras that show actors enable it. */
+export const ACTOR_LAYER = 1;
+import type { Atlas, FrameRect } from './bake.ts';
+
+/** The frame's light, shared by every sprite: sun or moon, sky and ground bounce, and the render target size. */
+export const spriteLight = {
+  uSunDir: { value: new THREE.Vector3(0, 1, 0) },
+  uSunCol: { value: new THREE.Color() },
+  uSky: { value: new THREE.Color() },
+  uGround: { value: new THREE.Color() },
+  uRes: { value: new THREE.Vector2(1, 1) },
+};
+/** Mirrors view.ts applyLights: the same key drives the world's Lambert lights and the sprites. */
+export function setSpriteLight(key: Key, sunDir: THREE.Vector3, cave: boolean, wide = false) {
+  const L = spriteLight;
+  L.uSunDir.value.copy(sunDir);
+  L.uSunCol.value.set(key.sun).multiplyScalar(cave ? 0 : key.sunI);
+  // Figures take a little more sky than the ground does, so a figure backlit by a low sun still reads by its front.
+  // In Scenery the camera looks into a low sun, so figures face away from it: give them more sky.
+  L.uSky.value.set(cave ? '#3a4a70' : key.sky).multiplyScalar(cave ? 0.06 : key.ambI * (wide ? 2.4 : 1.45));
+  L.uGround.value.set(cave ? '#120e0c' : key.ground).multiplyScalar(cave ? 0.06 : key.ambI * 1.2);
+}
+
+/** One sprite texel lands on one render pixel: the plane is placed in tiles from texel offsets and the feet snap to a pixel corner. */
+const vertex = /* glsl */`
+${fieldVertex}
+#define PX ${PX.toFixed(1)}
+uniform vec4 uRect; uniform vec2 uAnchor; uniform vec3 uFoot; uniform float uFront; uniform float uTilt; uniform vec2 uRes;
+varying vec2 vTex;
+vec3 planePoint(vec2 off, out vec3 base) {
+  // Camera pitch from its back axis; the camera never turns about y.
+  float s = viewMatrix[1][2], c = viewMatrix[2][2];
+  // Upright planes step forward by uFront and rise to match, so the feet still project onto the server tile.
+  base = uFoot + vec3(0.0, uFront * s / c + (uTilt > 0.1 ? 0.02 : 0.0), uFront);
+  vec3 up = vec3(0.0, cos(uTilt), -sin(uTilt));
+  float k = c * cos(uTilt) + s * sin(uTilt);
+  return base + vec3(off.x / PX, 0.0, 0.0) + up * (off.y / (PX * k));
+}
+void main() {
+  vec2 tex = position.xy * uRect.zw;
+  vec3 base;
+  vec3 world = planePoint(tex - uAnchor, base);
+  vec4 clip = projectionMatrix * viewMatrix * vec4(world, 1.0);
+  if (projectionMatrix[3][3] > 0.5) {
+    vec4 a = projectionMatrix * viewMatrix * vec4(base, 1.0);
+    vec2 ap = (a.xy * 0.5 + 0.5) * uRes;
+    clip.xy += (floor(ap + 0.5) - ap) / uRes * 2.0;
+  }
+  vTex = tex; vFPos = uFoot; vFNrm = vec3(0.0, 1.0, 0.0);
+  gl_Position = clip;
+}`;
+
+const fragment = /* glsl */`
+${fieldFragment}
+uniform sampler2D uColor; uniform sampler2D uNormal; uniform vec2 uAtlas; uniform vec4 uRect; uniform vec3 uFoot;
+uniform vec3 uSunDir; uniform vec3 uSunCol; uniform vec3 uSky; uniform vec3 uGround; uniform float uFlash; uniform float uDim; uniform float uSelf;
+varying vec2 vTex;
+// Three steps of light, so faces turn in clusters like painted pixels instead of smooth gradients.
+float band(float x) { return x < 0.12 ? 0.0 : x < 0.5 ? 0.55 : 1.0; }
+// Where the field's light comes from at p: the sum of directions to every source that reaches the tile, by strength.
+vec3 fieldDir(vec2 p) {
+  vec2 tile = floor(p + 0.5);
+  if (tile.x < 0.0 || tile.y < 0.0 || tile.x >= uFSize.x || tile.y >= uFSize.y) return vec3(0.0, 1.0, 0.0);
+  uvec4 m = uvec4(texture2D(uFMask, (tile + 0.5) / uFSize) * 255.0 + 0.5);
+  uint mask = m.r | (m.g << 8u) | (m.b << 16u) | (m.a << 24u);
+  vec3 dir = vec3(0.0);
+  for (int i = 0; i < ${MAX_SOURCES}; i++) {
+    if ((mask & (1u << uint(i))) == 0u) continue;
+    vec4 s = uFSrc[i];
+    float l = s.z - ceil(length(p - s.xy) - 1e-4);
+    if (l > 0.0) dir += normalize(vec3(s.x - p.x, s.w > 0.5 ? 4.0 : 1.1, s.y - p.y)) * fieldCurve(l);
+  }
+  return length(dir) > 1e-3 ? normalize(dir) : vec3(0.0, 1.0, 0.0);
+}
+void main() {
+  vec2 t = floor(vTex) + 0.5;
+  vec2 uv = (uRect.xy + t) / uAtlas;
+  vec4 c = texture2D(uColor, uv);
+  if (c.a < 0.5) discard;
+  vec4 nn = texture2D(uNormal, uv);
+  vec3 n = normalize(nn.xyz * 2.0 - 1.0);
+  vec3 albedo = mix(c.rgb, vec3(dot(c.rgb, vec3(0.3, 0.5, 0.2))) * 0.6, uDim);
+  vec3 light = (uSunCol * band(max(dot(n, uSunDir), 0.0)) + mix(uGround, uSky, n.y * 0.5 + 0.5)) * 0.31831;
+  if (uFOn > 0.5) {
+    vec2 p = (floor(uFoot.xz * ${PX.toFixed(1)}) + 0.5) / ${PX.toFixed(1)};
+    float lv;
+    vec3 f = fieldAt(p, 0.0, lv) * uFGain;
+    // The side facing the light takes it; the far side keeps a quarter, so the silhouette still reads.
+    if (dot(f, f) > 0.0) light += f * (0.25 + 0.75 * band(max(dot(n, fieldDir(p)), 0.0)));
+  }
+  // Your own figure never drops below a faint read of its colours, so you never lose yourself in the dark. Presentation only:
+  // the server never sends what the dark hides, so this reveals nothing.
+  vec3 col = max(max(albedo * light, albedo * nn.a * 1.4), albedo * uSelf);
+  // Rim: a pixel on the silhouette edge that faces the sun (or the moon) catches its light, so figures separate from
+  // dark ground at dusk and night instead of reading as blobs. The neighbour one pixel towards the light decides it.
+  vec2 sd = vec2(uSunDir.x, -uSunDir.z * 0.75 + uSunDir.y * 0.66);
+  vec2 o = vec2(sd.x > 0.3 ? 1.0 : sd.x < -0.3 ? -1.0 : 0.0, sd.y > 0.3 ? 1.0 : sd.y < -0.3 ? -1.0 : 0.0);
+  vec2 tn = t + o;
+  float open = (tn.x < 0.0 || tn.y < 0.0 || tn.x > uRect.z || tn.y > uRect.w) ? 1.0 : 1.0 - step(0.5, texture2D(uColor, (uRect.xy + tn) / uAtlas).a);
+  float sunLum = max(uSunCol.r, max(uSunCol.g, uSunCol.b));
+  vec3 rimCol = sunLum > 0.0 ? uSunCol / sunLum : vec3(0.0);
+  col = mix(col, max(col, albedo * 0.5 + rimCol * 0.3), open * min(1.0, sunLum) * (1.0 - uDim) * step(0.01, dot(o, o)));
+  gl_FragColor = vec4(mix(col, vec3(4.0), uFlash), 1.0);
+}`;
+
+const shadowVertex = /* glsl */`
+uniform vec3 uFoot; uniform vec2 uDir; uniform vec4 uBox;
+varying vec2 vXZ;
+void main() {
+  vec2 perp = vec2(-uDir.y, uDir.x);
+  vec2 pq = mix(uBox.xz, uBox.yw, position.xy);
+  vec2 xz = uFoot.xz + perp * pq.x + uDir * pq.y;
+  vXZ = xz;
+  gl_Position = projectionMatrix * viewMatrix * vec4(xz.x, 0.012, xz.y, 1.0);
+}`;
+/** A contact blob plus the silhouette laid along the sun or moon, both on the ground's 32 px grid. */
+const shadowFragment = /* glsl */`
+uniform sampler2D uColor; uniform vec2 uAtlas; uniform vec4 uRect; uniform vec2 uAnchor; uniform vec3 uFoot;
+uniform vec2 uDir; uniform float uLen; uniform float uSil; uniform vec2 uBlob; uniform float uBlobA;
+varying vec2 vXZ;
+void main() {
+  vec2 g = (floor(vXZ * ${PX.toFixed(1)}) + 0.5) / ${PX.toFixed(1)} - uFoot.xz;
+  vec2 e = g / uBlob;
+  float a = dot(e, e) < 1.0 ? uBlobA : 0.0;
+  float q = dot(g, uDir);
+  if (uSil > 0.0 && q > 0.0) {
+    float c = viewMatrix[2][2];
+    vec2 tex = uAnchor + vec2(dot(g, vec2(-uDir.y, uDir.x)) * ${PX.toFixed(1)}, q / uLen * ${PX.toFixed(1)} * c);
+    if (tex.x >= 0.0 && tex.y >= 0.0 && tex.x < uRect.z && tex.y < uRect.w && texture2D(uColor, (uRect.xy + floor(tex) + 0.5) / uAtlas).a > 0.5) a = max(a, uSil);
+  }
+  if (a <= 0.0) discard;
+  gl_FragColor = vec4(0.012, 0.014, 0.035, a);
+}`;
+
+/** The atlas on the GPU. Colour is sRGB palette albedo; the normal map is linear. */
+export class SpriteSheet {
+  readonly color: THREE.DataTexture;
+  readonly normal: THREE.DataTexture;
+  private readonly quad = new THREE.PlaneGeometry(1, 1).translate(0.5, 0.5, 0);
+  constructor(readonly atlas: Atlas) {
+    const tex = (data: Uint8Array, srgb: boolean) => {
+      const t = new THREE.DataTexture(data, atlas.width, atlas.height, THREE.RGBAFormat, THREE.UnsignedByteType);
+      t.magFilter = t.minFilter = THREE.NearestFilter; t.generateMipmaps = false; t.flipY = false;
+      t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace; t.needsUpdate = true;
+      return t;
+    };
+    this.color = tex(atlas.color, true); this.normal = tex(atlas.normal, false);
+  }
+  body() { return new SpriteBody(this, this.quad); }
+}
+
+/** One drawn figure: an upright (or, for the dead, flat) plane and its ground shadow. */
+export class SpriteBody {
+  readonly mesh: THREE.Mesh;
+  readonly shadow: THREE.Mesh;
+  private readonly u;
+  private readonly s;
+  constructor(readonly sheet: SpriteSheet, quad: THREE.BufferGeometry) {
+    const atlasSize = new THREE.Vector2(sheet.atlas.width, sheet.atlas.height);
+    const own = { uRect: { value: new THREE.Vector4() }, uAnchor: { value: new THREE.Vector2() }, uFoot: { value: new THREE.Vector3() }, uFront: { value: 0 }, uTilt: { value: 0 }, uFlash: { value: 0 }, uDim: { value: 0 }, uSelf: { value: 0 } };
+    this.u = own;
+    const mat = new THREE.ShaderMaterial({
+      vertexShader: vertex, fragmentShader: fragment, side: THREE.DoubleSide,
+      uniforms: { ...fieldUniforms, ...spriteLight, uColor: { value: sheet.color }, uNormal: { value: sheet.normal }, uAtlas: { value: atlasSize }, ...own },
+    });
+    this.mesh = new THREE.Mesh(quad, mat);
+    this.mesh.frustumCulled = false;
+    this.mesh.onBeforeRender = renderer => { const rt = renderer.getRenderTarget(); if (rt) spriteLight.uRes.value.set(rt.width, rt.height); };
+    const sh = { uFoot: own.uFoot, uRect: own.uRect, uAnchor: own.uAnchor, uDir: { value: new THREE.Vector2(0, -1) }, uBox: { value: new THREE.Vector4() }, uLen: { value: 1 }, uSil: { value: 0 }, uBlob: { value: new THREE.Vector2(0.3, 0.2) }, uBlobA: { value: 0.45 } };
+    this.s = sh;
+    this.shadow = new THREE.Mesh(quad, new THREE.ShaderMaterial({
+      vertexShader: shadowVertex, fragmentShader: shadowFragment, transparent: true, depthWrite: false,
+      uniforms: { uColor: { value: sheet.color }, uAtlas: { value: atlasSize }, ...sh },
+    }));
+    this.shadow.frustumCulled = false; this.shadow.renderOrder = -1;
+  }
+  /**
+   * Draw `frame` with its feet at `foot`. `flat` lays it on the ground (the dead); `sun` is the direction to the sun
+   * or moon and `sunStrength` how dark its shadow is. `blob` is the contact shadow's radii in tiles.
+   */
+  set(frame: FrameRect, foot: THREE.Vector3, o: { flat: boolean; flash: boolean; dim: number; sun: THREE.Vector3; sunStrength: number; blob: [number, number]; self?: number }, pitch: number) {
+    const u = this.u;
+    u.uSelf.value = o.self ?? 0;
+    u.uRect.value.set(frame.x, frame.y, frame.w, frame.h);
+    u.uAnchor.value.set(frame.ax, frame.ay);
+    u.uFoot.value.copy(foot);
+    u.uTilt.value = o.flat ? Math.PI / 2 : 0;
+    // Rows under the feet (a snout, a lunge) need the plane in front of the tile so they stay above the ground.
+    u.uFront.value = o.flat ? 0 : Math.min(0.9, frame.below / (PX * Math.sin(pitch)));
+    u.uFlash.value = o.flash ? 1 : 0;
+    u.uDim.value = o.dim;
+    const s = this.s, horiz = Math.hypot(o.sun.x, o.sun.z);
+    s.uBlob.value.set(...o.blob);
+    s.uBlobA.value = 0.4;
+    if (!o.flat && o.sun.y > 0.05 && horiz > 1e-3 && o.sunStrength > 0.01) {
+      s.uDir.value.set(-o.sun.x / horiz, -o.sun.z / horiz);
+      s.uLen.value = Math.min(1.7, horiz / o.sun.y);
+      s.uSil.value = 0.32 * Math.min(1, o.sunStrength);
+    } else s.uSil.value = 0;
+    const halfW = frame.w / 2 / PX + 0.1, reach = (frame.top / (PX * Math.cos(pitch))) * (s.uSil.value > 0 ? s.uLen.value : 0);
+    s.uBox.value.set(-Math.max(halfW, o.blob[0] + 0.1), Math.max(halfW, o.blob[0] + 0.1), -o.blob[0] - 0.1, Math.max(reach, o.blob[0]) + 0.1);
+  }
+  /** Draw from another bake of the same figures (the Scenery pitch). */
+  use(sheet: SpriteSheet) {
+    if (sheet === this.sheet) return;
+    (this as { sheet: SpriteSheet }).sheet = sheet;
+    for (const m of [this.mesh.material, this.shadow.material] as THREE.ShaderMaterial[]) {
+      m.uniforms.uColor.value = sheet.color; m.uniforms.uAtlas.value.set(sheet.atlas.width, sheet.atlas.height);
+      if (m.uniforms.uNormal) m.uniforms.uNormal.value = sheet.normal;
+    }
+  }
+  get visible() { return this.mesh.visible; }
+  set visible(v: boolean) { this.mesh.visible = v; this.shadow.visible = v; }
+  addTo(scene: THREE.Scene) { this.mesh.layers.set(ACTOR_LAYER); this.shadow.layers.set(ACTOR_LAYER); scene.add(this.mesh, this.shadow); }
+  dispose() { this.mesh.removeFromParent(); this.shadow.removeFromParent(); (this.mesh.material as THREE.Material).dispose(); (this.shadow.material as THREE.Material).dispose(); }
+}
