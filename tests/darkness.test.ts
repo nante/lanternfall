@@ -227,7 +227,7 @@ test('look, targeted spells, corpses and effects do not disclose unseen details'
   assert.deepEqual(view.corpses.map(c => c.id), ['body']);
   assert.deepEqual(view.ground.map(item => item.id), [loaf.id]);
   assert.deepEqual(view.effects.map(f => f.value), [3, 4, 5]);
-  assert.equal(e.describe(p, dark), 'You see a rye loaf. It weighs 2.0 oz.');
+  assert.equal(e.describe(p, dark), 'You see a rye loaf (feeds 3 min). It weighs 2.0 oz.');
 });
 
 test('the world clock and flag are read again on a live engine', () => {

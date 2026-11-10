@@ -202,3 +202,19 @@ test('a corpse can only be moved to a tile a body could stand on', () => {
   e.action(ann, { kind: 'push', id: ratBody.id, to: { x: 22, y: 26, z: 0 } });
   assert.deepEqual([ratBody.x, ratBody.y], [22, 26]);
 });
+
+// ---- look at an item ---------------------------------------------------------------------------
+test('look at an item in reach says what it is, what it weighs and what it does', () => {
+  const e = new Engine(map, balance);
+  const p = place(e.createPlayer('Tess'), 40, 34);
+  const pack = e.equipped(p, 'pack')!;
+  const loaves = e.children(pack.id).find(i => i.kind === 'loaf')!;
+  const look = (item: string) => { e.notices = []; e.action(p, { kind: 'look', at: p, item }); return e.notices.map(n => n.text); };
+  assert.deepEqual(look(loaves.id), ['You see 3 × rye loaf (feeds 3 min each). It weighs 6.0 oz.']);
+  assert.deepEqual(look(e.equipped(p, 'weapon')!.id), ['You see an ash cudgel (attack 7, block 4). It weighs 12.0 oz.']);
+  assert.deepEqual(look(pack.id), ['You see a canvas pack (holds 16). It weighs 6.0 oz.']);
+  const tonic = e.children(pack.id).find(i => i.kind === 'tonic')!;
+  assert.deepEqual(look(tonic.id), ['You see a red tonic (heals 60 to 80). It weighs 2.0 oz.']);
+  const other = place(e.createPlayer('Other'), 45, 34);
+  assert.throws(() => e.action(p, { kind: 'look', at: p, item: e.equipped(other, 'weapon')!.id }), /cannot reach/);
+});

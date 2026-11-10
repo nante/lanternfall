@@ -9,6 +9,7 @@ import { grounds, things } from './ids.ts';
 import { clockAt, lightLevel, lightPasses, perceive, sourceLevelAt, staticSources, type LightSource } from './light.ts';
 
 const uid = () => crypto.randomUUID();
+const healSpread = 20, manaSpread = 15;
 const greeting = /^(?:hi|hello|hey|greetings)\b[\s,!.]*(.*?)[\s!.?]*$/;
 export class GameError extends Error {}
 /** Items lying on a tile have the parent "ground:x,y,z". */
@@ -387,7 +388,12 @@ export class Engine {
         if (a.fight) p.fightMode = a.fight;
         if (a.chase !== undefined) { p.chase = a.chase; if (!a.chase && !p.manual) p.path = []; }
         break;
-      case 'look': this.note(p, this.describe(p, a.at, a.actor), 'info'); break;
+      case 'look': {
+        if (a.item === undefined) { this.note(p, this.describe(p, a.at, a.actor), 'info'); break; }
+        const item = this.state.items[a.item];
+        if (!item || !this.access(p, item.id)) throw new GameError('You cannot reach that.');
+        this.note(p, this.describeItem(item), 'info'); break;
+      }
       case 'push': this.push(p, a.id, a.to); break;
       default: { const exhaustive: never = a; return exhaustive; }
     }
@@ -433,8 +439,8 @@ export class Engine {
     if (def.food) { if (p.fed + def.food > this.balance.world.foodCapSec * 1000) throw new GameError('You are full.'); p.fed += def.food; this.consume(i); this.note(p, `You eat the ${def.name.toLowerCase()}.`); return; }
     if (def.heal || def.mana) {
       if (this.state.time < p.spellAt - 500) throw new GameError('You are exhausted.');
-      if (def.heal) { if (p.hp >= s.maxHp) throw new GameError('You are not hurt.'); const v = Math.min(s.maxHp - p.hp, def.heal + this.random(20)); p.hp += v; this.effect('heal', p, v); }
-      if (def.mana) { if (p.mana >= s.maxMana) throw new GameError('Your mind is already clear.'); const v = Math.min(s.maxMana - p.mana, def.mana + this.random(15)); p.mana += v; this.effect('mana', p, v); }
+      if (def.heal) { if (p.hp >= s.maxHp) throw new GameError('You are not hurt.'); const v = Math.min(s.maxHp - p.hp, def.heal + this.random(healSpread)); p.hp += v; this.effect('heal', p, v); }
+      if (def.mana) { if (p.mana >= s.maxMana) throw new GameError('Your mind is already clear.'); const v = Math.min(s.maxMana - p.mana, def.mana + this.random(manaSpread)); p.mana += v; this.effect('mana', p, v); }
       p.spellAt = this.state.time + 1000; this.consume(i); return;
     }
     throw new GameError(def.slots ? 'Open it in your inventory.' : 'Equip it from your inventory.');
@@ -644,10 +650,7 @@ export class Engine {
     if (distance(p, at) > 8) return 'That is too far away to make out.';
     const pile = this.children(groundKey(at));
     if (pile.length) {
-      const top = pile[pile.length - 1], d = this.rules.item(top.kind);
-      const what = top.count > 1 ? `${top.count} × ${d.name.toLowerCase()}` : a(d.name.toLowerCase());
-      const stats = [d.attack && `attack ${d.attack}`, d.defense && `block ${d.defense}`, d.armor && `armour ${d.armor}`].filter(Boolean).join(', ');
-      return `You see ${what}${stats ? ` (${stats})` : ''}. It weighs ${(d.weight * top.count).toFixed(1)} oz.`;
+      return this.describeItem(pile[pile.length - 1]);
     }
     const corpse = Object.values(this.state.corpses).find(c => c.x === at.x && c.y === at.y && c.z === at.z);
     if (corpse) {
@@ -666,6 +669,14 @@ export class Engine {
     const ground = grounds[this.geo.ground(at)];
     const groundText: Partial<Record<string, string>> = { grass: 'grass', meadow: 'tall grass', dirt: 'a dirt path', cobble: 'cobblestones', plank: 'wooden planks', stone: 'stone floor', water: 'water', sand: 'sand', moss: 'mossy stone', flagstone: 'flagstones' };
     return `You see ${groundText[ground] ?? 'nothing special'}.${zone}`;
+  }
+  describeItem(item: GameItem) {
+    const d = this.rules.item(item.kind), name = d.name.toLowerCase(), each = item.count > 1 ? ' each' : '';
+    const what = item.count > 1 ? `${item.count} × ${name}` : /^[aeiou]/.test(name) ? `an ${name}` : `a ${name}`;
+    const does = [d.attack && `attack ${d.attack}`, d.defense && `block ${d.defense}`, d.armor && `armour ${d.armor}`,
+      d.heal && `heals ${d.heal} to ${d.heal + healSpread}${each}`, d.mana && `restores ${d.mana} to ${d.mana + manaSpread} mana${each}`,
+      d.food && `feeds ${Math.round(d.food / 60_000)} min${each}`, d.slots && `holds ${d.slots}`].filter(Boolean).join(', ');
+    return `You see ${what}${does ? ` (${does})` : ''}. It weighs ${(d.weight * item.count).toFixed(1)} oz.`;
   }
   /** Drop a hero's target along with any automatic (chase) route; a manual walk carries on. */
   dropTarget(p: Hero) { p.target = null; if (!p.manual) p.path = []; }
