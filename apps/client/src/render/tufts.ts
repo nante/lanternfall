@@ -97,9 +97,13 @@ function tuftTexture(rows: string[]) {
   return t;
 }
 
-/** Upright cards facing the camera's south-north axis, stretched so they show at their drawn height at the Play pitch. */
+/**
+ * Cards that face the camera and stand on their root, so every stop sees the drawn art: lying back towards the ground
+ * from Top-down, upright through a lens. A lens sees them taller than drawn (the old Tilt stretch), which keeps the
+ * meadow deep at eye height; an orthographic stop sees them at their drawn height.
+ */
 export function tuftMesh(kind: TuftKind, spots: { x: number; z: number }[], time: { value: number }) {
-  const rows = tuftArt[kind], w = rows[0].length / PX, h = rows.length / PX / Math.cos(Math.asin(3 / 4));
+  const rows = tuftArt[kind], w = rows[0].length / PX, h = rows.length / PX, stretch = 1 / Math.cos(Math.asin(3 / 4));
   const geo = new THREE.PlaneGeometry(w, h); geo.translate(0, h / 2, 0);
   const n = geo.attributes.normal; for (let i = 0; i < n.count; i++) n.setXYZ(i, 0, 1, 0);
   const mat = new THREE.MeshLambertMaterial({ map: tuftTexture(rows), alphaTest: 0.5, side: THREE.DoubleSide });
@@ -111,8 +115,10 @@ export function tuftMesh(kind: TuftKind, spots: { x: number; z: number }[], time
       // Sway the top by whole render pixels so the pixel grid holds.
       float sway = floor(sin(uTime * 1.3 + root.x * 0.6 + root.z * 0.4) * 1.4 + 0.5) / ${PX.toFixed(1)};
       transformed.x += sway * step(0.6 * ${h.toFixed(4)}, position.y);
-      // Cards turn with the camera's yaw, so a turned view never sees them edge-on.
-      transformed.xz = transformed.x * normalize(vec2(viewMatrix[0][0], viewMatrix[2][0]));
+      vec3 side = normalize(vec3(viewMatrix[0][0], 0.0, viewMatrix[2][0]));
+      vec3 up = vec3(viewMatrix[0][1], viewMatrix[1][1], viewMatrix[2][1]);
+      float level = length(vec2(viewMatrix[0][2], viewMatrix[2][2]));
+      transformed = side * transformed.x + up * transformed.y * max(1.0, ${stretch.toFixed(4)} * level);
     `);
   };
   const mesh = new THREE.InstancedMesh(geo, mat, Math.max(1, spots.length));
