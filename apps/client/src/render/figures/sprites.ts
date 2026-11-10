@@ -5,6 +5,8 @@ import { PX } from '../stops.ts';
 import { fogBand } from '../camera.ts';
 /** Render layer for figures, shades and their effects; cameras that show actors enable it. */
 export const ACTOR_LAYER = 1;
+/** Our own hero's body in the orthographic stops: drawn in a pass of its own (view.ts), on a pixel grid fixed to the screen. */
+export const SELF_LAYER = 2;
 import { palette, PALETTE_SIZE, type Atlas, type FrameRect } from './bake.ts';
 
 /** The frame's light, shared by every sprite: sun or moon, sky and ground bounce, and the render target size. */
@@ -254,6 +256,8 @@ export class SpriteBody {
   get front() { return this.u.uFront.value; }
   get visible() { return this.mesh.visible; }
   set visible(v: boolean) { this.mesh.visible = v; this.shadow.visible = v; }
+  /** The body's layer; the contact shadow stays with the ground. */
+  setLayer(layer: number) { if (this.mesh.layers.mask !== 1 << layer) this.mesh.layers.set(layer); }
   addTo(scene: THREE.Scene) { this.mesh.layers.set(ACTOR_LAYER); this.shadow.layers.set(ACTOR_LAYER); scene.add(this.mesh, this.shadow); }
   dispose() { this.mesh.removeFromParent(); this.shadow.removeFromParent(); (this.mesh.material as THREE.Material).dispose(); (this.shadow.material as THREE.Material).dispose(); }
 }

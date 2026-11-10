@@ -80,6 +80,13 @@ export class CameraRig {
    * pixels from the hero's drawn position, and that number changes only as the camera eases in or out.
    */
   private readonly lag = new THREE.Vector2();
+  /**
+   * The hero's own fraction of a render pixel: how far the pixel-snapped camera stands from where it truly is. The view
+   * slides the world's picture back by this much and draws the hero on a grid of its own, so the world scrolls in
+   * single screen pixels while the hero stays put. One picture for both can only scroll in whole render pixels (a walk
+   * of 0.8 px a frame then holds one frame in five) or shake the hero by a render pixel.
+   */
+  readonly slide = new THREE.Vector2();
   readonly ortho = new THREE.OrthographicCamera(-10, 10, 8, -8, 0.1, 120);
   readonly persp = new THREE.PerspectiveCamera(40, 1, 0.1, 700);
   stop: Stop = stops.play;
@@ -187,7 +194,8 @@ export class CameraRig {
       if (Math.abs(wantX - this.lag.x) > 0.75) this.lag.x = Math.round(wantX);
       if (Math.abs(wantY - this.lag.y) > 0.75) this.lag.y = Math.round(wantY);
       px = Math.round(hx) + this.lag.x; py = Math.round(hy) + this.lag.y;
-    }
+      this.slide.set(Math.round(hx) - hx, Math.round(hy) - hy);
+    } else this.slide.set(0, 0);
     const snapped = center.clone().addScaledVector(right, px * upp - sx).addScaledVector(up, py * upp - sy);
     c.position.copy(snapped).add(offset).addScaledVector(right, Math.round(kick.x) * upp).addScaledVector(up, Math.round(kick.y) * upp);
     const wrap = (n: number) => ((n % 4) + 4) % 4;

@@ -230,7 +230,7 @@ Four rules keep the orthographic stops steady while the hero walks. Each fixed a
 - **The camera stands whole pixels from the hero** (`camera.ts` `lag`). Sprite and ground both round to the pixel grid; with a fractional lag they rounded on different frames and the hero flickered one pixel against the ground.
 - **Dither and palette bands belong to the world** (`post.ts` `uDitherShift`; vignette after the palette snap).
 
-What is left is the grid itself: the world scrolls a whole number of render pixels per frame, so a walk of 0.8 px a frame holds one frame in five. Sliding the finished image by the leftover fraction was tried and makes the world smooth but the hero saw-tooth by a render pixel, which is worse.
+- **Two grids.** One picture for hero and world can only scroll in whole render pixels (a walk of 0.8 px a frame then holds one frame in five) or shake the hero by a render pixel. So in the orthographic stops the hero's body is drawn in a pass of its own (`SELF_LAYER`, `view.ts` `heroTarget`), on a grid fixed to the screen, and the last pass (`post.ts` `blitFragment`) runs at screen resolution: it slides the world's picture by the hero's fraction of a render pixel, in whole screen pixels, and lays the hero over it, hidden wherever the world's depth is nearer. Both pictures go through the same post pass. The world's picture has a pixel of margin on every side to cover the slide. Through a lens there is one picture, as before.
 
 ## What gameplay keeps
 

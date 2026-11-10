@@ -7,13 +7,13 @@ import type { RenderStyle } from '../../../../packages/game/src/content-schema.t
 import { defaultStyle } from '../../../../packages/game/src/style-presets.ts';
 import { glowTexture } from './textures.ts';
 import { paletteLut, LOW_SUN_GREENS, CAVE_TONES, CAVE_DROPS, NIGHT_DROPS } from './palette.ts';
-import { stops, stopOrder, pixelLock, stepFromView, type Stop, type StopFog, type StopId } from './stops.ts';
+import { PX, stops, stopOrder, pixelLock, stepFromView, type Stop, type StopFog, type StopId } from './stops.ts';
 import { CameraRig, fogBand } from './camera.ts';
 import { keyAt, type Key } from './clock-style.ts';
 import { LightField, patchTree, fieldUniforms } from './lightfield.ts';
 import { Ambience, TorchFlame } from './wisps.ts';
 import { ShadeLayer, type Shade } from './shades.ts';
-import { ACTOR_LAYER } from './figures/sprites.ts';
+import { ACTOR_LAYER, SELF_LAYER } from './figures/sprites.ts';
 import { Sky } from './sky.ts';
 import { FarLand } from './farland.ts';
 import { Spire, cutUniforms } from './spire.ts';
@@ -21,7 +21,7 @@ import { MOON_DIR } from './clock-style.ts';
 import { ramps } from './palette.ts';
 import { clockAt, lightLevel, lightPasses, outdoorAmbient, staticSources, type Clock, type LightSource, type WorldLight } from '../../../../packages/game/src/light.ts';
 import { prefersReducedMotion } from './feel.ts';
-import { postVertex, postFragment } from './post.ts';
+import { postVertex, postFragment, blitFragment } from './post.ts';
 import { Mood, moodUniforms } from './mood.ts';
 /** Flame flicker is motion: off when the viewer asks for reduced motion. */
 const REDUCED_MOTION = prefersReducedMotion();
@@ -47,6 +47,16 @@ export class WorldView {
   get eye(): THREE.Camera { return this.rig.active; }
   readonly target: THREE.WebGLRenderTarget;
   readonly post: THREE.ShaderMaterial;
+  /** The world's picture after the post pass, and our hero's before and after it (see `blitFragment`). */
+  readonly flat = new THREE.WebGLRenderTarget(4, 4, { magFilter: THREE.NearestFilter, minFilter: THREE.NearestFilter, depthBuffer: false });
+  readonly heroTarget = new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType, depthTexture: new THREE.DepthTexture(4, 4), magFilter: THREE.NearestFilter, minFilter: THREE.NearestFilter });
+  readonly heroFlat = new THREE.WebGLRenderTarget(4, 4, { magFilter: THREE.NearestFilter, minFilter: THREE.NearestFilter, depthBuffer: false });
+  readonly heroCam = new THREE.OrthographicCamera(-10, 10, 8, -8, 0.1, 120);
+  readonly blit = new THREE.ShaderMaterial({
+    vertexShader: postVertex, fragmentShader: blitFragment, depthTest: false, depthWrite: false,
+    uniforms: { tWorld: { value: null }, tWorldDepth: { value: null }, tHero: { value: null }, tHeroDepth: { value: null }, uSize: { value: new THREE.Vector2(4, 4) }, uSlide: { value: new THREE.Vector2() }, uK: { value: 1 }, uHero: { value: 0 } },
+  });
+  private readonly blitScene = new THREE.Scene();
   readonly postScene = new THREE.Scene();
   readonly postCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
   readonly sun = new THREE.DirectionalLight('#ffb06a', 4.4);
@@ -184,6 +194,7 @@ export class WorldView {
       depthTest: false, depthWrite: false,
     });
     this.postScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.post));
+    this.blitScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.blit));
 
     this.scene.background = new THREE.Color('#05070a');
     this.sun.castShadow = true;
@@ -224,7 +235,7 @@ export class WorldView {
     this.ambience = new Ambience(map, this.spire.lantern); this.scene.add(this.ambience.group);
     this.farland = new FarLand(map); this.scene.add(this.farland.group);
     this.skyDome.mesh.visible = false; this.scene.add(this.skyDome.mesh);
-    this.camera.layers.enable(ACTOR_LAYER); this.persp.layers.enable(ACTOR_LAYER);
+    this.camera.layers.enable(ACTOR_LAYER); this.persp.layers.enable(ACTOR_LAYER); this.persp.layers.enable(SELF_LAYER); this.heroCam.layers.set(SELF_LAYER);
     this.shades.group.traverse(o => o.layers.set(ACTOR_LAYER)); this.flame.sprite.layers.set(ACTOR_LAYER);
     this.scene.add(this.shades.group, this.flame.sprite);
     const shrineRoof = this.floors[0]?.roofs.find(r => r.building.name.startsWith('Shrine'));
@@ -329,18 +340,39 @@ export class WorldView {
   /** Pixel lock: the buffer is host / k, shown at exactly k physical pixels per buffer pixel; any remainder is cropped. */
   resize() {
     const dpr = window.devicePixelRatio || 1;
-    const L = (this.lock = pixelLock(this.host.clientWidth, this.host.clientHeight, dpr, this.stop));
+    const fit = pixelLock(this.host.clientWidth, this.host.clientHeight, dpr, this.stop);
+    // Even sizes, so the middle of the picture is a pixel corner on both grids.
+    const bufW = fit.bufW & ~1, bufH = fit.bufH & ~1;
+    const L = (this.lock = { ...fit, bufW, bufH, cssW: (bufW * fit.k) / dpr, cssH: (bufH * fit.k) / dpr, viewW: bufW / PX, viewH: bufH / PX });
     this.pixel = L.k;
-    this.renderer.setSize(L.bufW, L.bufH, false);
+    // The canvas is at screen resolution; the picture is rendered small and laid onto it by the last pass.
+    this.renderer.setSize(bufW * L.k, bufH * L.k, false);
     const cv = this.renderer.domElement;
     cv.style.width = `${L.cssW}px`; cv.style.height = `${L.cssH}px`;
-    this.target.setSize(L.bufW, L.bufH);
-    this.post.uniforms.uRes.value.set(L.bufW, L.bufH);
-    this.camera.left = -L.viewW / 2; this.camera.right = L.viewW / 2; this.camera.top = L.viewH / 2; this.camera.bottom = -L.viewH / 2;
+    // The world's picture has a pixel of margin on every side, which covers the edge while it slides.
+    this.target.setSize(bufW + 2, bufH + 2); this.flat.setSize(bufW + 2, bufH + 2);
+    this.heroTarget.setSize(bufW, bufH); this.heroFlat.setSize(bufW, bufH);
+    const u = this.blit.uniforms; u.uSize.value.set(bufW, bufH); u.uK.value = L.k;
+    const wide = (bufW + 2) / PX, tall = (bufH + 2) / PX;
+    this.camera.left = -wide / 2; this.camera.right = wide / 2; this.camera.top = tall / 2; this.camera.bottom = -tall / 2;
     this.camera.updateProjectionMatrix();
+    this.heroCam.left = -L.viewW / 2; this.heroCam.right = L.viewW / 2; this.heroCam.top = L.viewH / 2; this.heroCam.bottom = -L.viewH / 2;
+    this.heroCam.near = this.camera.near; this.heroCam.far = this.camera.far;
+    this.heroCam.updateProjectionMatrix();
   }
 
-  private ndc(e: PointerEvent) { const r = this.renderer.domElement.getBoundingClientRect(); return new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1); }
+  /** The canvas shows the world's picture without its margin and slid by `shown`; these map between the two. */
+  private readonly shown = new THREE.Vector2();
+  private toWorldNdc(x: number, y: number) {
+    const W = this.lock.bufW, H = this.lock.bufH;
+    return new THREE.Vector2((((x + 1) / 2 * W + 1 - this.shown.x) / (W + 2)) * 2 - 1, (((y + 1) / 2 * H + 1 - this.shown.y) / (H + 2)) * 2 - 1);
+  }
+  private fromWorldNdc(x: number, y: number) {
+    const W = this.lock.bufW, H = this.lock.bufH;
+    return { x: (((x + 1) / 2 * (W + 2) - 1 + this.shown.x) / W) * 2 - 1, y: (((y + 1) / 2 * (H + 2) - 1 + this.shown.y) / H) * 2 - 1 };
+  }
+
+  private ndc(e: PointerEvent) { const r = this.renderer.domElement.getBoundingClientRect(); return this.toWorldNdc(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1); }
   tileAtPoint(clientX: number, clientY: number) { return this.tileAt({ clientX, clientY } as PointerEvent); }
   private tileAt(e: PointerEvent): Pos | undefined {
     const ray = new THREE.Raycaster(); ray.setFromCamera(this.ndc(e), this.eye);
@@ -349,10 +381,11 @@ export class WorldView {
     return { x: Math.round(hit.x), y: Math.round(hit.z), z: this.floor };
   }
   screen(v: THREE.Vector3) {
-    const p = v.clone().project(this.eye);
+    const q = v.clone().project(this.eye);
     const r = this.renderer.domElement.getBoundingClientRect();
     // Behind a perspective camera a point projects mirrored into the frame; send it far off screen instead.
-    if (p.z > 1 || p.z < -1) return { x: -1e5, y: -1e5 };
+    if (q.z > 1 || q.z < -1) return { x: -1e5, y: -1e5 };
+    const p = this.fromWorldNdc(q.x, q.y);
     return { x: r.left + ((p.x + 1) / 2) * r.width, y: r.top + ((1 - p.y) / 2) * r.height };
   }
   private actorAt(e: PointerEvent) {
@@ -488,6 +521,11 @@ export class WorldView {
     this.glows.forEach((g, i) => { const l = f.lamps[i]; const on = !!l && this.lit.has(`${Math.round(l.pos.x)},${Math.round(l.pos.z)},${this.floor}`); g.visible = on; if (l && on) { g.position.copy(l.pos); (g.material as THREE.SpriteMaterial).color.copy(l.color).multiplyScalar(0.35); g.scale.setScalar(0.9 * l.strength); } });
   }
 
+  private readonly axisX = new THREE.Vector3();
+  private readonly axisY = new THREE.Vector3();
+  private readonly clearWas = new THREE.Color();
+  /** Our hero is drawn apart from the world whenever the orthographic camera is the one in use. */
+  private selfApart() { return this.rig.active === this.camera && !!this.view && !!this.actors.get(this.view.self.id); }
   frame(time: number) {
     const dt = Math.min(0.05, this.last ? (time - this.last) / 1000 : 0.016);
     this.last = time;
@@ -509,7 +547,7 @@ export class WorldView {
     const rig = this.rig, persp = this.stop.projection === 'persp', inHead = rig.active === this.persp && rig.heroDist < 1.5;
     this.actors.frame(dt, t, {
       floor: this.floor, selfTarget: this.view?.self.target ?? null, key: this.key, sunDir: SUN_DIR, time: t, serverTime: this.view?.time ?? 0,
-      pitch: rig.figurePitch, wide: this.scenery > 0.5, yaw: rig.yaw, hideSelf: inHead, camera: rig.active, bufH: this.target.height,
+      pitch: rig.figurePitch, wide: this.scenery > 0.5, yaw: rig.yaw, selfApart: this.selfApart(), hideSelf: inHead, camera: rig.active, bufH: this.target.height,
       // A perspective lens sees under and between roofs, and depth hides what is inside; names go by line of sight.
       hiddenByRoof: persp ? () => false : (x, y) => { const id = roofs ? this.map.floors[0].roof[y * this.map.width + x] : -1; return id >= 0 && !!roofs?.find(r => r.building.id === id)?.mesh.visible; },
       occluded: persp ? (x, y) => this.sightBlocked(x, y) : () => false,
@@ -523,7 +561,7 @@ export class WorldView {
     if (target) { this.targetRing.position.copy(target.target); this.targetRing.scale.setScalar(Math.max(1, target.size)); }
 
     if (this.stop.vista && !this.canScenery()) this.setStop(this.beforeVista);
-    rig.place(this.center, this.lock.viewH, this.target.width, this.target.height, this.actors.kick, dt, self?.position);
+    rig.place(this.center, this.target.height / PX, this.target.width, this.target.height, this.actors.kick, dt, self?.position);
     const lens = rig.active === this.persp, cave = this.floor === 1;
     // Shades are upright cards: they turn with the view.
     for (const r of this.shades.group.children) r.rotation.y = rig.yaw;
@@ -654,7 +692,32 @@ export class WorldView {
       this.persp.layers.enable(ACTOR_LAYER);
       this.target.viewport.set(0, 0, W, H); this.target.scissor.set(0, 0, W, H); this.target.scissorTest = false;
     } else this.renderer.render(this.scene, this.eye);
-    this.renderer.setRenderTarget(null);
+    const pu = this.post.uniforms, bu = this.blit.uniforms, apart = this.selfApart();
+    pu.tColor.value = this.target.texture; pu.tDepth.value = this.target.depthTexture; pu.uRes.value.set(this.target.width, this.target.height);
+    this.renderer.setRenderTarget(this.flat);
     this.renderer.render(this.postScene, this.postCam);
+    // Whole screen pixels only, and the hero's camera undoes exactly what the picture slides by.
+    const sx = apart ? Math.round(rig.slide.x * this.pixel) / this.pixel : 0, sy = apart ? Math.round(rig.slide.y * this.pixel) / this.pixel : 0;
+    this.shown.set(sx, sy);
+    if (apart) {
+      const upp = (this.camera.top - this.camera.bottom) / this.target.height;
+      this.heroCam.position.copy(this.camera.position).addScaledVector(this.axisX.setFromMatrixColumn(this.camera.matrixWorld, 0), -sx * upp).addScaledVector(this.axisY.setFromMatrixColumn(this.camera.matrixWorld, 1), -sy * upp);
+      this.heroCam.quaternion.copy(this.camera.quaternion); this.heroCam.updateMatrixWorld();
+      const bg = this.scene.background, clear = this.renderer.getClearColor(this.clearWas), alpha = this.renderer.getClearAlpha(), shadows = this.renderer.shadowMap.autoUpdate;
+      this.scene.background = null; this.renderer.shadowMap.autoUpdate = false; this.renderer.setClearColor(0x000000, 0);
+      this.renderer.setRenderTarget(this.heroTarget); this.renderer.clear();
+      this.renderer.render(this.scene, this.heroCam);
+      this.scene.background = bg; this.renderer.shadowMap.autoUpdate = shadows; this.renderer.setClearColor(clear, alpha);
+      // The hero's grid is fixed to the screen, so its dither is too.
+      const shift = pu.uDitherShift.value.clone(); pu.uDitherShift.value.set(0, 0);
+      pu.tColor.value = this.heroTarget.texture; pu.tDepth.value = this.heroTarget.depthTexture; pu.uRes.value.set(this.heroTarget.width, this.heroTarget.height);
+      this.renderer.setRenderTarget(this.heroFlat);
+      this.renderer.render(this.postScene, this.postCam);
+      pu.uDitherShift.value.copy(shift);
+    }
+    bu.tWorld.value = this.flat.texture; bu.tWorldDepth.value = this.target.depthTexture; bu.tHero.value = this.heroFlat.texture; bu.tHeroDepth.value = this.heroTarget.depthTexture;
+    bu.uSlide.value.set(sx, sy); bu.uHero.value = apart ? 1 : 0;
+    this.renderer.setRenderTarget(null);
+    this.renderer.render(this.blitScene, this.postCam);
   }
 }

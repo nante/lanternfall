@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { ACTOR_LAYER } from './figures/sprites.ts';
+import { ACTOR_LAYER, SELF_LAYER } from './figures/sprites.ts';
 import { type MapData, type GameView, type Pos, type Effect, type Worn, grounds } from '../../../../packages/game/src/model.ts';
 import { defaultBalance, defaultRules as rules } from '../../../../packages/game/src/default-balance.ts';
 import { corpseMesh } from './actors.ts';
@@ -40,6 +40,8 @@ export type FrameContext = {
   floor: number; selfTarget: string | null; hiddenByRoof: (x: number, y: number) => boolean; key: Key; sunDir: THREE.Vector3; time: number; serverTime: number; pitch: number; wide: boolean;
   /** Camera yaw (radians, positive turns the view left): picks each figure's drawn direction and turns its normals. */
   yaw: number;
+  /** Our hero's body is drawn in its own pass (the orthographic stops). */
+  selfApart: boolean;
   /** The lens is in the hero's head: their own figure is not drawn. */
   hideSelf: boolean;
   /** The camera of the last frame: names and pick boxes follow the sprite planes, which face it. */
@@ -489,6 +491,7 @@ export class ActorLayer {
       if (this.motion === 'snap' || !a.from || a.startedAt === undefined) pos.copy(a.goal);
       else { const k = Math.min(1, (sNow - a.startedAt) / a.glideMs); pos.lerpVectors(a.from, a.goal, k); if (k >= 1) a.from = undefined; }
       if (a.kind === 'self' && !a.from && !a.lead && this.motion !== 'snap') this.leadStep(a, sNow);
+      if (a.kind === 'self') a.body.sprite.setLayer(ctx.selfApart ? SELF_LAYER : ACTOR_LAYER);
       if (this.clock >= a.stopUntil) a.clock += dms;
       const foe = a.foe ? this.actors.get(a.foe) : undefined;
       const engaged = !!foe && foe.visible && Math.max(Math.abs(foe.target.x - a.target.x), Math.abs(foe.target.z - a.target.z)) <= 1;

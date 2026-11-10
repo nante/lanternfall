@@ -98,5 +98,25 @@ void main(){
   c *= 1.0 - dot(q, q) * (uCave > 0.5 ? max(1.1, uVignette) : uVignette);
   c = mix(c, c * vec3(1.25, 0.45, 0.4), uHurt * smoothstep(0.15, 0.6, length(q)));
   c = pow(max(c, 0.0), vec3(1.0 / 2.2));
+  gl_FragColor = vec4(c, texture2D(tColor, vUv).a);
+}`;
+
+/**
+ * The last pass, at screen resolution. The world's picture slides by `uSlide` render pixels, in whole screen pixels,
+ * so it scrolls smoothly; our hero's picture lies over it without sliding, hidden where the world stands nearer.
+ */
+export const blitFragment = /* glsl */`
+precision highp float;
+uniform sampler2D tWorld; uniform sampler2D tWorldDepth; uniform sampler2D tHero; uniform sampler2D tHeroDepth;
+uniform vec2 uSize; uniform vec2 uSlide; uniform float uK; uniform float uHero;
+void main(){
+  vec2 p = gl_FragCoord.xy / uK;
+  vec2 wuv = (p + 1.0 - uSlide) / (uSize + 2.0);
+  vec3 c = texture2D(tWorld, wuv).rgb;
+  if (uHero > 0.5) {
+    vec2 huv = p / uSize;
+    vec4 h = texture2D(tHero, huv);
+    if (h.a > 0.5 && texture2D(tHeroDepth, huv).r <= texture2D(tWorldDepth, wuv).r + 0.0002) c = h.rgb;
+  }
   gl_FragColor = vec4(c, 1.0);
 }`;
