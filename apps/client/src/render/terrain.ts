@@ -2,11 +2,14 @@ import * as THREE from 'three';
 import { type MapData, type Building, G, T, grounds } from '../../../../packages/game/src/model.ts';
 import { hash2 } from '../../../../packages/game/src/town.ts';
 import { groundAtlas, wallTexture, roofTexture, plankTexture } from './textures.ts';
+import { tuftMesh, type TuftKind } from './tufts.ts';
+import { buildTrees } from './trees.ts';
+import { ramps } from './palette.ts';
 
 export const WALL_H = 2.0;
 export const SUN_DIR = new THREE.Vector3(-7, 6.4, -4.6).normalize();
 /** Look settings shared by every floor's materials; WorldView.applyStyle writes into these. */
-export const styleUniforms = { uGrid: { value: 0 }, uDapple: { value: 1 }, uGrass: { value: 1 }, uGrassHeight: { value: 1 }, uGroundBright: { value: 1 }, uGroundDetail: { value: 1 } };
+export const styleUniforms = { uSkyTint: { value: new THREE.Color('#6a9cc0') }, uGlint: { value: new THREE.Color('#ffb060') }, uGrid: { value: 0 }, uDapple: { value: 1 }, uGrass: { value: 1 }, uGrassHeight: { value: 1 }, uGroundBright: { value: 1 }, uGroundDetail: { value: 1 } };
 
 type Inst = { x: number; y: number; z: number; sx?: number; sy?: number; sz?: number; ry?: number; rx?: number; rz?: number; color?: THREE.ColorRepresentation };
 const dummy = new THREE.Object3D();
@@ -41,18 +44,54 @@ export function worldMapped(tex: THREE.Texture, color: THREE.ColorRepresentation
 }
 const box = new THREE.BoxGeometry(1, 1, 1);
 
+/**
+ * Ref-1's foreground: fallen stones at the foot of walls and rust-red leaf litter on the ground nearby. Purely visual and
+ * low (under a quarter of a tile), so nothing in play is ever hidden; placement comes from a hash, so it never changes.
+ */
+function rubble(map: MapData, gr: (x: number, y: number) => number, at: (x: number, y: number) => number) {
+  const stones: Inst[] = [], litter: Inst[] = [];
+  const stoneTones = [ramps.stone[2], ramps.stone[3], ramps.stone[3], ramps.stone[4], ramps.stone[2], '#7d5a4a'];
+  const rust = ['#be5b54', '#854457', '#b06621', '#6c3223', '#d7a875'];
+  const solid = (t: number) => t === T.wall || t === T.rampart;
+  for (let y = 1; y < map.height - 1; y++) for (let x = 1; x < map.width - 1; x++) {
+    const t = at(x, y), g = gr(x, y);
+    if (t !== T.none || g === G.water || map.floors[0].roof[y * map.width + x] >= 0) continue;
+    const nearWall = solid(at(x - 1, y)) || solid(at(x + 1, y)) || solid(at(x, y - 1)) || solid(at(x, y + 1));
+    const r = hash2(x * 7.3, y * 3.9), r2 = hash2(x * 2.1 + 5, y * 8.7), r3 = hash2(x + 41, y * 1.3);
+    if (nearWall && r > 0.3) {
+      // Lean the pile against the wall it fell from.
+      const wx = solid(at(x - 1, y)) ? -1 : solid(at(x + 1, y)) ? 1 : 0, wz = wx ? 0 : solid(at(x, y - 1)) ? -1 : 1;
+      const n = 2 + Math.floor(r2 * 4);
+      for (let i = 0; i < n; i++) {
+        const a = hash2(x * 11 + i, y * 13 - i), b = hash2(x * 17 - i, y * 5 + i), s = 0.11 + a * 0.15;
+        stones.push({ x: x + wx * 0.36 + (b - 0.5) * (wx ? 0.25 : 0.8), y: s * 0.45, z: y + wz * 0.36 + (a - 0.5) * (wz ? 0.25 : 0.8), sx: s, sy: s * 0.75, sz: s * 1.1, ry: a * 6, rx: b, color: stoneTones[Math.floor(b * stoneTones.length)] });
+      }
+    }
+    if ((nearWall ? r3 > 0.45 : r3 > 0.93) && g !== G.cobble && g !== G.flagstone) {
+      for (let i = 0; i < 5; i++) {
+        const a = hash2(x * 3 + i * 7, y * 19), b = hash2(x * 23, y * 3 + i * 5);
+        litter.push({ x: x - 0.4 + a * 0.8, y: 0.012, z: y - 0.4 + b * 0.8, sx: 0.12, sy: 0.02, sz: 0.08, ry: a * 6, color: rust[Math.floor(hash2(x + i, y - i) * rust.length)] });
+      }
+    }
+  }
+  const geo = new THREE.DodecahedronGeometry(1, 0);
+  return [instanced(geo, lambert('#ffffff', { flatShading: true }), stones), instanced(box, lambert('#ffffff'), litter, false)];
+}
+
 export type Lamp = { pos: THREE.Vector3; color: THREE.Color; strength: number; flicker: number };
 export type FloorScene = {
   group: THREE.Group; uniforms: { uTime: { value: number } }; lamps: Lamp[];
   roofs: { building: Building; mesh: THREE.Object3D; walls: THREE.InstancedMesh }[];
   doors: Map<string, THREE.Group>;
+  /** Lamp and altar flames, one instance per tile, so each can be lit or dark on its own. */
+  lanterns?: { mesh: THREE.InstancedMesh; tiles: [number, number][] };
 };
 
 const groundVertex = /* glsl */`
 varying vec3 vGroundPos;
 `;
 const groundFragment = /* glsl */`
-uniform sampler2D uMap; uniform sampler2D uAo; uniform sampler2D uAtlas; uniform vec2 uSize; uniform float uKinds; uniform float uTime; uniform float uCave; uniform float uGrid; uniform float uDapple; uniform float uGroundBright; uniform float uGroundDetail; uniform vec3 uMean[11];
+uniform vec3 uSkyTint; uniform vec3 uGlint; uniform sampler2D uMap; uniform sampler2D uAo; uniform sampler2D uAtlas; uniform vec2 uSize; uniform float uKinds; uniform float uTime; uniform float uCave; uniform float uGrid; uniform float uDapple; uniform float uGroundBright; uniform float uGroundDetail; uniform vec3 uMean[11];
 varying vec3 vGroundPos;
 float h21(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
 vec3 toLinear(vec3 c){ return pow(c, vec3(2.2)); }
@@ -93,12 +132,12 @@ function groundMaterial(map: MapData, z: number) {
   };
   const mat = new THREE.MeshLambertMaterial({ color: '#ffffff' });
   mat.onBeforeCompile = shader => {
-    Object.assign(shader.uniforms, uniforms, { uGrid: styleUniforms.uGrid, uDapple: styleUniforms.uDapple, uGroundBright: styleUniforms.uGroundBright, uGroundDetail: styleUniforms.uGroundDetail, uMean: { value: means } });
+    Object.assign(shader.uniforms, uniforms, { uSkyTint: styleUniforms.uSkyTint, uGlint: styleUniforms.uGlint, uGrid: styleUniforms.uGrid, uDapple: styleUniforms.uDapple, uGroundBright: styleUniforms.uGroundBright, uGroundDetail: styleUniforms.uGroundDetail, uMean: { value: means } });
     shader.vertexShader = groundVertex + shader.vertexShader.replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\n vGroundPos = (modelMatrix * vec4(transformed, 1.0)).xyz;');
     shader.fragmentShader = groundFragment + shader.fragmentShader
       .replace('#include <map_fragment>', /* glsl */`
         vec2 wp = vGroundPos.xz;
-        vec2 px = floor(wp * 24.0) / 24.0 + 1.0 / 48.0;
+        vec2 px = floor(wp * 32.0) / 32.0 + 1.0 / 64.0;
         vec2 blk = floor(px * 4.0);
         vec2 jit = (vec2(h21(blk), h21(blk + 17.0)) - 0.5) * 0.5;
         vec2 cell = floor(px + 0.5 + jit);
@@ -106,23 +145,30 @@ function groundMaterial(map: MapData, z: number) {
         float own = floor(texture2D(uMap, (floor(px + 0.5) + 0.5) / uSize).r * 255.0 + 0.5);
         if (own == 7.0 || kind == 7.0 || own == 0.0 || kind == 0.0) kind = own;
         vec2 a = fract(px / 2.0);
-        vec3 col = toLinear(texture2D(uAtlas, vec2((kind + a.x) / uKinds, a.y)).rgb);
+        // The atlas is an sRGB texture, so sampling already returns linear colour.
+        vec3 col = texture2D(uAtlas, vec2((kind + a.x) / uKinds, a.y)).rgb;
         vec3 glint = vec3(0.0);
         if (kind == 7.0) {
           float wave = sin(px.x * 2.3 + uTime * 0.9 + sin(px.y * 1.7 + uTime * 0.5) * 1.5) + sin(px.y * 3.1 - uTime * 0.7);
-          float sparkle = step(1.55, wave + h21(floor(px * 24.0 + floor(uTime * 2.0))) * 0.6);
-          col = mix(toLinear(vec3(0.09, 0.22, 0.26)), toLinear(vec3(0.14, 0.31, 0.34)), smoothstep(-1.5, 1.5, wave));
-          glint = toLinear(vec3(1.0, 0.62, 0.3)) * sparkle * 0.55 * (1.0 - uCave);
+          // Single scattered glints on the crests, not clumps: clumps read as clouds and turn the river into sky.
+          float sparkle = step(1.6, wave) * step(0.95, h21(floor(px * 32.0) + floor(uTime * 3.0)));
+          // Low wave contrast: a regular wave snapped to two palette tones draws repeating blobs that read as clouds.
+          col = mix(toLinear(vec3(0.16, 0.32, 0.40)), toLinear(vec3(0.18, 0.35, 0.43)), smoothstep(-1.5, 1.5, wave));
+          // The river holds the sky's colour and glints with the sun or the moon.
+          col = mix(col, uSkyTint, 0.3 * (1.0 - uCave));
+          // Glints are a light ripple of the water's own colour, not white points (which read as stars).
+          glint = mix(col * 0.9, uGlint * 0.35, 0.5) * sparkle * (1.0 - uCave);
         }
         if (kind != 7.0) col = mix(uMean[int(kind)], col, uGroundDetail) * uGroundBright;
         if (kind == 0.0) col = vec3(0.0);
         float ao = texture2D(uAo, (wp + 0.5) / uSize).r;
-        float tileVar = 0.92 + h21(cell) * 0.12;
+        // No per-tile brightness: it drew tile-sized rectangles across the field (the 'camouflage' look).
+        float tileVar = 1.0;
         col *= mix(0.42, 1.0, ao) * tileVar;
         // Tile grid: one texel-wide line at tile borders so positions can be counted.
         vec2 tf = fract(wp + 0.5);
         float edgeDist = min(min(tf.x, 1.0 - tf.x), min(tf.y, 1.0 - tf.y));
-        if (kind != 0.0) col *= 1.0 - uGrid * step(edgeDist, 1.0 / 24.0);
+        if (kind != 0.0) col *= 1.0 - uGrid * step(edgeDist, 1.0 / 32.0);
         diffuseColor.rgb = col;
       `)
       .replace('#include <opaque_fragment>', `
@@ -132,35 +178,6 @@ function groundMaterial(map: MapData, z: number) {
         #include <opaque_fragment>`);
   };
   return { mat, uniforms };
-}
-
-function grassMaterial(uniforms: { uTime: { value: number } }) {
-  const mat = new THREE.MeshLambertMaterial({ color: '#ffffff', side: THREE.DoubleSide });
-  mat.onBeforeCompile = shader => {
-    shader.uniforms.uTime = uniforms.uTime;
-    shader.uniforms.uGrass = styleUniforms.uGrass; shader.uniforms.uGrassHeight = styleUniforms.uGrassHeight;
-    shader.vertexShader = 'uniform float uTime; uniform float uGrass; uniform float uGrassHeight;\nvarying float vTip;\n' + shader.vertexShader.replace('#include <begin_vertex>', /* glsl */`
-      #include <begin_vertex>
-      vTip = uv.y;
-      vec4 root = instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
-      // Thin the grass by a stable per-blade hash so density is a live knob.
-      float keep = step(fract(sin(dot(root.xz, vec2(12.9898, 78.233))) * 43758.5453), uGrass);
-      transformed *= keep;
-      transformed.y *= uGrassHeight;
-      float sway = sin(uTime * 1.6 + root.x * 0.7 + root.z * 0.45) * 0.5 + sin(uTime * 2.7 + root.x * 1.9) * 0.2;
-      transformed.x += sway * uv.y * uv.y * 0.16;
-    `);
-    shader.fragmentShader = 'varying float vTip;\n' + shader.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\n diffuseColor.rgb *= mix(0.5, 1.04, vTip);');
-  };
-  return mat;
-}
-
-function bladeGeometry() {
-  const g = new THREE.PlaneGeometry(0.065, 1, 1, 2);
-  g.translate(0, 0.5, 0);
-  const n = g.attributes.normal; for (let i = 0; i < n.count; i++) n.setXYZ(i, 0, 1, 0);
-  const pos = g.attributes.position; for (let i = 0; i < pos.count; i++) if (pos.getY(i) > 0.99) pos.setX(i, pos.getX(i) * 0.2);
-  return g;
 }
 
 function gableRoof(b: Building, tex: THREE.Texture) {
@@ -233,63 +250,35 @@ export function buildFloor(map: MapData, z: number, doorsOpen: Record<string, bo
   // Water sits a touch lower with dark banks.
   const timeUniform = { uTime: uniforms.uTime };
 
-  // Grass blades.
+  // Pixel tufts: tall clumps in the meadow, a few short ones in town grass, flowers where the map has them.
   if (z === 0) {
-    const blades: Inst[] = [];
-    const greens = ['#2f5a45', '#3a6a4c', '#2a4d3c', '#467452', '#557a4a', '#24423a'];
-    const flowers = ['#e8902e', '#d9772a', '#8a6ac0', '#e6c070', '#7a5ab0'];
+    const spots: Record<TuftKind, { x: number; z: number }[]> = { tall: [], short: [], daisy: [], bloom: [] };
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
       const g = gr(x, y), t = at(x, y);
       if (g !== G.grass && g !== G.meadow) continue;
-      if (t !== T.none && t !== T.flowers && t !== T.tree && t !== T.bush && t !== T.pine) continue;
-      const n = g === G.meadow ? 16 : 6;
-      for (let i = 0; i < n; i++) {
-        const r1 = hash2(x * 13 + i, y * 7 - i), r2 = hash2(x * 5 - i * 3, y * 11 + i), r3 = hash2(x + i * 17, y + i * 29);
-        const tall = g === G.meadow ? 0.2 + r3 * 0.24 : 0.1 + r3 * 0.14;
-        blades.push({ x: x - 0.5 + r1, y: 0, z: y - 0.5 + r2, sy: tall, sx: 1 + r3 * 0.6, ry: (r1 - 0.5) * 0.3, color: greens[Math.floor(r3 * greens.length * 0.999)] });
-      }
-      if (t === T.flowers) for (let i = 0; i < 5; i++) {
-        const r1 = hash2(x * 3 + i, y), r2 = hash2(x, y * 3 + i);
-        blades.push({ x: x - 0.4 + r1 * 0.8, y: 0, z: y - 0.4 + r2 * 0.8, sy: 0.22 + r2 * 0.12, sx: 2.2, color: flowers[Math.floor(hash2(x + i, y - i) * flowers.length * 0.999)] });
-      }
+      if (t !== T.none && t !== T.flowers) continue;
+      const r1 = hash2(x * 13, y * 7), r2 = hash2(x * 5, y * 11), r3 = hash2(x + 17, y + 29);
+      if (t === T.flowers) { spots[r1 > 0.5 ? 'daisy' : 'bloom'].push({ x: x - 0.2 + r2 * 0.4, z: y - 0.3 + r3 * 0.6 }); continue; }
+      if (g === G.meadow) { if (r1 > 0.35) spots.tall.push({ x: x - 0.3 + r2 * 0.6, z: y - 0.4 + r3 * 0.5 }); if (r2 > 0.55) spots.short.push({ x: x - 0.4 + r3 * 0.8, z: y + 0.1 + r1 * 0.3 }); }
+      else if (r1 > 0.72) spots.short.push({ x: x - 0.3 + r2 * 0.6, z: y - 0.3 + r3 * 0.6 });
     }
-    const grass = instanced(bladeGeometry(), grassMaterial(timeUniform), blades, false);
-    group.add(grass);
+    for (const k of Object.keys(spots) as TuftKind[]) if (spots[k].length) group.add(tuftMesh(k, spots[k], uniforms.uTime));
   }
 
   // Trees, bushes, rocks.
-  const trunks: Inst[] = [], leaves: Inst[] = [], rocks: Inst[] = [];
-  const leafCols = ['#2e5236', '#386038', '#42703c', '#2a4a32'];
-  const leafSun = ['#5e8a3a', '#6a9440', '#77a044'];
-  const pineCols = ['#1e3f38', '#23493f', '#2a5446'];
+  const trunks: Inst[] = [], rocks: Inst[] = [], trees: { x: number; y: number; kind: 'tree' | 'pine' | 'bush' }[] = [];
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
     const t = at(x, y), r = hash2(x * 3.1, y * 1.7);
-    if (t === T.tree) {
-      const s = 0.85 + r * 0.4;
-      trunks.push({ x, y: 0.6 * s, z: y, sx: 0.24, sy: 1.2 * s, sz: 0.24, color: '#4a3424' });
-      for (let i = 0; i < 26; i++) {
-        const a = hash2(x + i * 7, y - i * 3) * Math.PI * 2, d = Math.sqrt(hash2(x - i, y + i * 5)) * 0.72 * s, hh = hash2(x * i + 1, y + i) * 0.85 * s;
-        const lx = x + Math.cos(a) * d, lz = y + Math.sin(a) * d * 0.9, ly = 1.35 * s + hh - d * 0.35;
-        const sunny = Math.cos(a) * 0.6 + Math.sin(a) * -0.4 < -0.1 && hh > 0.45 * s;
-        const size = (0.34 + hash2(i, x + y) * 0.24) * s;
-        leaves.push({ x: lx, y: ly, z: lz, sx: size, sy: size * 0.85, sz: size, ry: a, color: sunny ? leafSun[i % 3] : leafCols[i % 4] });
-      }
-    } else if (t === T.pine) {
-      const s = 0.9 + r * 0.5;
-      trunks.push({ x, y: 0.35, z: y, sx: 0.2, sy: 0.7, sz: 0.2, color: '#3b2a1e' });
-      for (let i = 0; i < 4; i++) { const k = 1 - i * 0.22; leaves.push({ x, y: (0.75 + i * 0.6) * s, z: y, sx: 1.3 * k * s, sy: 0.55 * s, sz: 1.3 * k * s, ry: r * 3 + i * 0.4, color: pineCols[(i + Math.floor(r * 3)) % 3] }); }
-      leaves.push({ x: x - 0.2, y: 2.5 * s, z: y, sx: 0.3, sy: 0.4, sz: 0.3, color: '#4f7a46' });
-    } else if (t === T.bush) {
-      for (let i = 0; i < 10; i++) { const a = hash2(x + i, y) * 6.28, d = 0.08 + hash2(y, x + i) * 0.22; const size = 0.2 + hash2(i, x * y) * 0.14; leaves.push({ x: x + Math.cos(a) * d, y: 0.14 + hash2(x - i, y) * 0.22, z: y + Math.sin(a) * d, sx: size, sy: size * 0.8, sz: size, ry: a, color: i > 7 ? leafSun[0] : leafCols[(i + 1) % 4] }); }
-    } else if (t === T.rock) {
-      rocks.push({ x: x + (r - 0.5) * 0.3, y: 0.18, z: y, sx: 0.45 + r * 0.2, sy: 0.32 + r * 0.15, sz: 0.4, ry: r * 6, color: z ? '#5a554e' : '#7d796d' });
-    } else if (t === T.stump) {
-      trunks.push({ x, y: 0.1, z: y, sx: 0.38, sy: 0.2, sz: 0.38, color: '#4a3a2e' });
-    }
+    if (t === T.tree) trees.push({ x, y, kind: 'tree' });
+    else if (t === T.pine) trees.push({ x, y, kind: 'pine' });
+    else if (t === T.bush) trees.push({ x, y, kind: 'bush' });
+    else if (t === T.rock) rocks.push({ x: x + (r - 0.5) * 0.3, y: 0.18, z: y, sx: 0.45 + r * 0.2, sy: 0.32 + r * 0.15, sz: 0.4, ry: r * 6, color: z ? '#5a554e' : '#7d796d' });
+    else if (t === T.stump) trunks.push({ x, y: 0.1, z: y, sx: 0.38, sy: 0.2, sz: 0.38, color: '#4a3a2e' });
   }
-  group.add(instanced(box, lambert('#ffffff'), trunks));
-  group.add(instanced(box, lambert('#ffffff'), leaves));
+  group.add(buildTrees(trees));
+  if (trunks.length) group.add(instanced(box, lambert('#ffffff'), trunks));
   group.add(instanced(new THREE.DodecahedronGeometry(0.6, 0), lambert('#ffffff', { flatShading: true }), rocks));
+  if (z === 0) group.add(...rubble(map, gr, at));
 
   // Building walls, grouped per building for cut-away.
   const roofs: FloorScene['roofs'] = [];
@@ -390,6 +379,11 @@ export function buildFloor(map: MapData, z: number, doorsOpen: Record<string, bo
       }
     }
   }
-  for (const p of props) group.add(instanced(p.geo, p.mat, p.list, p.mat !== lanternMat && p.mat !== fireMat));
-  return { group, uniforms: timeUniform, lamps, roofs, doors };
+  let lanterns: FloorScene['lanterns'];
+  for (const p of props) {
+    const mesh = instanced(p.geo, p.mat, p.list.map(e => ({ ...e, color: e.color ?? '#ffffff' })), p.mat !== lanternMat && p.mat !== fireMat);
+    if (p.mat === lanternMat) lanterns = { mesh, tiles: p.list.map(e => [Math.round(e.x), Math.round(e.z)]) };
+    group.add(mesh);
+  }
+  return { group, uniforms: timeUniform, lamps, roofs, doors, lanterns };
 }

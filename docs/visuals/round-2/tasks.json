@@ -1,0 +1,6 @@
+[
+  {"member": "opus-medium", "model": "claude-opus-5-5", "options": {"effort": "medium"}, "taskId": "node:delegated-task:command%3Amcp%3A240e0d61-0b68-411c-8e24-e7c8c1a3873b%3Adelegate-task%3A6f186c45-8a04-4a2b-a53d-96209e928aef"},
+  {"member": "opus-xhigh", "model": "claude-opus-5-5", "options": {"effort": "xhigh"}, "taskId": "node:delegated-task:command%3Amcp%3A240e0d61-0b68-411c-8e24-e7c8c1a3873b%3Adelegate-task%3Ad9d250b1-62a8-47c4-a91f-1d59f5ed4079"},
+  {"member": "terra-a", "model": "gpt-6.1-terra", "options": {"reasoningEffort": "max", "serviceTier": "priority"}, "taskId": "node:delegated-task:command%3Amcp%3A240e0d61-0b68-411c-8e24-e7c8c1a3873b%3Adelegate-task%3A1b3a6bc9-7ecb-4b14-a7bd-99a590b1f53b"},
+  {"member": "terra-b", "model": "gpt-6.1-terra", "options": {"reasoningEffort": "max", "serviceTier": "priority"}, "taskId": "node:delegated-task:command%3Amcp%3A240e0d61-0b68-411c-8e24-e7c8c1a3873b%3Adelegate-task%3Aa11cd226-3905-4679-bd6a-f0296a6501d4"}
+]

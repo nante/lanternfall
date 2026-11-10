@@ -8,6 +8,7 @@ import {
   equipSlots, distance, G, T, grounds,
 } from '../../../packages/game/src/model.ts';
 import { WorldView } from './render/view.ts';
+import { hourToMinute } from './render/clock-style.ts';
 import { loadTextureOverrides } from './render/texture-overrides.ts';
 import { startPreview } from './preview.ts';
 import styleJson from '../../../content/render-style.json' with { type: 'json' };
@@ -72,6 +73,7 @@ $('#app').innerHTML = `
     <div><dt><kbd>I</kbd> · <kbd>C</kbd></dt><dd>Show or hide the pack · skills panel</dd></div>
     <div><dt>Panel headers</dt><dd>Drag to rearrange. Drag edges to resize</dd></div>
     <div><dt>Scroll</dt><dd>Zoom the view, or the map when over it</dd></div>
+    <div><dt><kbd>-</kbd> · <kbd>=</kbd></dt><dd>Zoom out · in: Close, Play, Scenery</dd></div>
   </dl>
   <div class="menu-actions"><button class="primary" id="resume">Resume</button><button id="leave">Save and leave</button></div>
 </dialog>`;
@@ -164,6 +166,8 @@ $('#continue').addEventListener('click', () => enter(localStorage.getItem('lante
 $('#new').addEventListener('click', () => { localStorage.removeItem('lanternfall.token'); showGate(); });
 const params = new URLSearchParams(location.search);
 const previewScene = params.get('preview');
+// The server sends its clock only under the darkness rule. Without it, use the bundled day length; Studio previews open at midday, not at the engine's 05:00 start.
+const fallbackWorld = previewScene !== null ? { ...defaultBalance.world, dayOffset: hourToMinute(12) * 60_000 } : defaultBalance.world;
 if (previewScene !== null) {
   // Studio Look tab: no server. A local engine plays a scene through the real HUD, and the Studio streams style and layout changes in.
   $('#gate').hidden = true;
@@ -186,6 +190,8 @@ function onView(v: GameView) {
   view = v;
   serverOffset = v.time - performance.now();
   world.update(v);
+  // After update, so the light field is built from this view's lights and doors, not the last one's.
+  world.setWorld(v.time, v.world ?? fallbackWorld);
   if (first) { mmFloor = -1; renderLogTabs(); }
   if (pending) resolvePending();
   if (openContainer?.kind === 'corpse') { const c = v.corpses.find(c => c.id === (openContainer as { id: string }).id); if (!c || distance(v.self, c) > 1 || c.stage >= 2) openContainer = undefined; }
@@ -475,6 +481,8 @@ addEventListener('keydown', e => {
   if (k === ' ' || k === 'tab') { e.preventDefault(); cycleTarget(); return; }
   if (k === 'i') { chrome.toggle('pack'); world.resize(); return; }
   if (k === 'c') { chrome.toggle('skills'); world.resize(); return; }
+  if (e.key === '-') { world.stepStop(1); return; }
+  if (e.key === '=' || e.key === '+') { world.stepStop(-1); return; }
   if (e.key === 'Escape') {
     if (openContainer) openContainer = undefined;
     else if (view?.self.talking) send({ kind: 'talk', npc: null });
@@ -733,7 +741,8 @@ function drawMinimap(canvas: HTMLCanvasElement | null) {
   g.fillStyle = '#c8a0e0'; for (const p of view.players) if (p.z === self.z) dot(p.x, p.y, 3);
   g.fillStyle = '#ffffff'; dot(self.x, self.y, 4);
   g.strokeStyle = 'rgba(255,240,220,.5)'; g.lineWidth = 1 / z;
-  const vw = (world.camera.right - world.camera.left) * 2, vh = (world.camera.top - world.camera.bottom) * 2.3;
+  if (!world.stop.ortho) return;
+  const vw = (world.camera.right - world.camera.left) * 2, vh = (world.camera.top - world.camera.bottom) * 2 / Math.sin(world.stop.pitch);
   g.strokeRect(self.x * 2 - vw / 2 + 0.5, self.y * 2 - vh / 2 + 0.5, vw, vh);
 }
 hud.addEventListener('click', e => {

@@ -8,7 +8,7 @@ export type ThingKind = (typeof things)[number];
 export const equipSlots = ['weapon', 'shield', 'head', 'body', 'feet', 'pack'] as const;
 export type EquipSlot = (typeof equipSlots)[number];
 
-export const itemKinds = ['cudgel', 'shortsword', 'hatchet', 'blade', 'buckler', 'banded', 'cap', 'coif', 'tunic', 'jerkin', 'boots', 'pack', 'pouch', 'gold', 'loaf', 'cheese', 'tonic', 'tincture', 'tail', 'shell', 'silk', 'tusk'] as const;
+export const itemKinds = ['cudgel', 'shortsword', 'hatchet', 'blade', 'buckler', 'banded', 'cap', 'coif', 'tunic', 'jerkin', 'boots', 'pack', 'pouch', 'gold', 'loaf', 'cheese', 'tonic', 'tincture', 'tail', 'shell', 'silk', 'tusk', 'torch'] as const;
 export type ItemKind = (typeof itemKinds)[number];
 
 export const mobKinds = ['gutterRat', 'caveBeetle', 'mireGrub', 'thornboar'] as const;

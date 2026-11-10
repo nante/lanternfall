@@ -47,15 +47,15 @@ test('textures: exact size, opaque, revision checked, removable', async () => {
   const t = await harness();
   try {
     const put = (bytes: Blob, expected: string) => t.call('/api/art/ground.cobble', { method: 'PUT', headers: { 'content-type': 'image/png', 'x-expected-revision': expected }, body: bytes });
-    assert.equal((await put(png(32, 32), 'none')).status, 422, 'wrong size');
-    assert.equal((await put(png(48, 48, 128), 'none')).status, 422, 'partial alpha');
+    assert.equal((await put(png(48, 48), 'none')).status, 422, 'wrong size');
+    assert.equal((await put(png(64, 64, 128), 'none')).status, 422, 'partial alpha');
     assert.equal((await put(new Blob(['not a png at all, just text padding....'], { type: 'image/png' }), 'none')).status, 422, 'garbage');
-    const ok = await put(png(48, 48), 'none');
+    const ok = await put(png(64, 64), 'none');
     assert.equal(ok.status, 200);
     const { revision } = await ok.json();
     assert.ok(existsSync(join(t.content, 'art/ground/cobble.png')));
-    assert.equal((await put(png(48, 48), 'none')).status, 409, 'stale expectation');
-    assert.equal((await t.call('/api/art/ground.lava', { method: 'PUT', headers: { 'content-type': 'image/png', 'x-expected-revision': 'none' }, body: png(48, 48) })).status, 404);
+    assert.equal((await put(png(64, 64), 'none')).status, 409, 'stale expectation');
+    assert.equal((await t.call('/api/art/ground.lava', { method: 'PUT', headers: { 'content-type': 'image/png', 'x-expected-revision': 'none' }, body: png(64, 64) })).status, 404);
     assert.equal((await t.call('/api/art/ground.cobble', { method: 'DELETE', headers: { 'x-expected-revision': revision } })).status, 200);
     assert.ok(!existsSync(join(t.content, 'art/ground/cobble.png')));
     assert.ok(existsSync(join(t.backups, 'ground.cobble.previous')));

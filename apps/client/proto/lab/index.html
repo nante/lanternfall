@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Lanternfall lab</title>
+</head>
+<body>
+<div id="stage" class="lab-stage"></div>
+<div class="labels" id="labels" aria-hidden="true"></div>
+<header class="lab-bar" aria-label="Lab controls">
+  <nav class="lab-seg" id="tabs" aria-label="Prototype"></nav>
+  <div class="lab-group" id="picks"></div>
+</header>
+<footer class="lab-foot" aria-label="Scene">
+  <div class="lab-seg" id="places" aria-label="Place"></div>
+  <div class="lab-seg" id="stops" aria-label="Camera stop"></div>
+  <div class="lab-clock" id="clock"></div>
+</footer>
+<aside class="lab-read num" id="readout" aria-live="off"></aside>
+<ol class="lab-log" id="log" aria-live="polite"></ol>
+<script type="module" src="./main.ts"></script>
+</body>
+</html>

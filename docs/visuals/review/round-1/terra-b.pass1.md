@@ -1,0 +1,25 @@
+# Lanternfall visuals review — pass 1
+
+**Score: 6.5/10**
+
+The prototypes are a meaningful visual advance over Today: the figures have readable silhouettes, the blue shrine and amber lamps give light a clear identity, and the night meadow is more mysterious. The low camera and large moon give the world a promising second scale. The result is not yet a basis for accepting the four checks: the lab is not playable, a return between floors can corrupt the light field, and shade movement can place a threat far from the tile the server sent. The Scenery image suggests the requested grandeur but its simple repeated mountain triangles and small keep do not yet have the layered scale or focal impact of the references. Retain the Three.js direction and these prototypes, but repair the truth and evaluation paths before choosing a winner.
+
+## Ranked findings
+
+1. **The lab cannot actually play the darkness or camera scenarios — `apps/client/proto/lab/harness.ts:37`, `apps/client/proto/_next/view.ts:175`.** The harness only auto-targets and ticks the local engine; the view's `onPick` remains a no-op and the lab has no keyboard movement handler. In the live undercroft with the rule and torch on, clicking a ground tile and pressing an arrow left the scene stationary. Consequently the promised scripted walk, door/floor travel, shade targeting, and the user's scary-but-playable decision cannot be exercised on the supplied surface. Wire the existing pick and keyboard actions to the observed local hero, with errors shown, and keep Scenery's click-to-return behavior.
+
+2. **Switching back to an unchanged floor can bind stale light sources — `apps/client/proto/_next/lightfield.ts:137`, `apps/client/proto/_next/lightfield.ts:146`.** Masks and ambient textures are per-floor, but source positions and colours are shared globals and are written only when that floor's cache key changes. A GPU readback on the live page, switching A → B → unchanged A, returned level 1 at A's source where the server rule and initial field returned 6. The picture can therefore disagree with rule visibility after a floor round trip. Bind each floor's cached source uniforms along with its textures, or invalidate/repopulate them when changing the bound field.
+
+3. **Shades ignore the snap-on-jump movement rule — `apps/client/proto/_next/shades.ts:56`, `apps/client/proto/_next/shades.ts:69`.** Every update eases by a quarter of the distance per rendered frame, including nonadjacent updates. In a live module probe an update from (10,10) to (20,20) drew the shade at (12.5,12.5) after the next frame. Late/merged state or a floor/teleport-like discontinuity can show eyes several tiles from the server's threat and its targetable position. Snap on nonadjacent changes and use the same bounded step interpolation as full figures for adjacent changes.
+
+4. **The darkness agreement probe does not measure the picture — `apps/client/proto/lab/main.ts:163`.** It derives levels from `lightLevel` and compares those with `view.monsters` and `view.shades`; it never reads the GPU field or the drawn actors. It also samples a stationary scene, not the planned walk. Thus a zero can coexist with the stale-field defect above and cannot establish the acceptance claim that the picture matches the server. Compare rendered field/readback and rendered actor state with each successive server view over an actual walk, including a floor round trip and doors.
+
+## What I verified
+
+- Read the brief, build plan, audit trail and the relevant renderer, lab and rule paths; inspected all 13 supplied shots and all eight reference/contact images. Captured and viewed independent real-time 1200×700 gate Scenery, dark undercroft and Figures shots under `/tmp/lanternfall-terra-b/` using `node apps/client/proto/lab/eval.mjs '<query>' 'shot:<path>' 5000 1200 700`.
+- The live lab opened on port 4173. Tested a ground click and arrow key in the darkness scene. The five `labVerify()` checks returned zero mismatches at market noon (5 sources), gate golden (5), shrine blue (22), meadow night (25), and torch undercroft (7). These are initial-floor checks, not the floor-switch case.
+- `labDarkCheck(15000)` in torch undercroft reported 60 samples, 240 full actors, 0 shades and 0 disagreements. This is a limited rule comparison, not picture verification.
+- GPU/module probes on the live lab reproduced the floor-uniform issue and the nonadjacent shade interpolation described above.
+- `npm test`: 82 passed; `npm run typecheck`: passed. The 16-hero view benchmark printed +6.285 ms while other browser and test processes were active; the isolated darkness test printed +1.841 ms while three browser probes were active. Neither is a clean performance certification. `git diff --name-only -- apps/client/src apps/server` was empty for tracked files.
+
+Not verified: a five-minute auto-hunt timing log; user recognition/pick or scary-but-playable judgment; complete pixel-lock matrix; clean 1080p frame budget; server darkness cost under isolated realistic load; every possible visibility/effect sequence. I did not run or restart a server or alter implementation files.
