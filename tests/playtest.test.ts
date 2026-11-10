@@ -293,3 +293,25 @@ test('a creature never respawns on a hero, even one who is logged out', () => {
   assert.equal(rat.hp, balance.creatures.gutterRat.hp);
   assert.equal(distance(rat, rat.home), 1);
 });
+
+// ---- C3 doors ------------------------------------------------------------------------------------
+test('a door cannot be closed on anyone standing in it', () => {
+  const { e, ann, bob } = pair();
+  const door = { x: 22, y: 25, z: 0 };
+  place(ann, 22, 26);
+  e.action(ann, { kind: 'useTile', to: door });
+  assert.equal(e.state.doors['22,25,0'], true);
+  place(bob, 22, 25);
+  assert.throws(() => e.action(ann, { kind: 'useTile', to: door }), /Someone is standing in the doorway/);
+  e.action(bob, { kind: 'logout' });
+  assert.throws(() => e.action(ann, { kind: 'useTile', to: door }), /Someone is standing in the doorway/, 'logged out, still there');
+  place(bob, 30, 30);
+  place(ann, 22, 25);
+  assert.throws(() => e.action(ann, { kind: 'useTile', to: door }), /Someone is standing in the doorway/, 'not on yourself either');
+  place(ann, 22, 26);
+  e.action(ann, { kind: 'useTile', to: door });
+  assert.equal(e.state.doors['22,25,0'], false);
+  e.action(ann, { kind: 'useTile', to: door });
+  e.state.corpses.c = { id: 'c', ...door, name: 'Dead rat', kind: 'gutterRat', owner: '', protectedUntil: 0, expiresAt: 1e12, born: 0, stage: 0 };
+  assert.throws(() => e.action(ann, { kind: 'useTile', to: door }), /lies in the doorway/);
+});

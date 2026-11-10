@@ -210,6 +210,8 @@ export class Engine {
       || this.map.npcs.some(n => distance(n, pos) === 0);
   }
   present(p: Hero) { return p.connected || p.combatUntil > this.state.time; }
+  /** Any hero on the tile, logged in or not: their body comes back there. */
+  heroAt(q: Pos) { return Object.values(this.state.players).some(h => distance(h, q) === 0); }
   /** Back in the world. A body that took the hero's tile meanwhile sends them one step aside, or, with no room there, to the shrine start. */
   rejoin(p: Hero) {
     p.connected = true;
@@ -363,7 +365,12 @@ export class Engine {
         }
         const link = this.map.links[key(a.to)];
         if (link) { this.travel(p, link); break; }
-        if (t === T.door) { this.state.doors[key(a.to)] = !this.state.doors[key(a.to)]; break; }
+        if (t === T.door) {
+          const open = !!this.state.doors[key(a.to)];
+          if (open && (this.occupied(a.to) || this.heroAt(a.to))) throw new GameError('Someone is standing in the doorway.');
+          if (open && this.topCorpse(a.to)) throw new GameError('Something lies in the doorway.');
+          this.state.doors[key(a.to)] = !open; break;
+        }
         if (t === T.vault) { if (distance(p, this.map.vault) > 2) throw new GameError('Stand in front of the vault.'); this.note(p, 'You open your vault.', 'info'); break; }
         if (t === T.well) { this.note(p, 'The water is cold and clear.'); break; }
         if (t === T.altar) { this.note(p, 'The altar lantern burns steadily.'); break; }
@@ -700,8 +707,7 @@ export class Engine {
       // A respawn waits while anyone stands near the spawn; a taken spawn square uses the nearest free one.
       if (players.some(p => p.z === m.home.z && distance(p, m.home) <= w.blockRange)) return;
       let spot: Pos;
-      const heroOn = (q: Pos) => Object.values(this.state.players).some(h => distance(h, q) === 0);
-      try { spot = this.geo.near(m.home, q => this.occupied(q, m.id) || heroOn(q)); } catch { return; }
+      try { spot = this.geo.near(m.home, q => this.occupied(q, m.id) || this.heroAt(q)); } catch { return; }
       Object.assign(m, spot); m.hp = def.hp; m.damage = {}; m.target = null;
       return;
     }
