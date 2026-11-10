@@ -109,7 +109,7 @@ addEventListener('keydown', e => {
   else if (e.key === '-') w.stepStop(1);
   else if (e.key === '=' || e.key === '+') w.stepStop(-1);
   else if (e.key === 'q' || e.key === 'e') { w.turn(e.key === 'q' ? 1 : -1); state.yaw = Math.round(THREE.MathUtils.radToDeg(w.rig.yawGoal)); write(false); }
-  else if (e.key === 'v') w.setStop(w.stop.vista ? 'play' : 'scenery');
+  else if (e.key === 'v') { if (w.stop.vista) w.stepStop(1); else w.setStop('scenery'); }
   else if (e.key === ' ' && view) {
     e.preventDefault();
     const near = [...view.monsters].sort((a, b) => Math.max(Math.abs(a.x - view!.self.x), Math.abs(a.y - view!.self.y)) - Math.max(Math.abs(b.x - view!.self.x), Math.abs(b.y - view!.self.y)))[0];

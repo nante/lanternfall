@@ -41,7 +41,7 @@ export class WorldView {
   /** 0 away from the Vista, 1 in it; eased over the dolly. */
   get scenery() { return this.rig.vista; }
   lookout = false;
-  /** Where Q/E-free stops step back to when the Vista closes. */
+  /** The stop the Vista returns to. */
   private beforeVista: StopId = 'play';
   get eye(): THREE.Camera { return this.rig.active; }
   readonly target: THREE.WebGLRenderTarget;
@@ -365,8 +365,8 @@ export class WorldView {
     return id && t ? { id, kind: 'monster' as const, name: 'Something', target: new THREE.Vector3(t.x, 0, t.y), position: new THREE.Vector3(t.x, 0, t.y), height: 0.6, visible: true } : undefined;
   }
   click(e: PointerEvent) {
-    // In the Vista a click only returns to play; it never walks or attacks.
-    if (this.stop.vista || this.scenery > 0) { this.setStop(this.stop.vista ? this.beforeVista : this.stop.id); return; }
+    // In the Vista, and while leaving it, a click only returns to play; it never walks or attacks.
+    if (this.stop.vista || this.scenery > 0) { if (this.stop.vista) this.setStop(this.beforeVista); return; }
     const actor = this.actorAt(e);
     const tile = actor ? { x: Math.round(actor.target.x), y: Math.round(actor.target.z), z: this.floor } : this.tileAt(e);
     if (!tile) return;
