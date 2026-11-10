@@ -22,6 +22,7 @@ import { ramps } from './palette.ts';
 import { clockAt, lightLevel, lightPasses, outdoorAmbient, staticSources, type Clock, type LightSource, type WorldLight } from '../../../../packages/game/src/light.ts';
 import { prefersReducedMotion } from './feel.ts';
 import { postVertex, postFragment } from './post.ts';
+import { Mood, moodUniforms } from './mood.ts';
 /** Flame flicker is motion: off when the viewer asks for reduced motion. */
 const REDUCED_MOTION = prefersReducedMotion();
 
@@ -35,6 +36,7 @@ export class WorldView {
   /** The perspective camera (Third person, First person, Vista and every dolly that touches them). */
   get persp() { return this.rig.persp; }
   readonly skyDome = new Sky();
+  readonly mood = new Mood();
   farland!: FarLand;
   spire!: Spire;
   /** 0 away from the Vista, 1 in it; eased over the dolly. */
@@ -178,7 +180,7 @@ export class WorldView {
     this.target = new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType, depthTexture: new THREE.DepthTexture(4, 4), magFilter: THREE.NearestFilter, minFilter: THREE.NearestFilter });
     this.post = new THREE.ShaderMaterial({
       vertexShader: postVertex, fragmentShader: postFragment,
-      uniforms: { uExposure: { value: 1.7 }, uSaturation: { value: 1.18 }, uContrast: { value: 1 }, uWarm: { value: 1 }, uCool: { value: 1 }, uVignette: { value: 0.6 }, uLevels: { value: 48 }, uDither: { value: 0.5 }, uOutline: { value: 0.45 }, uRim: { value: 0.55 }, uLut: { value: this.luts.day }, uPalette: { value: 1 }, uNightEdges: { value: 1 }, uShadowTint: { value: new THREE.Color(1, 1, 1) }, uLightTint: { value: new THREE.Color(1, 1, 1) }, tColor: { value: this.target.texture }, tDepth: { value: this.target.depthTexture }, uRes: { value: new THREE.Vector2(4, 4) }, uCave: { value: 0 }, uTime: { value: 0 }, uHurt: { value: 0 } },
+      uniforms: { ...moodUniforms, uExposure: { value: 1.7 }, uSaturation: { value: 1.18 }, uContrast: { value: 1 }, uWarm: { value: 1 }, uCool: { value: 1 }, uVignette: { value: 0.6 }, uLevels: { value: 48 }, uDither: { value: 0.5 }, uOutline: { value: 0.45 }, uRim: { value: 0.55 }, uLut: { value: this.luts.day }, uPalette: { value: 1 }, uNightEdges: { value: 1 }, uShadowTint: { value: new THREE.Color(1, 1, 1) }, uLightTint: { value: new THREE.Color(1, 1, 1) }, tColor: { value: this.target.texture }, tDepth: { value: this.target.depthTexture }, uRes: { value: new THREE.Vector2(4, 4) }, uCave: { value: 0 }, uTime: { value: 0 }, uHurt: { value: 0 } },
       depthTest: false, depthWrite: false,
     });
     this.postScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.post));
@@ -546,14 +548,8 @@ export class WorldView {
     this.post.uniforms.uDither.value = this.style.dither * (1 - this.scenery);
     styleUniforms.uGroundDetail.value = this.style.groundDetail * (1 - 0.55 * this.scenery);
     fieldUniforms.uFGround.value = this.scenery;
-    // Moonlit vista: the Vista is for looking, so at night the moon lights the land enough to read its forms (the fable
-    // references keep night readable). Play keeps the full dark, where the darkness rule lives.
-    if (this.floor === 0) {
-      const moon = this.key.moon * this.scenery;
-      this.sun.intensity = this.key.sunI + 3.2 * moon;
-      this.sky.intensity = this.key.ambI * (1 + 8 * moon);
-      this.post.uniforms.uVignette.value = this.key.vignette * (1 - 0.7 * moon);
-    }
+    // Region mood, moonlit vista, shadow softness, motes, shafts and mist (render/mood.ts).
+    this.mood.frame(this, this.eye);
     // Walls between the lens and the hero are cut away in Third person and the Vista, so the view opens down to the
     // hero's feet (ref-1, ref-2). A corridor down the middle of the view is cleared from the lens to just short of the
     // hero; what stands outside it stays as dark framing at the frame's edges. A lens in the head cuts nothing.
@@ -574,7 +570,9 @@ export class WorldView {
     const toCamX = Math.sin(rig.yaw), toCamZ = Math.cos(rig.yaw);
     const relX = selfH ? selfH.position.x - this.spire.base.x : 0, relZ = selfH ? selfH.position.z - this.spire.base.z : 0;
     const along = relX * toCamX + relZ * toCamZ, side = relX * toCamZ - relZ * toCamX;
-    const behind = !!selfH && this.floor === 0 && !inHead && along < 0.6 && Math.abs(side) < 4.5 && along > -14;
+    // Not when a wall right in front of the hero hides them anyway: the window would show only that wall.
+    const walled = !!selfH && thingHidesSight(this.map.floors[0].thing[(Math.round(selfH.position.z) + Math.round(toCamZ)) * this.map.width + Math.round(selfH.position.x) + Math.round(toCamX)]);
+    const behind = !!selfH && !walled && this.floor === 0 && !inHead && along < 0.6 && Math.abs(side) < 4.5 && along > -14;
     if (behind && selfH) {
       const p = selfH.position.clone().add(new THREE.Vector3(0, 0.7, 0)).project(this.eye);
       cutUniforms.uCutCenter.value.set((p.x + 1) / 2 * this.target.width, (p.y + 1) / 2 * this.target.height);

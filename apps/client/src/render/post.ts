@@ -1,4 +1,4 @@
-/** The post pass: tone map, edge light, hue-shifted grade, night floor, palette snap. */
+/** The post pass: region mood, tone map, edge light, hue-shifted grade, mist, night floor, palette snap. */
 export const postVertex = /* glsl */`varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`;
 export const postFragment = /* glsl */`
 precision highp float;
@@ -6,7 +6,35 @@ uniform sampler2D tColor; uniform sampler2D tDepth; uniform vec2 uRes; uniform f
 uniform float uExposure; uniform float uSaturation; uniform float uContrast; uniform float uWarm; uniform float uCool; uniform float uVignette;
 uniform float uLevels; uniform float uDither; uniform float uOutline; uniform float uRim;
 uniform highp sampler3D uLut; uniform float uPalette; uniform float uNightEdges; uniform vec3 uShadowTint; uniform vec3 uLightTint;
+uniform sampler2D uMoodA; uniform sampler2D uMoodB; uniform vec2 uMoodSize; uniform mat4 uInvVP; uniform vec4 uHeroW[2]; uniform vec2 uHeroXZ;
+uniform vec4 uMoodGrade[8]; uniform vec3 uMoodShadow[8]; uniform vec3 uMoodLight[8]; uniform vec3 uMoodHaze[8];
 varying vec2 vUv;
+// The region mood under this pixel (render/mood.ts): weights from the world position the depth buffer gives, blended
+// towards the hero's own mood for sky and for land far beyond the map.
+struct Mood { float amb; float sat; float mist; vec3 shadow; vec3 light; vec3 haze; vec3 world; };
+Mood moodAt(float d) {
+  vec4 wp = uInvVP * vec4(vUv * 2.0 - 1.0, d * 2.0 - 1.0, 1.0);
+  vec3 world = wp.xyz / wp.w;
+  vec2 uv = (world.xz + 0.5) / uMoodSize;
+  vec4 a = texture2D(uMoodA, uv), b = texture2D(uMoodB, uv);
+  float far = d >= 0.9999 ? 1.0 : smoothstep(18.0, 36.0, distance(world.xz, uHeroXZ));
+  a = mix(a, uHeroW[0], far); b = mix(b, uHeroW[1], far);
+  float w[8] = float[8](a.x, a.y, a.z, a.w, b.x, b.y, b.z, b.w);
+  Mood m = Mood(0.0, 0.0, 0.0, vec3(0.0), vec3(0.0), vec3(0.0), world);
+  float sum = 0.0;
+  for (int i = 0; i < 8; i++) {
+    if (w[i] <= 0.0) continue;
+    sum += w[i];
+    m.amb += w[i] * uMoodGrade[i].x; m.sat += w[i] * uMoodGrade[i].y; m.mist += w[i] * uMoodGrade[i].z;
+    m.shadow += w[i] * uMoodShadow[i]; m.light += w[i] * uMoodLight[i]; m.haze += w[i] * uMoodHaze[i];
+  }
+  if (sum < 1e-3) return Mood(1.0, 1.0, 0.0, vec3(1.0), vec3(1.0), vec3(0.0), world);
+  float k = 1.0 / sum;
+  m.amb *= k; m.sat *= k; m.mist *= k; m.shadow *= k; m.light *= k; m.haze *= k;
+  // Mist lies on the ground: walls and roofs rise out of it, the sky has none.
+  m.mist *= (1.0 - smoothstep(0.4, 3.5, world.y)) * step(d, 0.9999);
+  return m;
+}
 float bayer(vec2 p){ int x = int(mod(p.x, 4.0)), y = int(mod(p.y, 4.0)); int i = x + y * 4;
   float m[16]; m[0]=0.;m[1]=8.;m[2]=2.;m[3]=10.;m[4]=12.;m[5]=4.;m[6]=14.;m[7]=6.;m[8]=3.;m[9]=11.;m[10]=1.;m[11]=9.;m[12]=15.;m[13]=7.;m[14]=13.;m[15]=5.;
   for (int k = 0; k < 16; k++) if (k == i) return m[k] / 16.0; return 0.0; }
@@ -18,7 +46,8 @@ void main(){
   float d = texture2D(tDepth, vUv).r;
   float dl = texture2D(tDepth, vUv - vec2(px.x, 0.0)).r, dr = texture2D(tDepth, vUv + vec2(px.x, 0.0)).r;
   float du = texture2D(tDepth, vUv + vec2(0.0, px.y)).r, dd = texture2D(tDepth, vUv - vec2(0.0, px.y)).r;
-  c = aces(c * uExposure);
+  Mood mood = moodAt(d);
+  c = aces(c * uExposure * mood.amb);
   float l = luma(c);
   // Edge light: silhouettes whose upper/left neighbour is farther catch the low sun.
   float edgeTop = step(0.002, du - d), edgeLeft = step(0.002, dl - d);
@@ -35,14 +64,18 @@ void main(){
   vec3 cool = mix(vec3(0.74, 0.82, 1.12), vec3(1.0, 0.94, 0.84), uCave);
   c = mix(c, mix(c * cool, c, smoothstep(0.08, 0.5, l)), max(uCool, uCave));
   // Hue-shifted grade: shadows lean to the keyframe's shadow tint, lights to its light tint.
-  c *= mix(uShadowTint, uLightTint, smoothstep(0.03, 0.5, luma(c)));
+  c *= mix(uShadowTint * mood.shadow, uLightTint * mood.light, smoothstep(0.03, 0.5, luma(c)));
   // Night floor: unlit terrain rests on a faint indigo (palette night[1]) and silhouette edges sit half a step above it,
   // enough to find a wall in the dark without drawing the world as a wireframe. A floor under the picture, not light.
   float sil = step(0.002, max(max(dl, dr), max(du, dd)) - d) * step(d, 0.9999);
   // Edges only at Close and Play; in Scenery they would draw distant forests as wireframe.
-  c = max(c, mix(mix(vec3(0.0037, 0.0048, 0.013), vec3(0.0046, 0.0040, 0.0034), uCave), mix(vec3(0.0052, 0.0068, 0.0190), vec3(0.0075, 0.0066, 0.0056), uCave), sil * uNightEdges));
+  // Underground the edges are a little stronger: past the torch the cave's walls still catch a faint line.
+  c = max(c, mix(mix(vec3(0.0037, 0.0048, 0.013), vec3(0.0052, 0.0044, 0.0036), uCave), mix(vec3(0.0052, 0.0068, 0.0190), vec3(0.012, 0.0095, 0.007), uCave), sil * uNightEdges));
   c = mix(c, c * vec3(1.14, 0.97, 0.74), smoothstep(0.32, 0.9, l) * (1.0 - uCave) * uWarm);
-  c = mix(vec3(luma(c)), c, uSaturation);
+  c = mix(vec3(luma(c)), c, uSaturation * mood.sat);
+  // Ground mist, a little thicker and thinner in drifting patches.
+  float drift = 0.75 + 0.25 * sin(mood.world.x * 0.31 + uTime * 0.05 + sin(mood.world.z * 0.23 - uTime * 0.03) * 2.0);
+  c = mix(c, mood.haze, clamp(mood.mist * drift, 0.0, 0.8));
   vec2 q = vUv - 0.5;
   c += vec3(1.0, 0.5, 0.18) * 0.06 * uWarm * (1.0 - uCave) * smoothstep(1.0, 0.0, length(vUv - vec2(0.0, 1.0)));
   c *= 1.0 - dot(q, q) * (uCave > 0.5 ? max(1.1, uVignette) : uVignette);

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { Engine } from '../packages/game/src/engine.ts';
 import { buildTown } from '../packages/game/src/town.ts';
-import { Balance, Icons, RenderStyle, missingIcons, balanceWarnings, xpCurveRises } from '../packages/game/src/content-schema.ts';
+import { Balance, Icons, RenderStyle, RegionMoods, missingIcons, balanceWarnings, xpCurveRises } from '../packages/game/src/content-schema.ts';
 import { stylePresets } from '../packages/game/src/style-presets.ts';
 import { iconSvg } from '../packages/game/src/icon-svg.ts';
 import { fightScenarios, spellScenarios } from './m0-scenarios.ts';
@@ -81,4 +81,14 @@ test('the saved look and every preset are valid render styles', () => {
   assert.equal(RenderStyle.safeParse(JSON.parse(readFileSync('content/render-style.json', 'utf8'))).success, true);
   for (const p of stylePresets) assert.equal(RenderStyle.safeParse(p.style).success, true, p.id);
   assert.equal(new Set(stylePresets.map(p => p.style.name)).size, stylePresets.length);
+});
+
+test('region moods are valid and claim only places the map has', () => {
+  const moods = RegionMoods.parse(JSON.parse(readFileSync('content/moods.json', 'utf8')));
+  const names = new Set(map.places.map(p => p.name));
+  const claimed = Object.values(moods.moods).flatMap(m => m.places);
+  assert.deepEqual(claimed.filter(n => !names.has(n)), []);
+  assert.equal(new Set(claimed).size, claimed.length);
+  const broken = structuredClone(moods); broken.fallback = 'nowhere';
+  assert.equal(RegionMoods.safeParse(broken).success, false);
 });

@@ -14,6 +14,7 @@ export const places: Record<string, Place> = {
   spire: { at: { x: 23, y: 12, z: 0 }, label: 'North of the Spire' },
   wood: { at: { x: 91, y: 44, z: 0 }, label: 'Whisperwood' },
   chapel: { at: { x: 93, y: 27, z: 0 }, label: 'Fallen chapel' },
+  woodedge: { at: { x: 82, y: 57, z: 0 }, label: 'Meadow by the wood' },
   undercroft: { at: { x: 57, y: 46, z: 1 }, prey: 'gutterRat', label: 'Undercroft' },
   beetles: { at: { x: 34, y: 45, z: 1 }, prey: 'caveBeetle', label: 'Beetle hollow' },
   grubs: { at: { x: 20, y: 25, z: 1 }, prey: 'mireGrub', label: 'Grub mire' },

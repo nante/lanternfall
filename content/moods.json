@@ -1,0 +1,169 @@
+{
+  "fallback": "town",
+  "underground": "underground",
+  "water": "river",
+  "canopy": "wood",
+  "moods": {
+    "town": {
+      "label": "Lanternfall streets",
+      "places": [
+        "Lanternfall",
+        "Emberforge",
+        "The Copper Kettle",
+        "Odo's Apothecary",
+        "Pell's Provisions",
+        "Vault"
+      ],
+      "ambient": 1,
+      "shadowTint": "#cccccc",
+      "lightTint": "#cccccc",
+      "saturation": 1,
+      "haze": "#cccccc",
+      "hazeDensity": 0,
+      "vignette": 1,
+      "particles": 1,
+      "shafts": 0
+    },
+    "market": {
+      "label": "Market square",
+      "places": [
+        "Market square"
+      ],
+      "ambient": 1.04,
+      "shadowTint": "#c8c8d0",
+      "lightTint": "#d6ccbe",
+      "saturation": 1.12,
+      "haze": "#cccccc",
+      "hazeDensity": 0,
+      "vignette": 0.9,
+      "particles": 1.3,
+      "shafts": 0,
+      "night": {
+        "lightTint": "#dcc8b0",
+        "ambient": 1.06
+      }
+    },
+    "meadow": {
+      "label": "Open meadow",
+      "places": [
+        "Thornboar meadow",
+        "Wildwood"
+      ],
+      "ambient": 1.12,
+      "shadowTint": "#c4c8dc",
+      "lightTint": "#e0d0b8",
+      "saturation": 1.1,
+      "haze": "#d0ccc4",
+      "hazeDensity": 0.03,
+      "vignette": 0.7,
+      "particles": 1.6,
+      "shafts": 0.25,
+      "night": {
+        "ambient": 1.06,
+        "shadowTint": "#c0c8e0"
+      },
+      "twilight": {
+        "hazeDensity": 0.08
+      }
+    },
+    "wood": {
+      "label": "Under the canopy",
+      "places": [
+        "Whisperwood"
+      ],
+      "ambient": 0.84,
+      "shadowTint": "#a8c4c8",
+      "lightTint": "#cdd6a8",
+      "saturation": 1.06,
+      "haze": "#a8c4a8",
+      "hazeDensity": 0.08,
+      "vignette": 1.5,
+      "particles": 2.2,
+      "shafts": 0.7,
+      "night": {
+        "ambient": 0.82,
+        "shadowTint": "#a0c0cc",
+        "lightTint": "#c0d0c4",
+        "hazeDensity": 0.06
+      }
+    },
+    "river": {
+      "label": "River and bridge",
+      "places": [
+        "North bridge"
+      ],
+      "ambient": 1,
+      "shadowTint": "#b8c8dc",
+      "lightTint": "#cccccc",
+      "saturation": 0.97,
+      "haze": "#d4dcec",
+      "hazeDensity": 0.05,
+      "vignette": 0.9,
+      "particles": 0.8,
+      "shafts": 0,
+      "twilight": {
+        "hazeDensity": 0.26
+      },
+      "night": {
+        "hazeDensity": 0.08
+      }
+    },
+    "shrine": {
+      "label": "Shrine and Lantern Spire",
+      "places": [
+        "Shrine of the Lantern"
+      ],
+      "ambient": 1,
+      "shadowTint": "#a4ccd0",
+      "lightTint": "#c4d4cc",
+      "saturation": 0.96,
+      "haze": "#b0dcd4",
+      "hazeDensity": 0.04,
+      "vignette": 1,
+      "particles": 1,
+      "shafts": 0.15,
+      "twilight": {
+        "shadowTint": "#a8ccd0"
+      },
+      "night": {
+        "shadowTint": "#94d0d0",
+        "lightTint": "#b8e0d8",
+        "haze": "#90e0d4",
+        "hazeDensity": 0.1,
+        "ambient": 1.06
+      }
+    },
+    "chapel": {
+      "label": "Fallen chapel",
+      "places": [
+        "Fallen chapel"
+      ],
+      "ambient": 0.86,
+      "shadowTint": "#b4b8cc",
+      "lightTint": "#c0c0c4",
+      "saturation": 0.48,
+      "haze": "#c0c4d0",
+      "hazeDensity": 0.14,
+      "vignette": 1.7,
+      "particles": 0.6,
+      "shafts": 0.35,
+      "night": {
+        "saturation": 0.5,
+        "hazeDensity": 0.18
+      }
+    },
+    "underground": {
+      "label": "Undercroft",
+      "places": [],
+      "ambient": 1.12,
+      "shadowTint": "#d4c4b0",
+      "lightTint": "#dcc8ac",
+      "saturation": 1.05,
+      "haze": "#cccccc",
+      "hazeDensity": 0,
+      "vignette": 1.4,
+      "particles": 0.7,
+      "shafts": 0
+    }
+  }
+}
