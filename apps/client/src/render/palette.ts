@@ -78,6 +78,12 @@ export const CAVE_TONES = [ramps.earth[0], ramps.earth[1], ramps.earth[2], ramps
 export const CAVE_DROPS = ['#130e04', '#141c07', '#2c2b19', '#313d29', '#212624'];
 
 /**
+ * After dark lamp light falls on moonlit surfaces, and warm plus teal lands on the forest's bright olives: lamp-lit
+ * plaster and stone speckled olive among their oranges. Night grass keeps the darker greens.
+ */
+export const NIGHT_DROPS = ['#7f804d', '#929249', '#a3a648', '#c1b852', '#dccd5b', '#67662d', '#a9a98f', '#999d8e'];
+
+/**
  * 32³ lookup: display-referred sRGB in, nearest palette colour out (OKLab distance). `extra` adds colours to the set,
  * `drop` leaves some out.
  */

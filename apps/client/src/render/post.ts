@@ -4,7 +4,7 @@ export const postFragment = /* glsl */`
 precision highp float;
 uniform sampler2D tColor; uniform sampler2D tDepth; uniform vec2 uRes; uniform float uCave; uniform float uTime; uniform float uHurt;
 uniform float uExposure; uniform float uSaturation; uniform float uContrast; uniform float uWarm; uniform float uCool; uniform float uVignette;
-uniform float uLevels; uniform float uDither; uniform float uOutline; uniform float uRim;
+uniform float uLevels; uniform float uDither; uniform float uFaceDither; uniform float uOutline; uniform float uRim;
 uniform highp sampler3D uLut; uniform float uPalette; uniform float uNightEdges; uniform vec3 uShadowTint; uniform vec3 uLightTint;
 uniform sampler2D uMoodA; uniform sampler2D uMoodB; uniform vec2 uMoodSize; uniform mat4 uInvVP; uniform vec4 uHeroW[2]; uniform vec2 uHeroXZ;
 uniform vec4 uMoodGrade[8]; uniform vec3 uMoodShadow[8]; uniform vec3 uMoodLight[8]; uniform vec3 uMoodHaze[8];
@@ -62,9 +62,12 @@ void main(){
   l = luma(c);
   // Underground the dark is earth, not sky: shadows lean warm-neutral, after the flashlight reference's cellar.
   vec3 cool = mix(vec3(0.74, 0.82, 1.12), vec3(1.0, 0.94, 0.84), uCave);
-  c = mix(c, mix(c * cool, c, smoothstep(0.08, 0.5, l)), max(uCool, uCave));
+  // After dark a warm pixel is lamp-lit (the moon is cool): it is light, however dim. Cooled as shadow, lamp-lit plaster
+  // and stone turned olive and speckled between olive and orange in the palette.
+  float lamp = uCool * smoothstep(0.5, 0.85, (c.r - c.b) / max(c.r, 1e-4));
+  c = mix(c, mix(c * cool, c, max(smoothstep(0.08, 0.5, l), lamp)), max(uCool, uCave));
   // Hue-shifted grade: shadows lean to the keyframe's shadow tint, lights to its light tint.
-  c *= mix(uShadowTint * mood.shadow, uLightTint * mood.light, smoothstep(0.03, 0.5, luma(c)));
+  c *= mix(uShadowTint * mood.shadow, uLightTint * mood.light, max(smoothstep(0.03, 0.5, luma(c)), lamp));
   // Night floor: unlit terrain rests on a faint indigo (palette night[1]) and silhouette edges sit half a step above it,
   // enough to find a wall in the dark without drawing the world as a wireframe. A floor under the picture, not light.
   float sil = step(0.002, max(max(dl, dr), max(du, dd)) - d) * step(d, 0.9999);
@@ -85,9 +88,10 @@ void main(){
   c = pow(max(c, 0.0), vec3(1.0 / 2.2));
   // Contrast pivots on display mid-grey, after gamma, so dark ground keeps its detail.
   c = clamp((c - 0.5) * uContrast + 0.5, 0.0, 1.0);
+  bool sky = d >= 0.9999;
   if (uPalette > 0.5) {
     // Ordered dither nudges colours near a palette boundary, so bands break up only at their edges.
-    vec3 d = c + (bayer(gl_FragCoord.xy) - 0.5) * uDither / 24.0;
+    vec3 d = c + (bayer(gl_FragCoord.xy) - 0.5) * uDither * (sky ? 1.0 : uFaceDither) / 24.0;
     c = texture(uLut, clamp(d, 0.0, 1.0) * (31.0 / 32.0) + 0.5 / 32.0).rgb;
   } else c = floor(c * uLevels + 0.5 + (bayer(gl_FragCoord.xy) - 0.5) * uDither) / uLevels;
   gl_FragColor = vec4(c, 1.0);

@@ -126,11 +126,11 @@
         "shadowTint": "#a8ccd0"
       },
       "night": {
-        "shadowTint": "#94d0d0",
-        "lightTint": "#b8e0d8",
-        "haze": "#90e0d4",
-        "hazeDensity": 0.1,
-        "ambient": 1.06
+        "shadowTint": "#88d4d0",
+        "lightTint": "#b0e4d8",
+        "haze": "#80e4d4",
+        "hazeDensity": 0.16,
+        "ambient": 1.08
       }
     },
     "chapel": {
