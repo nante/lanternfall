@@ -42,7 +42,7 @@ try {
   ws.addEventListener('message', e => { const m = JSON.parse(e.data); if (m.id && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id); } });
   const send = (method, params = {}) => new Promise(r => { const n = ++id; pending.set(n, r); ws.send(JSON.stringify({ id: n, method, params })); });
   await send('Emulation.setDeviceMetricsOverride', { width: Number(width), height: Number(height), deviceScaleFactor: Number(process.env.DPR ?? 1), mobile: false });
-  await send('Page.navigate', { url: `http://127.0.0.1:4173/proto/lab/?${query}` });
+  await send('Page.navigate', { url: `http://127.0.0.1:${process.env.LAB_PORT ?? 4173}/${process.env.LAB_PAGE ?? 'proto/lab/'}?${query}` });
   await sleep(Number(wait));
   if (expr.startsWith('shot:')) {
     await send('Runtime.evaluate', { expression: "document.body.classList.add('lab-shot')" });

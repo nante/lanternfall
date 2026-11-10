@@ -8,6 +8,6 @@ export default defineConfig({
   base: './',
   // content/ lives outside the client root; watch it so new or deleted PNGs reach the import.meta.glob in texture-overrides.ts.
   plugins: [{ name: 'watch-content', configureServer(server) { server.watcher.add(resolve(repo, 'content')); } }],
-  server: { host: '127.0.0.1', port: 4173, strictPort: true, fs: { allow: [repo] } },
+  server: { host: '127.0.0.1', port: Number(process.env.LAB_PORT ?? 4173), strictPort: true, fs: { allow: [repo] } },
   build: { outDir: '../../dist/client', emptyOutDir: true, chunkSizeWarningLimit: 900, target: 'es2022' },
 });
