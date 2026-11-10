@@ -63,7 +63,7 @@ export function buildTrees(tiles: { x: number; y: number; kind: 'tree' | 'pine' 
 }
 
 /**
- * Foliage: smooth-shaded so light rolls round the canopy, then broken into leaf clumps four render pixels across (cells
+ * Foliage: smooth-shaded so light rolls round the canopy, then broken into leaf clumps of fixed world sizes (cells
  * fixed to the world, so they never swim), each a little lighter or darker; near the silhouette, clumps drop out so the
  * outline is a ragged edge of leaves instead of a polygon. Runs before the light field's patch, which chains after it.
  */
@@ -74,13 +74,21 @@ export function foliage() {
   mat.onBeforeCompile = shader => {
     shader.fragmentShader = shader.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
       {
-        // Clump size doubles wherever a clump would fall under a pixel, so far trees stay in clusters instead of speckle.
-        float fl = exp2(ceil(log2(max(length(fwidth(vFPos)) * 8.0, 1.0))));
-        vec3 lc = floor(vFPos * 8.0 / fl);
-        float n = fract(sin(dot(lc, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
-        diffuseColor.rgb *= 0.8 + 0.4 * floor(n * 3.0) / 2.0;
+        // Four fixed clump sizes; each shows only while its clumps are a few pixels across, so a far tree calms into
+        // smooth crown shading instead of coarsening into big random blocks.
+        float pw = max(length(fwidth(vFPos)) * 0.75, 1e-4);
+        float tone = 1.0, edgeN = 1.0, edgeW = 0.0;
+        for (int k = 0; k < 4; k++) {
+          float size = exp2(float(k)) / 16.0, px = size / pw;
+          float a = smoothstep(2.0, 3.5, px) * (1.0 - smoothstep(6.0, 9.0, px)) * (k == 3 ? 0.55 : 1.0);
+          if (a <= 0.0) continue;
+          float n = fract(sin(dot(floor(vFPos / size), vec3(12.9898, 78.233, 37.719)) + float(k) * 7.31) * 43758.5453);
+          tone *= mix(1.0, 0.8 + 0.4 * floor(n * 3.0) / 2.0, a);
+          if (a > edgeW) { edgeW = a; edgeN = n; }
+        }
+        diffuseColor.rgb *= tone;
         float facing = abs(dot(normalize(vFNrm), normalize(cameraPosition - vFPos)));
-        if (facing < 0.32 && n < 0.55) discard;
+        if (facing < 0.32 && edgeW > 0.5 && edgeN < 0.55) discard;
       }`);
   };
   return mat;
