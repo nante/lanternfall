@@ -50,8 +50,10 @@ export function townHouse(m: Mason, lit: Mason, y: number, w: number, d: number,
   for (let s = 1; s < storeys; s++) m.block(TOWN.timber, 0, y + (s * h) / storeys - 0.1, y + (s * h) / storeys + 0.1, 0, w + 0.14, d + 0.14);
   const bays = clamp(Math.floor(w / 1.2), 1, 4);
   for (let s = 0; s < Math.min(storeys, 4); s++) for (let b = 0; b < bays; b++) {
-    if (rnd(i * 7 + s, b) > 0.82) continue;
     const wx = ((b + 0.5) / bays) * w - w / 2, wy = y + ((s + 0.55) * h) / storeys;
+    // The first bay of the ground floor is the door.
+    if (s === 0 && b === 0) { m.put(prim.pane(), TOWN.timber, wx, y + 0.6, d / 2 + 0.03, { sx: 0.6, sy: 1.2 }); continue; }
+    if (rnd(i * 7 + s, b) > 0.82) continue;
     (rnd(i * 13 + s * 3, b + 9) < 0.3 ? lit : m).put(prim.pane(), TOWN.void, wx, wy, d / 2 + 0.03, { sx: 0.42, sy: 0.72 });
   }
   const along = w >= d, span = Math.min(w, d), rise = span * (1.0 + rnd(i, 4) * 0.7);

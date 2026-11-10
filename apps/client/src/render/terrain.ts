@@ -372,13 +372,15 @@ function gateArch(x0: number, x1: number, z: number, open0: number, open1: numbe
   for (const y of [crown - 0.6, crown - 0.3]) iron.block('#3a3634', (open0 + open1) / 2, y, y + 0.05, z, ow - 0.2, 0.05);
   const g = new THREE.Group();
   // No shadow: from above, a dark band across the passage with no arch to cast it reads as a hole.
-  for (const mesh of [m.build(lowOnly(tinted(wall.clone()))), iron.build(lowOnly(lambert('#ffffff', { vertexColors: true })))]) { mesh.receiveShadow = true; g.add(mesh); }
+  for (const mesh of [m.build(lowOnly(tinted(wall))), iron.build(lowOnly(lambert('#ffffff', { vertexColors: true })))]) { mesh.receiveShadow = true; g.add(mesh); }
   return g;
 }
 /** Draw a material only where the eye looks at it from low down, dithering it out as the view steepens past ~35°. */
 function lowOnly<M extends THREE.MeshLambertMaterial>(mat: M) {
-  mat.customProgramCacheKey = () => 'low-only';
-  mat.onBeforeCompile = shader => {
+  const key = mat.customProgramCacheKey(), prior = mat.onBeforeCompile.bind(mat);
+  mat.customProgramCacheKey = () => key + '|low-only';
+  mat.onBeforeCompile = (shader, renderer) => {
+    prior(shader, renderer);
     shader.vertexShader = 'varying vec3 vLowPos;\n' + shader.vertexShader.replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\n vLowPos = (modelMatrix * vec4(transformed, 1.0)).xyz;');
     shader.fragmentShader = 'varying vec3 vLowPos;\n' + shader.fragmentShader.replace('void main() {', `void main() {
       { float up = normalize(cameraPosition - vLowPos).y;
