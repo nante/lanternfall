@@ -51,7 +51,7 @@ Scene fog in Scenery runs from 70 to 680 units and blends towards the keyframe's
 
 ## 8. Vantage: a long lens from low down
 
-The Scenery stop ends 30 tiles behind the hero and 4.4 up, looking at a point 7.4 up through a 30° lens (`render/view.ts` `sceneryEye`; the lab's `eye=back,up,look,fov` overrides it). Both references are long-lens views from near eye level: distance is compressed, so the castle and cathedral loom over the town instead of sitting small on the horizon, and the horizon lies low in the frame with the hero at the bottom. Figures are baked for this view at 9° (`actor-layer.ts` `SCENERY_PITCH`).
+The Scenery stop ends 30 tiles behind the hero and 4.4 up, looking at a point 7.4 up through a 30° lens (`render/stops.ts`, the `scenery` row's `eye`; the lab's `eye=back,up,look[,fov[,ahead]]` overrides the current stop's lens). Both references are long-lens views from near eye level: distance is compressed, so the castle and cathedral loom over the town instead of sitting small on the horizon, and the horizon lies low in the frame with the hero at the bottom. Figures are baked for this view at 9° (the row's `figures`).
 
 ## 8b. Open foreground, framed by trees
 
@@ -166,6 +166,14 @@ At night in Scenery the moon lights the land (`view.ts`): the river, the road, t
 ## 14. The east reach (map)
 
 The map is 104 tiles wide instead of 84 (`packages/game/src/town.ts`). The original 84 columns are generated tile for tile as before (the east reach has its own random stream). The new strip holds two small example areas: Whisperwood, a dense old wood with a winding path, and the Fallen chapel, a ruin of broken walls and pillars at the path's end. It has no altar or other light source, so the rule's lights are unchanged. Lab places `wood` and `chapel`; shots `scenery-wood-noon`, `scenery-chapel-golden`, `wood-play-noon`. Kept small on purpose: the map gets its own pass later.
+
+## 15. Perspectives
+
+`render/stops.ts` is one table of six stops: Top-down, Close and Tilt (orthographic, pixel-locked, north-up), Third person and First person (perspective lenses that turn in 45° steps on Q and E, with movement keys walking where the camera looks), and the Vista (V, or its button; open sky only; a click returns to play). The wheel and `-` / `=` walk Top-down, Close, Tilt, Third, First. `render/camera.ts` owns both cameras: an orthographic stop is treated as a 1° lens far enough away to frame what the orthographic camera frames, so any stop eases into any other by interpolating lenses, and the orthographic camera takes over again when a transition ends on one.
+
+Through a lens the scene fog closes 20 tiles from the hero, before the server's 22-tile actor window runs out, and fades out with height (`fogBand`, patched into three's fog chunks), so the keep and the spires stand over the mist; above the band the land keeps the Vista's haze. The corridor cut (`uFCut`) follows the lens in Third person; figures between the lens and the hero are drawn as a checkerboard. In First person the hero is not drawn, nothing is cut, and the roof of the building you are in stays drawn as the ceiling. Underground there is no sky, no far land and the fog is black.
+
+Figures come from a bake cache keyed by pitch. Bakes are 64 MB of atlas on each of CPU and GPU, so the three orthographic stops share Tilt's bake (a 3/4 sprite over a steeper map, as top-down pixel RPGs draw it) and the three lenses share the 9° bake. Each figure's sprite direction is its facing relative to the camera's yaw, and its baked normals turn with the yaw. Lab: `stop=top|close|play|third|first|scenery`, `yaw=<degrees>`; shots `view-<stop>-<scene>` and `view-<third|first>-bridge-yaw<0|90|180>`.
 
 ## What gameplay keeps
 

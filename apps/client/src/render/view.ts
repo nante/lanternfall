@@ -7,7 +7,8 @@ import type { RenderStyle } from '../../../../packages/game/src/content-schema.t
 import { defaultStyle } from '../../../../packages/game/src/style-presets.ts';
 import { glowTexture } from './textures.ts';
 import { paletteLut, LOW_SUN_GREENS } from './palette.ts';
-import { PX, stops, pixelLock, type Stop, type StopId } from './stops.ts';
+import { stops, stopOrder, pixelLock, stepFromView, type Stop, type StopFog, type StopId } from './stops.ts';
+import { CameraRig, fogBand } from './camera.ts';
 import { keyAt, type Key } from './clock-style.ts';
 import { LightField, patchTree, fieldUniforms } from './lightfield.ts';
 import { Ambience, TorchFlame } from './wisps.ts';
@@ -18,7 +19,7 @@ import { FarLand } from './farland.ts';
 import { Spire, cutUniforms } from './spire.ts';
 import { MOON_DIR } from './clock-style.ts';
 import { ramps } from './palette.ts';
-import { clockAt, lightLevel, outdoorAmbient, staticSources, type Clock, type LightSource, type WorldLight } from '../../../../packages/game/src/light.ts';
+import { clockAt, lightLevel, lightPasses, outdoorAmbient, staticSources, type Clock, type LightSource, type WorldLight } from '../../../../packages/game/src/light.ts';
 import { prefersReducedMotion } from './feel.ts';
 import { postVertex, postFragment } from './post.ts';
 /** Flame flicker is motion: off when the viewer asks for reduced motion. */
@@ -28,20 +29,20 @@ const REDUCED_MOTION = prefersReducedMotion();
 export class WorldView {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
-  readonly camera = new THREE.OrthographicCamera(-10, 10, 8, -8, 0.1, 120);
-  /** The Scenery stop's camera; also used for the dolly between Play and Scenery. */
-  readonly persp = new THREE.PerspectiveCamera(40, 1, 0.1, 700);
+  readonly rig = new CameraRig();
+  /** The orthographic camera (Top-down, Close, Tilt). */
+  get camera() { return this.rig.ortho; }
+  /** The perspective camera (Third person, First person, Vista and every dolly that touches them). */
+  get persp() { return this.rig.persp; }
   readonly skyDome = new Sky();
   farland!: FarLand;
   spire!: Spire;
-  /** 0 = orthographic play, 1 = Scenery; eased over the dolly. */
-  scenery = 0;
+  /** 0 away from the Vista, 1 in it; eased over the dolly. */
+  get scenery() { return this.rig.vista; }
   lookout = false;
-  private sceneryDist = 8.1;
-  private sceneryGoal = 0;
-  private fromStop: Stop = stops.play;
-  private stopEase = 1;
-  get eye(): THREE.Camera { return this.scenery > 0 ? this.persp : this.camera; }
+  /** The stop the Vista returns to. */
+  private beforeVista: StopId = 'play';
+  get eye(): THREE.Camera { return this.rig.active; }
   readonly target: THREE.WebGLRenderTarget;
   readonly post: THREE.ShaderMaterial;
   readonly postScene = new THREE.Scene();
@@ -67,7 +68,7 @@ export class WorldView {
   floor = 0;
   view?: GameView;
   center = new THREE.Vector3(40, 0, 32);
-  stop: Stop = stops.play;
+  get stop(): Stop { return this.rig.stop; }
   pixel = 3;
   lock = pixelLock(1, 1, 1, stops.play);
   onStop: (s: Stop) => void = () => {};
@@ -116,23 +117,43 @@ export class WorldView {
   setFieldOn(on: boolean) { fieldUniforms.uFOn.value = on ? 1 : 0; }
   /** Debug gain on drawn source light (the lab's `gain`); daylight fades it further. */
   fieldGain = 1;
-  /** Where the Scenery eye ends up behind the hero: distance back, height, and the height it looks at. */
-  sceneryEye = { back: 30, up: 4.4, look: 7.4, fov: 30 };
   hurt = 0;
+  private readonly head = new THREE.Vector3();
+  private readonly haze = new THREE.Color();
+  /** Line of sight from the hero to a tile, for names over heads through a lens; cleared with each server view. */
+  private readonly sight = new Map<number, boolean>();
+  private sightBlocked(x: number, y: number) {
+    const v = this.view; if (!v) return false;
+    const key = y * this.map.width + x;
+    let open = this.sight.get(key);
+    // Past the fog's far edge the figure is gone into the mist, so its name goes too.
+    const fogged = this.stop.projection === 'persp' && Math.hypot(x - v.self.x, y - v.self.y) > this.stop.fog.far - 2;
+    if (open === undefined) { open = !fogged && lightPasses(this.map, v.self, { x, y, z: v.self.z }, v.doors); this.sight.set(key, open); }
+    return !open;
+  }
   private last = 0;
   private wheel = 0;
   /** Scenery needs open sky: refused underground and under a roof. */
   canScenery() { const v = this.view; if (!v || v.self.z !== 0) return false; return this.map.floors[0].roof[v.self.y * this.map.width + v.self.x] < 0; }
   setStop(id: StopId) {
     if (this.stop.id === id) return;
-    if (id === 'scenery' && !this.canScenery()) return;
-    this.fromStop = this.stop; this.stop = stops[id]; this.stopEase = 0;
-    this.sceneryGoal = id === 'scenery' ? 1 : 0;
+    const next = stops[id];
+    if (next.vista && !this.canScenery()) return;
+    if (next.vista) this.beforeVista = this.stop.id;
+    this.rig.set(next);
     this.resize(); this.onStop(this.stop);
   }
   setLookout(on: boolean) { this.lookout = on; }
-  /** One stop out (+1, towards Scenery) or in (−1, towards Close). */
-  stepStop(d: 1 | -1) { const order: StopId[] = ['close', 'play', 'scenery'], i = order.indexOf(this.stop.id); this.setStop(order[Math.max(0, Math.min(2, i + d))]); }
+  /** One stop along the wheel order: +1 lowers the eye (towards First person), −1 raises it (towards Top-down). */
+  stepStop(d: 1 | -1) {
+    if (this.stop.vista) { this.setStop(this.beforeVista); return; }
+    const i = stopOrder.indexOf(this.stop.id);
+    this.setStop(stopOrder[Math.max(0, Math.min(stopOrder.length - 1, i + d))]);
+  }
+  /** Turn a free-yaw view 45° per step; +1 turns it left. */
+  turn(steps: number) { this.rig.turn(steps); }
+  /** A movement key's (dx, dy) in the world: camera-relative where the view turns, as pressed elsewhere. */
+  walkStep(dx: number, dy: number): [number, number] { return this.stop.yaw === 'free' ? stepFromView(dx, dy, this.rig.yawGoal) : [dx, dy]; }
   setPalette(on: boolean) { this.post.uniforms.uPalette.value = on ? 1 : 0; }
   private seen = new Set<number>();
   private glowTex = glowTexture();
@@ -231,7 +252,7 @@ export class WorldView {
     this.scene.add(this.rays);
   }
   orientRays() {
-    const camDir = new THREE.Vector3(); this.camera.getWorldDirection(camDir);
+    const camDir = new THREE.Vector3(); this.eye.getWorldDirection(camDir);
     for (const m of this.rays.children) {
       const ground = this.center.clone().add(m.userData.offset as THREE.Vector3);
       ground.y = 0;
@@ -320,7 +341,7 @@ export class WorldView {
   private ndc(e: PointerEvent) { const r = this.renderer.domElement.getBoundingClientRect(); return new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1); }
   tileAtPoint(clientX: number, clientY: number) { return this.tileAt({ clientX, clientY } as PointerEvent); }
   private tileAt(e: PointerEvent): Pos | undefined {
-    const ray = new THREE.Raycaster(); ray.setFromCamera(this.ndc(e), this.camera);
+    const ray = new THREE.Raycaster(); ray.setFromCamera(this.ndc(e), this.eye);
     const hit = new THREE.Vector3();
     if (!ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), hit)) return;
     return { x: Math.round(hit.x), y: Math.round(hit.z), z: this.floor };
@@ -341,8 +362,8 @@ export class WorldView {
     return id && t ? { id, kind: 'monster' as const, name: 'Something', target: new THREE.Vector3(t.x, 0, t.y), position: new THREE.Vector3(t.x, 0, t.y), height: 0.6, size: 1, visible: true } : undefined;
   }
   click(e: PointerEvent) {
-    // In Scenery a click only returns to Play; it never walks or attacks.
-    if (this.stop.id === 'scenery' || this.scenery > 0) { this.setStop('play'); return; }
+    // In the Vista, and while leaving it, a click only returns to play; it never walks or attacks.
+    if (this.stop.vista || this.scenery > 0) { if (this.stop.vista) this.setStop(this.beforeVista); return; }
     const actor = this.actorAt(e);
     const tile = actor ? { x: Math.round(actor.target.x), y: Math.round(actor.target.z), z: this.floor } : this.tileAt(e);
     if (!tile) return;
@@ -353,7 +374,7 @@ export class WorldView {
   }
   private lastDrag = { key: '', at: 0 };
   drag(e: PointerEvent) {
-    if (this.scenery > 0) return;
+    if (this.stop.vista || this.scenery > 0) return;
     const tile = this.tileAt(e); if (!tile) return;
     const k = `${tile.x},${tile.y}`, now = performance.now();
     if (k === this.lastDrag.key || now - this.lastDrag.at < 140) return;
@@ -361,7 +382,7 @@ export class WorldView {
     this.onPick(tile, { button: 0, drag: true });
   }
   hover(e: PointerEvent) {
-    if (this.scenery > 0) { this.renderer.domElement.style.cursor = 'zoom-in'; this.onHover(null, 0, 0); return; }
+    if (this.stop.vista || this.scenery > 0) { this.renderer.domElement.style.cursor = 'zoom-in'; this.onHover(null, 0, 0); return; }
     const actor = this.actorAt(e);
     const tile = actor ? { x: Math.round(actor.target.x), y: Math.round(actor.target.z), z: this.floor } : this.tileAt(e);
     if (tile) this.marker.position.set(tile.x, 0, tile.y);
@@ -375,6 +396,7 @@ export class WorldView {
   update(view: GameView) {
     const prev = this.view;
     this.view = view;
+    this.sight.clear();
     if (view.self.z !== this.floor) this.setFloor(view.self.z, view.doors);
     const f = this.floors[this.floor];
     if (f) for (const [k, pivot] of f.doors) { const open = !!view.doors[k]; pivot.userData.open = open; }
@@ -402,7 +424,7 @@ export class WorldView {
       this.onEffect(e, this.screen(head));
       this.actors.effect(e);
       const mine = (p?: Pos) => !!p && p.x === view.self.x && p.y === view.self.y && p.z === view.self.z;
-      if (this.stop.id === 'scenery' && (e.kind === 'hit' || e.kind === 'miss' || e.kind === 'block') && (mine(e.at) || mine(e.from))) this.setStop('play');
+      if (this.stop.vista && (e.kind === 'hit' || e.kind === 'miss' || e.kind === 'block') && (mine(e.at) || mine(e.from))) this.setStop(this.beforeVista);
       if (e.kind === 'hit' && e.at.x === view.self.x && e.at.y === view.self.y && e.value > 0) this.hurt = Math.min(1, this.hurt + 0.35 + e.value / 60);
       if (e.kind === 'burst') {
         // Cinderburst: a flat ring of fire that sweeps out from the caster.
@@ -464,21 +486,6 @@ export class WorldView {
     this.glows.forEach((g, i) => { const l = f.lamps[i]; const on = !!l && this.lit.has(`${Math.round(l.pos.x)},${Math.round(l.pos.z)},${this.floor}`); g.visible = on; if (l && on) { g.position.copy(l.pos); (g.material as THREE.SpriteMaterial).color.copy(l.color).multiplyScalar(0.35); g.scale.setScalar(0.9 * l.strength); } });
   }
 
-  private placeScenery(k: number, pitch: number) {
-    const hero = this.center, W = this.target.width, H = this.target.height;
-    const { back, up, look, fov: f1 } = this.sceneryEye, viewH = H / PX, f0 = 1;
-    const d0 = viewH / (2 * Math.tan(THREE.MathUtils.degToRad(f0) / 2)), d1 = Math.hypot(back, up);
-    const lerpLog = (a: number, b: number) => Math.exp(Math.log(a) + (Math.log(b) - Math.log(a)) * k);
-    // No pull-in for walls behind the hero: the corridor cut (lightfield `uFCut`) clears whatever stands in the way.
-    const fov = lerpLog(f0, f1), d = lerpLog(d0, d1), a = pitch + (Math.atan2(up, back) - pitch) * k;
-    this.persp.fov = fov; this.persp.aspect = W / H; this.persp.near = Math.max(0.1, d * 0.05); this.persp.far = d + 700;
-    this.persp.updateProjectionMatrix();
-    this.sceneryDist = d;
-    this.persp.position.set(hero.x, Math.sin(a) * d, hero.z + Math.cos(a) * d);
-    this.persp.lookAt(hero.x, look * k, hero.z);
-    this.persp.updateMatrixWorld();
-  }
-
   frame(time: number) {
     const dt = Math.min(0.05, this.last ? (time - this.last) / 1000 : 0.016);
     this.last = time;
@@ -492,15 +499,18 @@ export class WorldView {
     const me = this.view ? this.actors.get(this.view.self.id) : undefined;
     // A torch the hero wears is drawn in the figure's hand; this flame is only for the lab's carried light.
     const held = this.carried.some(c => c.id === 'torch:self');
-    this.flame.update(t, me && held ? me.position : null);
+    this.flame.update(t, me && held && !(this.rig.active === this.persp && this.rig.heroDist < 1.5) ? me.position : null);
     const rayMat = (this.rays.children[0] as THREE.Mesh | undefined)?.material as THREE.ShaderMaterial | undefined;
     if (rayMat) rayMat.uniforms.uTime.value = t;
 
     const roofs = this.floor === 0 ? this.floors[0]?.roofs : undefined;
+    const rig = this.rig, persp = this.stop.projection === 'persp', inHead = rig.active === this.persp && rig.heroDist < 1.5;
     this.actors.frame(dt, t, {
       floor: this.floor, selfTarget: this.view?.self.target ?? null, key: this.key, sunDir: SUN_DIR, time: t, serverTime: this.view?.time ?? 0,
-      pitch: this.stop.pitch, wide: this.scenery > 0.5,
-      hiddenByRoof: (x, y) => { const id = roofs ? this.map.floors[0].roof[y * this.map.width + x] : -1; return id >= 0 && !!roofs?.find(r => r.building.id === id)?.mesh.visible; },
+      pitch: rig.figurePitch, wide: this.scenery > 0.5, yaw: rig.yaw, hideSelf: inHead, camera: rig.active,
+      // A perspective lens sees under and between roofs, and depth hides what is inside; names go by line of sight.
+      hiddenByRoof: persp ? () => false : (x, y) => { const id = roofs ? this.map.floors[0].roof[y * this.map.width + x] : -1; return id >= 0 && !!roofs?.find(r => r.building.id === id)?.mesh.visible; },
+      occluded: persp ? (x, y) => this.sightBlocked(x, y) : () => false,
     });
 
     const self = this.view ? this.actors.get(this.view.self.id) : undefined;
@@ -510,44 +520,33 @@ export class WorldView {
     // The ring marks the server's tile, not the gliding body.
     if (target) { this.targetRing.position.copy(target.target); this.targetRing.scale.setScalar(Math.max(1, target.size)); }
 
-    // Stop transitions: pitch eases between Close and Play; Play and Scenery dolly between cameras.
-    this.stopEase = Math.min(1, this.stopEase + dt / (this.sceneryGoal || this.fromStop.id === 'scenery' ? 0.9 : 0.25));
-    const ease = (x: number) => x * x * (3 - 2 * x);
-    this.scenery = this.sceneryGoal ? ease(this.stopEase) : this.fromStop.id === 'scenery' ? 1 - ease(this.stopEase) : 0;
-    if (this.stop.id === 'scenery' && !this.canScenery()) this.setStop('play');
-    const pitch = this.stop.ortho && this.fromStop.ortho ? this.fromStop.pitch + (this.stop.pitch - this.fromStop.pitch) * ease(this.stopEase) : stops.play.pitch;
-
-    // Pixel-snapped orthographic camera (Close and Play).
-    const offset = new THREE.Vector3(0, Math.sin(pitch), Math.cos(pitch)).multiplyScalar(19.5);
-    this.camera.position.copy(this.center).add(offset);
-    this.camera.lookAt(this.center);
-    this.camera.updateMatrixWorld();
-    const upp = (this.camera.top - this.camera.bottom) / this.target.height;
-    const right = new THREE.Vector3().setFromMatrixColumn(this.camera.matrixWorld, 0), up = new THREE.Vector3().setFromMatrixColumn(this.camera.matrixWorld, 1);
-    const sx = this.center.dot(right), sy = this.center.dot(up);
-    const snapped = this.center.clone().add(right.multiplyScalar(Math.round(sx / upp) * upp - sx)).add(up.multiplyScalar(Math.round(sy / upp) * upp - sy));
-    // Camera kick in whole render pixels, applied after the snap so the grid holds.
-    const kick = new THREE.Vector3().setFromMatrixColumn(this.camera.matrixWorld, 0).multiplyScalar(Math.round(this.actors.kick.x) * upp)
-      .add(new THREE.Vector3().setFromMatrixColumn(this.camera.matrixWorld, 1).multiplyScalar(Math.round(this.actors.kick.y) * upp));
-    this.camera.position.copy(snapped).add(offset).add(kick);
-    this.camera.updateMatrixWorld();
-
-    // Scenery: start as a 1° lens far away that matches the orthographic view, end low behind the hero looking north.
-    if (this.scenery > 0 || this.lookout) this.placeScenery(this.lookout && this.scenery === 0 ? 1 : this.scenery, pitch);
-    const wide = this.scenery > 0 || this.lookout;
-    this.skyDome.mesh.visible = wide;
-    this.scene.fog = wide ? (this.scene.fog as THREE.Fog | null) ?? new THREE.Fog('#000000', 45, 560) : null;
-    if (this.scene.fog) {
-      const fog = this.scene.fog as THREE.Fog, extra = Math.max(0, this.sceneryDist - 8.1);
-      fog.color.set(this.key.horizon).lerp(new THREE.Color(this.key.haze), 0.6);
-      // During the dolly the lens starts far away: push the fog out by that distance so the town is not washed out.
-      fog.near = 70 + extra; fog.far = 680 + extra;
-    }
-    // Scenery: no dither (clean bands, as in the references) and flatter ground under painted strokes.
+    if (this.stop.vista && !this.canScenery()) this.setStop(this.beforeVista);
+    rig.place(this.center, this.lock.viewH, this.target.width, this.target.height, this.actors.kick, dt);
+    const lens = rig.active === this.persp, cave = this.floor === 1;
+    // Shades are upright cards: they turn with the view.
+    for (const r of this.shades.group.children) r.rotation.y = rig.yaw;
+    if (this.lookout && !lens) rig.placeVista(this.center, 1);
+    const wide = lens || this.lookout;
+    this.skyDome.mesh.visible = wide && !cave;
+    this.farland.group.visible = !cave;
+    const fogSpec: StopFog | null = rig.fog ?? (this.lookout ? stops.scenery.fog : null);
+    if (fogSpec) {
+      const fog = (this.scene.fog as THREE.Fog | null) ?? new THREE.Fog('#000000', 45, 560);
+      this.scene.fog = fog;
+      const from = this.persp.position.distanceTo(this.head.set(this.center.x, this.center.y + 0.9, this.center.z));
+      // The fog band lies over land, so it takes the haze's own colour, a step darker than the sky's horizon it meets.
+      if (cave) fog.color.set('#05070a'); else fog.color.set(this.key.horizon).lerp(this.haze.set(this.key.haze), fogSpec.top ? 1 : 0.6);
+      fog.near = from + fogSpec.near; fog.far = from + fogSpec.far;
+      // Underground the dark closes in at every height; above ground the keep and the spires stand over the fog.
+      const band = cave ? undefined : fogSpec.top, haze = cave ? undefined : rig.fog?.haze;
+      fogBand.x = band?.[0] ?? 0; fogBand.y = band?.[1] ?? 0;
+      fogBand.z = haze ? from + haze[0] : 0; fogBand.w = haze ? from + haze[1] : 0;
+    } else this.scene.fog = null;
+    // Vista: no dither (clean bands, as in the references) and flatter ground under painted strokes.
     this.post.uniforms.uDither.value = this.style.dither * (1 - this.scenery);
     styleUniforms.uGroundDetail.value = this.style.groundDetail * (1 - 0.55 * this.scenery);
     fieldUniforms.uFGround.value = this.scenery;
-    // Moonlit vista: Scenery is for looking, so at night the moon lights the land enough to read its forms (the fable
+    // Moonlit vista: the Vista is for looking, so at night the moon lights the land enough to read its forms (the fable
     // references keep night readable). Play keeps the full dark, where the darkness rule lives.
     if (this.floor === 0) {
       const moon = this.key.moon * this.scenery;
@@ -555,15 +554,15 @@ export class WorldView {
       this.sky.intensity = this.key.ambI * (1 + 8 * moon);
       this.post.uniforms.uVignette.value = this.key.vignette * (1 - 0.7 * moon);
     }
-    // Walls between the lens and the hero fade out in Scenery, so the vista opens down to the hero's feet (ref-1, ref-2).
+    // Walls between the lens and the hero are cut away in Third person and the Vista, so the view opens down to the
+    // hero's feet (ref-1, ref-2). A corridor down the middle of the view is cleared from the lens to just short of the
+    // hero; what stands outside it stays as dark framing at the frame's edges. A lens in the head cuts nothing.
     {
-      // Clear a corridor down the middle of the view, from the lens to just short of the hero; what stands outside it
-      // stays as dark framing at the frame's edges (ref-1's ruined walls, ref-2's dark trees).
-      const dx = this.center.x - this.persp.position.x, dz = this.center.z - this.persp.position.z, D = Math.hypot(dx, dz) || 1;
-      const on = this.scenery > 0.5;
+      const cam = this.persp.position, dx = this.center.x - cam.x, dz = this.center.z - cam.z, D = Math.hypot(dx, dz) || 1;
+      const on = lens && rig.perspShare > 0.5 && !inHead;
       fieldUniforms.uFCut.value = on ? Math.max(0, D - 1.2) : 0;
       fieldUniforms.uFAxis.value.set(dx / D, dz / D, this.persp.aspect * Math.tan(THREE.MathUtils.degToRad(this.persp.fov) / 2) * 0.62);
-      fieldUniforms.uFNear.value = on ? D * 0.97 : 0;
+      fieldUniforms.uFNear.value = on && this.scenery > 0.5 ? D * 0.97 : 0;
     }
     this.post.uniforms.uNightEdges.value = 1 - this.scenery;
     this.skyDome.update(this.key, SUN_DIR, MOON_DIR, this.persp, t, THREE.MathUtils.degToRad(this.persp.fov) / Math.max(1, this.target.height));
@@ -572,16 +571,19 @@ export class WorldView {
 
     // The Spire opens a dithered window around the hero when it stands between them and the eye.
     const selfH = this.view ? this.actors.get(this.view.self.id) : undefined;
-    const behind = !!selfH && this.floor === 0 && selfH.position.z < this.spire.base.z + 0.6 && Math.abs(selfH.position.x - this.spire.base.x) < 4.5 && selfH.position.z > this.spire.base.z - 14;
+    const toCamX = Math.sin(rig.yaw), toCamZ = Math.cos(rig.yaw);
+    const relX = selfH ? selfH.position.x - this.spire.base.x : 0, relZ = selfH ? selfH.position.z - this.spire.base.z : 0;
+    const along = relX * toCamX + relZ * toCamZ, side = relX * toCamZ - relZ * toCamX;
+    const behind = !!selfH && this.floor === 0 && !inHead && along < 0.6 && Math.abs(side) < 4.5 && along > -14;
     if (behind && selfH) {
       const p = selfH.position.clone().add(new THREE.Vector3(0, 0.7, 0)).project(this.eye);
       cutUniforms.uCutCenter.value.set((p.x + 1) / 2 * this.target.width, (p.y + 1) / 2 * this.target.height);
       cutUniforms.uCutR.value = 26;
     } else cutUniforms.uCutR.value = 0;
 
-    // Sun and shadow camera snapped to shadow texels; in Scenery it reaches further ahead of the hero.
+    // Sun and shadow camera snapped to shadow texels; through a lens it reaches further ahead of the hero.
     const reach = wide ? 26 : 18, texel = (reach * 2) / 2048;
-    const sc0 = wide ? this.center.clone().add(new THREE.Vector3(0, 0, -reach * 0.45)) : this.center;
+    const sc0 = wide ? this.center.clone().add(new THREE.Vector3(-toCamX, 0, -toCamZ).multiplyScalar(reach * 0.45)) : this.center;
     const sc = new THREE.Vector3(Math.round(sc0.x / texel) * texel, 0, Math.round(sc0.z / texel) * texel);
     const shadowCam = this.sun.shadow.camera;
     if (shadowCam.right !== reach) { shadowCam.left = -reach; shadowCam.right = reach; shadowCam.top = reach; shadowCam.bottom = -reach; shadowCam.far = 140; shadowCam.updateProjectionMatrix(); }
@@ -594,8 +596,10 @@ export class WorldView {
       const sx2 = this.view.self.x, sy2 = this.view.self.y;
       for (const r of f.roofs) {
         const b = r.building, inside = this.view.self.z === 0 && sx2 >= b.x0 && sx2 <= b.x1 && sy2 >= b.y0 && sy2 <= b.y1;
-        r.mesh.visible = !inside;
-        const goal = inside ? 0.3 : 1;
+        // From inside the head the roof is the ceiling, and the walls stand at full height.
+        const open = inside && !inHead;
+        r.mesh.visible = !open;
+        const goal = open ? 0.3 : 1;
         r.walls.scale.y += (goal - r.walls.scale.y) * Math.min(1, dt * 12);
       }
       for (const pivot of f.doors.values()) { const goal = pivot.userData.open ? (pivot.userData.horizontal ? -Math.PI / 2 : Math.PI / 2) : 0; pivot.rotation.y += (goal - pivot.rotation.y) * Math.min(1, dt * 12); }
@@ -628,7 +632,7 @@ export class WorldView {
     this.hurt = Math.max(0, this.hurt - dt * 1.8);
     this.post.uniforms.uHurt.value = this.hurt;
     this.renderer.setRenderTarget(this.target);
-    if (this.lookout && this.scenery === 0) {
+    if (this.lookout && !lens) {
       this.skyDome.mesh.visible = false; const fog = this.scene.fog; this.scene.fog = null;
       this.renderer.render(this.scene, this.camera);
       // The lookout: a framed inset of the far view over the live Play view. Figures stay in the play view below it.

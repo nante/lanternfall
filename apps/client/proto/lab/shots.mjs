@@ -3,6 +3,7 @@
 import { execFileSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 export const shots = {
   'noon-market': 'at=market&t=12&hunt=0',
@@ -27,10 +28,17 @@ export const shots = {
   'wood-play-noon': 'at=wood&t=12&hunt=0',
   'spire-play-noon': 'at=spire&t=12&hunt=0',
   'spire-play-night': 'at=spire&t=23&hunt=0',
+  // Every perspective in four scenes, then the two lenses turned at the north bridge.
+  ...Object.fromEntries([['market-noon', 'at=market&t=12&hunt=0'], ['meadow-golden', 'at=meadow&t=19.4'], ['gate-night', 'at=gate&t=23&hunt=0'], ['undercroft-torch', 'at=undercroft&t=12&torch=1']]
+    .flatMap(([scene, q]) => ['top', 'close', 'play', 'third', 'first', 'scenery'].filter(s => !(scene.startsWith('undercroft') && s === 'scenery')).map(s => [`view-${s}-${scene}`, `${q}&stop=${s}`]))),
+  ...Object.fromEntries(['third', 'first'].flatMap(s => [0, 90, 180].map(y => [`view-${s}-bridge-yaw${y}`, `at=bridge&t=12&hunt=0&stop=${s}&yaw=${y}`]))),
 };
-const [out = '.', ...names] = process.argv.slice(2);
-mkdirSync(out, { recursive: true });
-for (const name of names.length ? names : Object.keys(shots)) {
-  const file = join(out, `${name}.png`);
-  execFileSync('node', [new URL('./eval.mjs', import.meta.url).pathname, shots[name], `shot:${file}`, '11000', '1200', '700'], { stdio: 'inherit' });
+// Importing the list must not start a capture.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const [out = '.', ...names] = process.argv.slice(2);
+  mkdirSync(out, { recursive: true });
+  for (const name of names.length ? names : Object.keys(shots)) {
+    const file = join(out, `${name}.png`);
+    execFileSync('node', [new URL('./eval.mjs', import.meta.url).pathname, shots[name], `shot:${file}`, '11000', '1200', '700'], { stdio: 'inherit' });
+  }
 }
