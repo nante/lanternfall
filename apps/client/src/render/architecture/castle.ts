@@ -61,8 +61,17 @@ function curtain(m: Mason, g: Ground, x0: number, z0: number, x1: number, z1: nu
         return;
       }
       m.block(C.stone, 0, lo, top, 0, seg + 0.02, thick);
-      // Wall walk: a darker band under a projecting parapet.
+      // Wall walk: a darker band under a projecting parapet carried on corbels.
       m.block(C.light, 0, top - 0.6, top - 0.04, thick / 2 - 0.35, seg + 0.04, 0.9);
+      for (let u = -seg / 2 + 0.6; u < seg / 2; u += 1.2) m.block(C.deep, u, top - 1.3, top - 0.6, thick / 2 + 0.05, 0.6, 0.5);
+      // Arrow slits along the face, and a stepped buttress on every other bay.
+      const gy = Math.min(...gs);
+      if (top - gy > 5) for (const u of [-seg / 4, seg / 4]) if (rnd(u + i, seed + 3) > 0.35) m.put(prim.box(), C.void, u, gy + (top - gy) * 0.55, thick / 2 + 0.02, { sx: 0.35, sy: 1.5, sz: 0.3 });
+      if (i % 2 === 1) {
+        m.block(C.stone, -seg / 2, lo, gy + (top - gy) * 0.45, thick / 2 + 0.6, 1.4, 1.4);
+        m.block(C.stone, -seg / 2, gy + (top - gy) * 0.45, gy + (top - gy) * 0.75, thick / 2 + 0.3, 1.1, 0.8);
+        m.put(prim.box(), C.light, -seg / 2, gy + (top - gy) * 0.75, thick / 2 + 0.35, { sx: 1.15, sy: 0.4, sz: 0.9, rx: 0.5 });
+      }
       const k = Math.max(1, Math.round(seg / 2.5));
       for (let j = 0; j < k; j++) {
         if (rnd(i * 7 + j, seed) < 0.15) continue;
@@ -80,6 +89,13 @@ function roundTower(m: Mason, g: Ground, x: number, z: number, r: number, h: num
   // Battered foot.
   m.put(prim.cyl(12, 0.86), C.dark, x, gl + 1, z, { sx: r * 1.16, sy: 8, sz: r * 1.16 });
   m.put(prim.cyl(12), C.light, x, top - h * 0.45, z, { sx: r * 1.05, sy: 0.6, sz: r * 1.05 });
+  m.put(prim.cyl(12), C.light, x, top - h * 0.78, z, { sx: r * 1.04, sy: 0.5, sz: r * 1.04 });
+  // Arrow slits in tiers up the shaft.
+  for (let y = gl + 3; y < top - 6; y += 3.2) for (const a of [-1.2, 0.4, 1.6]) {
+    const aa = a + y * 0.37 + seed;
+    if (Math.cos(aa) < 0.1) continue;
+    m.put(prim.box(), C.void, x + Math.sin(aa) * r, y, z + Math.cos(aa) * r, { ry: aa, sx: 0.32, sy: 1.3, sz: 0.4 });
+  }
   // Windows on the faces turned to the town.
   for (const a of [-0.75, 0, 0.75]) for (const y of [top - 4, top - 9.5]) {
     if (y < g(x, z) + 3 || rnd(a * 3 + y, seed) < 0.25) continue;
@@ -106,7 +122,16 @@ function roundTower(m: Mason, g: Ground, x: number, z: number, r: number, h: num
   }
   const ch = cap === 'tall' ? r * 3.2 : r * 2.1;
   m.put(prim.cone(12), C.slate, x, top + 1.4 + ch / 2, z, { sx: r * 1.28, sy: ch, sz: r * 1.28 });
-  m.put(prim.box(), C.dark, x, top + 1.4 + ch + 0.6, z, { sx: 0.8, sy: 1.6, sz: 0.8 });
+  // Lucarnes at the foot of the cone, a finial and a pennant at its point.
+  for (const a of [-0.6, 0.6, Math.PI]) {
+    const lx = x + Math.sin(a) * r * 0.95, lz = z + Math.cos(a) * r * 0.95;
+    m.block(C.stone, lx, top + 1.4, top + 3.0, lz, 1.0, 0.9, a);
+    m.put(prim.gable(), C.slate, lx, top + 3.0, lz, { sx: 0.9, sy: 0.9, sz: 1.2, ry: a + Math.PI / 2 });
+    m.put(prim.box(), C.void, lx + Math.sin(a) * 0.46, top + 2.1, lz + Math.cos(a) * 0.46, { ry: a, sx: 0.4, sy: 0.7, sz: 0.1 });
+  }
+  m.put(prim.box(), C.dark, x, top + 1.4 + ch + 0.9, z, { sx: 0.4, sy: 2.4, sz: 0.4 });
+  m.put(prim.rock(), C.dark, x, top + 1.4 + ch + 0.5, z, { sx: 0.6, sy: 0.5, sz: 0.6 });
+  if (rnd(seed, 77) > 0.4) m.block(C.banner, x + 1.0, top + 1.4 + ch + 1.3, top + 1.4 + ch + 2.0, z, 1.8, 0.2);
   return top + 1.4 + ch;
 }
 
@@ -171,6 +196,20 @@ function keep(m: Mason, g: Ground) {
     south(0, K + 19.8, 2.0, 4.2);
     for (const z of [-2.6, 2.6]) { west(z, K + 6.4, 0.9, 2.6); west(z, K + 13, 1.2, 3.6); }
     west(0, K + 20, 1.4, 3.8);
+    // Rows of small square lights and putlog holes across both faces: the fine grain of a tall wall.
+    for (const y of [K + 9, K + 16, K + 23]) for (let u = -4.5; u <= 4.5; u += 1.5) {
+      if (rnd(u * 3 + y, 9) < 0.45) continue;
+      m.put(prim.box(), C.void, u, y, S + 0.02, { sx: 0.5, sy: 0.7, sz: 0.3 });
+      m.put(prim.box(), C.void, -S - 0.02, y + 0.5, u, { sx: 0.3, sy: 0.7, sz: 0.5 });
+    }
+    // Two long banners hung from the machicolations on the south face.
+    for (const u of [-3.6, 3.4]) {
+      m.block(C.deep, u, band - 0.4, band - 0.1, S + 0.75, 2.2, 0.3);
+      m.block(C.banner, u, band - 8.5, band - 0.4, S + 0.7, 1.7, 0.15);
+      m.block(C.bannerDk, u - 0.5, band - 9.4, band - 8.5, S + 0.7, 0.7, 0.15);
+      m.block(C.bannerDk, u + 0.5, band - 9.4, band - 8.5, S + 0.7, 0.7, 0.15);
+      m.block(ramps.fire[4], u, band - 4.6, band - 2.8, S + 0.77, 0.8, 0.1);
+    }
     lit = m.world(-2.4, K + 12.8 + 1.5, S + 0.4);
   });
   return { lit, ry, top: K + H + 3 };

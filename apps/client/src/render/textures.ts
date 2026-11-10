@@ -92,11 +92,31 @@ function roofPix(kind: string) {
   };
   const cols = palette[kind] ?? palette.slate;
   const p = new Pix(16, 16);
-  for (let y = 0; y < 16; y++) { const row = Math.floor(y / 4); for (let x = 0; x < 16; x++) {
-    const seamX = (x + (row % 2) * 4) % 8 === 0 && kind !== 'thatch';
-    const c = cols[(row * 3 + Math.floor((x + (row % 2) * 4) / 8)) % 3];
-    if (kind === 'thatch') p.set(x, y, y % 4 === 3 ? cols[3] : rnd() > 0.6 ? shade(c, 1.1) : c);
-    else p.set(x, y, y % 4 === 3 ? cols[3] : seamX ? shade(c, 0.85) : y % 4 === 0 ? shade(c, 1.15) : c);
+  if (kind === 'thatch') {
+    // Straw laid in strands down the slope: streaks of light and dark, broken course lines where bundles overlap.
+    for (let x = 0; x < 16; x++) {
+      let c = pick(cols.slice(0, 3)), run = 0;
+      for (let y = 0; y < 16; y++) {
+        if (run-- <= 0) { c = pick(cols.slice(0, 3)); run = 2 + Math.floor(rnd() * 5); }
+        const lip = (y + (x >> 2)) % 6 === 5 && rnd() > 0.35;
+        p.set(x, y, lip ? cols[3] : rnd() > 0.85 ? shade(c, 1.15) : c);
+      }
+    }
+    return p;
+  }
+  // Tiles in staggered courses: each tile its own tone, lit along its top edge and shaded along its lower lip, with the
+  // lip broken at the joints so no course draws a ruled line across the roof.
+  const tw = kind === 'clay' ? 4 : 8;
+  for (let y = 0; y < 16; y++) { const row = Math.floor(y / 4), v = y % 4; for (let x = 0; x < 16; x++) {
+    const sx = x + (row % 2) * (tw / 2), u = sx % tw, tile = Math.floor(sx / tw) + row * 5;
+    const c = cols[(tile * 7 + (tile >> 1)) % 3];
+    const joint = u === 0, lip = v === 3 && u > 0 && u < tw - 1;
+    let px = c;
+    if (lip) px = shade(cols[3], 1.25);
+    else if (joint) px = shade(c, 0.82);
+    else if (v === 0) px = shade(c, 1.14);
+    else if (kind === 'clay' && u === tw - 1) px = shade(c, 0.9);
+    p.set(x, y, rnd() > 0.92 ? shade(px, 0.94) : px);
   } }
   return p;
 }
