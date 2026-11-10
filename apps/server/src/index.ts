@@ -7,7 +7,8 @@ import { defineServer,defineRoom,Room,type Client } from '@colyseus/core';
 import { WebSocketTransport } from '@colyseus/ws-transport';
 import { z } from 'zod';
 import { Engine,GameError } from '../../../packages/game/src/engine.ts';
-import { GameState,Envelope,HeroName,type State } from '../../../packages/game/src/model.ts';
+import { Envelope,HeroName,type State } from '../../../packages/game/src/model.ts';
+import { loadWorld } from '../../../packages/game/src/save.ts';
 import { accountOf,applyAccountEdit,AccountEdit,StaleItems } from '../../../packages/game/src/accounts.ts';
 import { buildTown } from '../../../packages/game/src/town.ts';
 import { defaultBalance } from '../../../packages/game/src/default-balance.ts';
@@ -16,12 +17,22 @@ mkdirSync('.local',{recursive:true});
 const db=new Database(process.env.LANTERNFALL_DB??'.local/lanternfall.sqlite');
 db.pragma('journal_mode=WAL');db.pragma('synchronous=NORMAL');
 if(!process.env.LANTERNFALL_DB)chmodSync('.local/lanternfall.sqlite',0o600);
-db.exec('CREATE TABLE IF NOT EXISTS world(id INTEGER PRIMARY KEY CHECK(id=1), data TEXT NOT NULL); CREATE TABLE IF NOT EXISTS receipts(player TEXT NOT NULL, request TEXT NOT NULL, hash TEXT NOT NULL, result TEXT NOT NULL, PRIMARY KEY(player,request));');
+db.exec('CREATE TABLE IF NOT EXISTS world(id INTEGER PRIMARY KEY CHECK(id=1), data TEXT NOT NULL); CREATE TABLE IF NOT EXISTS receipts(player TEXT NOT NULL, request TEXT NOT NULL, hash TEXT NOT NULL, result TEXT NOT NULL, PRIMARY KEY(player,request)); CREATE TABLE IF NOT EXISTS world_backup(id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, problems TEXT NOT NULL, data TEXT NOT NULL);');
 const saved=z.object({data:z.string()}).optional().parse(db.prepare('SELECT data FROM world WHERE id=1').get());
 const map=buildTown();
-const restored=saved?GameState.safeParse(JSON.parse(saved.data)):undefined;
-if(restored&&!restored.success)console.warn(JSON.stringify({event:'world_reset',reason:'saved world is from an older version'}));
-const engine=new Engine(map,defaultBalance,restored?.success?restored.data:undefined);
+const loaded=loadWorld(saved?.data);
+if(!loaded.ok){
+ // A save that does not load is never written over: it is copied aside first, and the server only starts empty when told to.
+ db.prepare('INSERT INTO world_backup(at,problems,data) SELECT ?,?,? WHERE NOT EXISTS(SELECT 1 FROM world_backup WHERE data=?)').run(new Date().toISOString(),JSON.stringify(loaded.problems),saved!.data,saved!.data);
+ const backup=z.object({id:z.number()}).parse(db.prepare('SELECT id FROM world_backup WHERE data=?').get(saved!.data)).id;
+ const where=`world_backup row ${backup} in ${process.env.LANTERNFALL_DB??'.local/lanternfall.sqlite'}`;
+ if(process.env.LANTERNFALL_FRESH_WORLD!=='1'){
+  console.error(JSON.stringify({event:'world_unreadable',problems:loaded.problems,backup:where,fix:'Repair the save, or start an empty world with LANTERNFALL_FRESH_WORLD=1 (the backup stays).'}));
+  db.close();process.exit(1);
+ }
+ console.warn(JSON.stringify({event:'world_reset',problems:loaded.problems,backup:where}));
+}
+const engine=new Engine(map,defaultBalance,loaded.ok?loaded.state:undefined);
 for(const p of Object.values(engine.state.players)){p.connected=false;p.combatUntil=0;p.path=[];p.target=null;p.talking=null;}
 for(const m of Object.values(engine.state.monsters))m.target=null;
 const writeWorld=db.prepare('INSERT INTO world VALUES(1,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data');

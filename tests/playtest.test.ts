@@ -232,3 +232,31 @@ test('with every hero logged out, creatures respawn and corpses rot', () => {
   assert.equal(rat.hp, balance.creatures.gutterRat.hp, 'respawned');
   assert.equal(corpse.stage, 1, 'the corpse rotted');
 });
+
+// ---- B1 a save that fails to load is reported, never replaced ---------------------------------
+import { loadWorld } from '../packages/game/src/save.ts';
+
+test('a good save loads as it was, and fields added since take their defaults', () => {
+  const e = new Engine(map, balance);
+  const p = e.createPlayer('Tess');
+  const saved = JSON.parse(JSON.stringify(e.state));
+  delete saved.players[p.id].fightMode; delete saved.players[p.id].blocks;
+  const loaded = loadWorld(JSON.stringify(saved));
+  assert.equal(loaded.ok, true);
+  assert.deepEqual(loaded.ok && loaded.state, e.state);
+  assert.deepEqual(loadWorld(undefined), { ok: true, state: undefined });
+});
+
+test('a save that does not fit is reported by path', () => {
+  const e = new Engine(map, balance);
+  const p = e.createPlayer('Tess');
+  const saved = JSON.parse(JSON.stringify(e.state));
+  const loaf = Object.values(saved.items as Record<string, { id: string; kind: string }>).find(i => i.kind === 'loaf')!;
+  loaf.kind = 'scroll'; saved.players[p.id].hp = 'full';
+  const loaded = loadWorld(JSON.stringify(saved));
+  assert.equal(loaded.ok, false);
+  assert.deepEqual(!loaded.ok && loaded.problems.map(t => t.split(':')[0]), [`players.${p.id}.hp`, `items.${loaf.id}.kind`]);
+  const broken = loadWorld('{"version":2,');
+  assert.equal(!broken.ok && broken.problems.length, 1);
+  assert.match(!broken.ok ? broken.problems[0] : '', /^\(whole save\): not JSON/);
+});
