@@ -469,11 +469,14 @@ export class ActorLayer {
         a.body.sprite.use(drawn.sheet);
         const rect = drawn.s.frames[frameIndex(anim, frame, dirIndex(a.facing - ctx.yaw))];
         const kb = knockOffset(a.clock - a.knockAt, tun.knock);
+        // In the head, whoever stands beside or behind the lens would fill the frame, so they are not drawn. A foe on the
+        // tile ahead is 1.6 from the lens and stays.
+        const crowding = ctx.hideSelf && a.kind !== 'self' && Math.hypot(pos.x - ctx.camera.position.x, pos.z - ctx.camera.position.z) < 1.25;
         const ghost = a.kind !== 'self' && !!me && this.between(ctx.camera.position, me.position, pos);
         const foot = new THREE.Vector3(pos.x + a.knockDir.x * kb, 0, pos.z + a.knockDir.y * kb);
         a.body.sprite.set(rect, foot, { flat: false, flash: a.flash, dim: 0, sun: ctx.sunDir, sunStrength, blob: blob(a.size), self: a.kind === 'self' ? 0.35 : 0, ghost });
         a.flash = false;
-        a.body.sprite.visible = shown;
+        a.body.sprite.visible = shown && !crowding;
         if (held) a.body.sprite.shadow.visible = false;
         // Where the shader puts the plane: stepped `front` towards the camera, rising to keep the feet on the tile, and
         // top rows over 1/c of a tile, c being the camera's level share.
