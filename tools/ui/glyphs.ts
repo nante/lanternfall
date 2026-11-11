@@ -137,6 +137,15 @@ export const base: Record<string, string[]> = {
 };
 
 /** Marks above sit with one row of air over the letter; marks below hang in the descender rows. */
+/** Bold forms drawn by hand, for letters whose one-pixel counters leave the automatic bold lopsided. */
+export const heavy: Record<string, string[]> = {
+  M: g('##...##|###.###|#######|##.#.##|##...##|##...##|##...##'),
+  N: g('##..##|##..##|###.##|######|##.###|##..##|##..##'),
+  W: g('##...##|##...##|##...##|##.#.##|##.#.##|###.###|##...##'),
+  m: g('.......|.......|######.|##.#.##|##.#.##|##.#.##|##.#.##'),
+  w: g('.......|.......|##...##|##...##|##.#.##|##.#.##|.##.##.'),
+};
+
 export const marks: Record<string, { rows: string[]; below?: boolean; right?: boolean }> = {
   acute: { rows: g('..#|.#.') },
   grave: { rows: g('#..|.#.') },

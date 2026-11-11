@@ -7,7 +7,7 @@
 import { writeFileSync, mkdirSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { deflateSync } from 'node:zlib';
 import { PNG } from 'pngjs';
-import { base, marks, composed, apostropheCaron, ROWS_ABOVE } from './glyphs.ts';
+import { base, heavy, marks, composed, apostropheCaron, ROWS_ABOVE } from './glyphs.ts';
 
 const PX = 100, ASCENT = 10, DESCENT = 2, EM = (ASCENT + DESCENT) * PX;
 const out = new URL('../../apps/client/src/hud/fonts/', import.meta.url);
@@ -20,8 +20,8 @@ function fromRows(rows: string[]): Bitmap {
   return { w: Math.max(...rows.map(r => r.length)), cells };
 }
 const top = (b: Bitmap) => Math.max(-1, ...[...b.cells].map(c => Number(c.split(',')[1])));
-function compose(baseCh: string, markName: keyof typeof marks): Bitmap {
-  const b = fromRows(base[baseCh]), m = marks[markName], mw = Math.max(...m.rows.map(r => r.length));
+function compose(baseCh: string, markName: keyof typeof marks, rows = base[baseCh]): Bitmap {
+  const b = fromRows(rows), m = marks[markName], mw = Math.max(...m.rows.map(r => r.length));
   const w = Math.max(b.w, mw), bx = Math.floor((w - b.w) / 2), cells = new Set<string>();
   for (const c of b.cells) { const [x, y] = c.split(',').map(Number); cells.add(`${x + bx},${y}`); }
   const mx = m.right ? bx + b.w - mw : Math.floor((w - mw) / 2);
@@ -44,9 +44,10 @@ function embolden(b: Bitmap): Bitmap {
 
 function glyphSet(bold: boolean) {
   const set = new Map<number, Bitmap>();
-  const put = (ch: string, b: Bitmap) => set.set(ch.codePointAt(0)!, bold ? embolden(b) : b);
-  for (const ch of Object.keys(base)) put(ch, fromRows(base[ch]));
-  for (const [ch, [b, m]] of Object.entries(composed)) put(ch, compose(b, m));
+  const drawn = (ch: string) => bold ? heavy[ch] : undefined;
+  const put = (ch: string, b: Bitmap, done = false) => set.set(ch.codePointAt(0)!, bold && !done ? embolden(b) : b);
+  for (const ch of Object.keys(base)) put(ch, fromRows(drawn(ch) ?? base[ch]), !!drawn(ch));
+  for (const [ch, [b, m]] of Object.entries(composed)) put(ch, compose(b, m, drawn(b) ?? base[b]), !!drawn(b));
   for (const [ch, b] of Object.entries(apostropheCaron)) put(ch, withApostrophe(b));
   set.set(0xa0, set.get(0x20)!);
   return set;
