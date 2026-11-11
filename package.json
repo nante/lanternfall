@@ -15,7 +15,8 @@
     "build": "npm run typecheck && vite build --config apps/client/vite.config.ts",
     "test": "tsx --test tests/*.test.ts",
     "desktop": "electron apps/desktop/main.cjs",
-    "studio": "vite --config apps/studio/vite.config.ts"
+    "studio": "vite --config apps/studio/vite.config.ts",
+    "icons": "tsx tools/icons/build.ts"
   },
   "dependencies": {
     "@colyseus/core": "^0.18.27",

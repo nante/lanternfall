@@ -3,8 +3,10 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { Engine } from '../packages/game/src/engine.ts';
 import { buildTown } from '../packages/game/src/town.ts';
-import { Balance, Icons, RenderStyle, RegionMoods, missingIcons, balanceWarnings, xpCurveRises } from '../packages/game/src/content-schema.ts';
+import { Balance, Icons, ICON_SIZE, RenderStyle, RegionMoods, missingIcons, balanceWarnings, xpCurveRises } from '../packages/game/src/content-schema.ts';
 import { stylePresets } from '../packages/game/src/style-presets.ts';
+import { itemKinds, type ItemKind } from '../packages/game/src/ids.ts';
+import { hasWornLook } from '../apps/client/src/render/figures/kit.ts';
 import { iconSvg } from '../packages/game/src/icon-svg.ts';
 import { fightScenarios, spellScenarios } from './m0-scenarios.ts';
 import fixture from './fixtures/balance.json' with { type: 'json' };
@@ -71,10 +73,10 @@ test('the xp curve check covers every level, not just the first few hundred', ()
 
 test('icon renderer rejects pixels outside the palette', () => {
   const icons = Icons.parse(JSON.parse(readFileSync('content/icons.json', 'utf8')));
-  const broken = structuredClone(icons.sword);
-  broken.pixels[0] = 'z'.padEnd(16, '.');
-  assert.equal(Icons.safeParse({ sword: broken }).success, false);
-  assert.match(iconSvg(icons.sword), /^<svg/);
+  const broken = structuredClone(icons.shortsword);
+  broken.pixels[0] = 'z'.padEnd(ICON_SIZE, '.');
+  assert.equal(Icons.safeParse({ shortsword: broken }).success, false);
+  assert.match(iconSvg(icons.shortsword), /^<svg viewBox="0 0 24 24"/);
 });
 
 test('the saved look and every preset are valid render styles', () => {
@@ -91,4 +93,51 @@ test('region moods are valid and claim only places the map has', () => {
   assert.equal(new Set(claimed).size, claimed.length);
   const broken = structuredClone(moods); broken.fallback = 'nowhere';
   assert.equal(RegionMoods.safeParse(broken).success, false);
+});
+
+const content = Balance.parse(JSON.parse(readFileSync('content/balance.json', 'utf8')));
+const iconFile = Icons.parse(JSON.parse(readFileSync('content/icons.json', 'utf8')));
+
+test('item kinds are only ever appended: the first ones keep their names and order', () => {
+  assert.deepEqual(itemKinds.slice(0, 23), ['cudgel', 'shortsword', 'hatchet', 'blade', 'buckler', 'banded', 'cap', 'coif', 'tunic', 'jerkin', 'boots', 'pack', 'pouch', 'gold', 'loaf', 'cheese', 'tonic', 'tincture', 'tail', 'shell', 'silk', 'tusk', 'torch']);
+  assert.equal(new Set(itemKinds).size, itemKinds.length);
+});
+
+test('every item has a 24×24 icon and a world sprite of the same size', () => {
+  for (const [kind, def] of Object.entries(content.items)) {
+    const icon = iconFile[def.icon];
+    assert.ok(icon, `${kind} has no icon`);
+    assert.equal(icon.pixels.length, 24, kind);
+    assert.ok(icon.pixels.every(r => r.length === 24), kind);
+    assert.ok(icon.world, `${kind} has no world sprite`);
+    assert.equal(icon.world.pixels.length, 24, kind);
+  }
+  assert.equal(Icons.safeParse({ x: { palette: ['#000000'], pixels: Array(16).fill('.'.repeat(16)) } }).success, false, '16×16 is refused');
+});
+
+test('nothing sells for more than it costs anywhere', () => {
+  const sold = new Set(Object.values(content.merchants).flatMap(m => m.sells));
+  const bought = new Set(Object.values(content.merchants).flatMap(m => m.buys));
+  const free = Object.entries(content.items).filter(([k, d]) => sold.has(k as ItemKind) && bought.has(k as ItemKind) && d.sell > d.buy).map(([k]) => k);
+  assert.deepEqual(free, []);
+  assert.deepEqual([...sold].filter(k => content.items[k].buy <= 0), [], 'what a merchant sells has a price');
+  assert.deepEqual(balanceWarnings(content), []);
+});
+
+test('merchants, loot and the starter kit name real items', () => {
+  const real = new Set<string>(itemKinds);
+  const named = [
+    ...Object.values(content.merchants).flatMap(m => [...m.sells, ...m.buys]),
+    ...Object.values(content.creatures).flatMap(c => c.loot.map(l => l.item)),
+    ...Object.values(content.starter.equipment).filter(Boolean), ...content.starter.pack.map(e => e.item),
+  ];
+  assert.deepEqual(named.filter(k => !real.has(k as string)), []);
+  const broken = structuredClone(JSON.parse(readFileSync('content/balance.json', 'utf8')));
+  broken.creatures.gutterRat.loot.push({ item: 'dragonscale', chance: 0.1 });
+  assert.equal(Balance.safeParse(broken).success, false);
+});
+
+test('every item that fits an equipment slot changes how the hero is drawn', () => {
+  const plain = Object.entries(content.items).filter(([k, d]) => d.slot && !hasWornLook(k as ItemKind)).map(([k]) => k);
+  assert.deepEqual(plain, []);
 });

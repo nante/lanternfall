@@ -69,7 +69,7 @@
   "items": {
     "cudgel": {
       "name": "Ash cudgel",
-      "icon": "club",
+      "icon": "cudgel",
       "weight": 12,
       "buy": 8,
       "sell": 2,
@@ -79,7 +79,7 @@
     },
     "shortsword": {
       "name": "Iron shortsword",
-      "icon": "sword",
+      "icon": "shortsword",
       "weight": 16,
       "buy": 60,
       "sell": 18,
@@ -89,7 +89,7 @@
     },
     "hatchet": {
       "name": "Woodman's hatchet",
-      "icon": "axe",
+      "icon": "hatchet",
       "weight": 20,
       "buy": 140,
       "sell": 40,
@@ -118,7 +118,7 @@
     },
     "banded": {
       "name": "Banded shield",
-      "icon": "shield",
+      "icon": "banded",
       "weight": 22,
       "buy": 200,
       "sell": 60,
@@ -136,7 +136,7 @@
     },
     "coif": {
       "name": "Iron coif",
-      "icon": "helmet",
+      "icon": "coif",
       "weight": 12,
       "buy": 80,
       "sell": 22,
@@ -154,7 +154,7 @@
     },
     "jerkin": {
       "name": "Studded jerkin",
-      "icon": "armor",
+      "icon": "jerkin",
       "weight": 24,
       "buy": 120,
       "sell": 35,
@@ -172,7 +172,7 @@
     },
     "pack": {
       "name": "Canvas pack",
-      "icon": "bag",
+      "icon": "pack",
       "weight": 6,
       "buy": 15,
       "sell": 4,
@@ -197,7 +197,7 @@
     },
     "loaf": {
       "name": "Rye loaf",
-      "icon": "bread",
+      "icon": "loaf",
       "weight": 2,
       "buy": 3,
       "sell": 0,
@@ -265,13 +265,601 @@
     },
     "torch": {
       "name": "Torch",
-      "icon": "club",
+      "icon": "torch",
       "weight": 4,
       "buy": 8,
       "sell": 0,
       "slot": "shield",
       "defense": 0,
       "light": 6
+    },
+    "club": {
+      "name": "Knotted club",
+      "icon": "club",
+      "weight": 20,
+      "buy": 20,
+      "sell": 5,
+      "slot": "weapon",
+      "attack": 9,
+      "defense": 4
+    },
+    "mace": {
+      "name": "Iron mace",
+      "icon": "mace",
+      "weight": 28,
+      "buy": 110,
+      "sell": 30,
+      "slot": "weapon",
+      "attack": 13,
+      "defense": 6
+    },
+    "flangedmace": {
+      "name": "Flanged mace",
+      "icon": "flangedmace",
+      "weight": 34,
+      "buy": 260,
+      "sell": 72,
+      "slot": "weapon",
+      "attack": 17,
+      "defense": 8
+    },
+    "maul": {
+      "name": "Gilded maul",
+      "icon": "maul",
+      "weight": 48,
+      "buy": 850,
+      "sell": 230,
+      "slot": "weapon",
+      "attack": 23,
+      "defense": 9
+    },
+    "rustsword": {
+      "name": "Pitted sword",
+      "icon": "rustsword",
+      "weight": 15,
+      "buy": 0,
+      "sell": 6,
+      "slot": "weapon",
+      "attack": 9,
+      "defense": 6
+    },
+    "broadsword": {
+      "name": "Steel broadsword",
+      "icon": "broadsword",
+      "weight": 22,
+      "buy": 220,
+      "sell": 60,
+      "slot": "weapon",
+      "attack": 15,
+      "defense": 9
+    },
+    "longsword": {
+      "name": "Gilded longsword",
+      "icon": "longsword",
+      "weight": 30,
+      "buy": 1200,
+      "sell": 320,
+      "slot": "weapon",
+      "attack": 22,
+      "defense": 12
+    },
+    "dawnblade": {
+      "name": "Dawnsteel blade",
+      "icon": "dawnblade",
+      "weight": 28,
+      "buy": 0,
+      "sell": 800,
+      "slot": "weapon",
+      "attack": 26,
+      "defense": 14
+    },
+    "beardedaxe": {
+      "name": "Bearded axe",
+      "icon": "beardedaxe",
+      "weight": 30,
+      "buy": 340,
+      "sell": 95,
+      "slot": "weapon",
+      "attack": 17,
+      "defense": 7
+    },
+    "broadaxe": {
+      "name": "Blued broad axe",
+      "icon": "broadaxe",
+      "weight": 40,
+      "buy": 800,
+      "sell": 220,
+      "slot": "weapon",
+      "attack": 21,
+      "defense": 8
+    },
+    "greataxe": {
+      "name": "Barrow axe",
+      "icon": "greataxe",
+      "weight": 52,
+      "buy": 0,
+      "sell": 700,
+      "slot": "weapon",
+      "attack": 25,
+      "defense": 9
+    },
+    "knife": {
+      "name": "Skinning knife",
+      "icon": "knife",
+      "weight": 6,
+      "buy": 10,
+      "sell": 3,
+      "slot": "weapon",
+      "attack": 6,
+      "defense": 3
+    },
+    "dagger": {
+      "name": "Iron dagger",
+      "icon": "dagger",
+      "weight": 9,
+      "buy": 50,
+      "sell": 14,
+      "slot": "weapon",
+      "attack": 9,
+      "defense": 5
+    },
+    "dirk": {
+      "name": "Steel dirk",
+      "icon": "dirk",
+      "weight": 11,
+      "buy": 240,
+      "sell": 65,
+      "slot": "weapon",
+      "attack": 13,
+      "defense": 7
+    },
+    "spear": {
+      "name": "Ash spear",
+      "icon": "spear",
+      "weight": 20,
+      "buy": 35,
+      "sell": 10,
+      "slot": "weapon",
+      "attack": 10,
+      "defense": 5
+    },
+    "boarspear": {
+      "name": "Boar spear",
+      "icon": "boarspear",
+      "weight": 28,
+      "buy": 200,
+      "sell": 55,
+      "slot": "weapon",
+      "attack": 15,
+      "defense": 7
+    },
+    "halberd": {
+      "name": "Warden's halberd",
+      "icon": "halberd",
+      "weight": 44,
+      "buy": 700,
+      "sell": 190,
+      "slot": "weapon",
+      "attack": 20,
+      "defense": 9
+    },
+    "lid": {
+      "name": "Barrel-lid shield",
+      "icon": "lid",
+      "weight": 8,
+      "buy": 10,
+      "sell": 2,
+      "slot": "shield",
+      "defense": 5
+    },
+    "heater": {
+      "name": "Iron heater",
+      "icon": "heater",
+      "weight": 18,
+      "buy": 100,
+      "sell": 28,
+      "slot": "shield",
+      "defense": 9
+    },
+    "kite": {
+      "name": "Kite shield",
+      "icon": "kite",
+      "weight": 30,
+      "buy": 480,
+      "sell": 130,
+      "slot": "shield",
+      "defense": 14
+    },
+    "tower": {
+      "name": "Tower shield",
+      "icon": "tower",
+      "weight": 46,
+      "buy": 1000,
+      "sell": 270,
+      "slot": "shield",
+      "defense": 17
+    },
+    "sunshield": {
+      "name": "Gilded sunshield",
+      "icon": "sunshield",
+      "weight": 36,
+      "buy": 0,
+      "sell": 750,
+      "slot": "shield",
+      "defense": 20
+    },
+    "kettlehat": {
+      "name": "Kettle hat",
+      "icon": "kettlehat",
+      "weight": 16,
+      "buy": 180,
+      "sell": 50,
+      "slot": "head",
+      "armor": 3
+    },
+    "visorhelm": {
+      "name": "Visored helm",
+      "icon": "visorhelm",
+      "weight": 22,
+      "buy": 420,
+      "sell": 115,
+      "slot": "head",
+      "armor": 4
+    },
+    "gildedhelm": {
+      "name": "Gilded helm",
+      "icon": "gildedhelm",
+      "weight": 24,
+      "buy": 1000,
+      "sell": 270,
+      "slot": "head",
+      "armor": 5
+    },
+    "gambeson": {
+      "name": "Padded gambeson",
+      "icon": "gambeson",
+      "weight": 14,
+      "buy": 45,
+      "sell": 12,
+      "slot": "body",
+      "armor": 3
+    },
+    "mailshirt": {
+      "name": "Mail shirt",
+      "icon": "mailshirt",
+      "weight": 40,
+      "buy": 380,
+      "sell": 105,
+      "slot": "body",
+      "armor": 7
+    },
+    "scalecoat": {
+      "name": "Scale coat",
+      "icon": "scalecoat",
+      "weight": 52,
+      "buy": 650,
+      "sell": 180,
+      "slot": "body",
+      "armor": 8
+    },
+    "cuirass": {
+      "name": "Steel cuirass",
+      "icon": "cuirass",
+      "weight": 60,
+      "buy": 1500,
+      "sell": 400,
+      "slot": "body",
+      "armor": 10
+    },
+    "shodboots": {
+      "name": "Hobnailed boots",
+      "icon": "shodboots",
+      "weight": 10,
+      "buy": 90,
+      "sell": 25,
+      "slot": "feet",
+      "armor": 2
+    },
+    "sabatons": {
+      "name": "Steel sabatons",
+      "icon": "sabatons",
+      "weight": 18,
+      "buy": 400,
+      "sell": 110,
+      "slot": "feet",
+      "armor": 3
+    },
+    "satchel": {
+      "name": "Leather satchel",
+      "icon": "satchel",
+      "weight": 4,
+      "buy": 8,
+      "sell": 2,
+      "slot": "pack",
+      "slots": 8
+    },
+    "rucksack": {
+      "name": "Frame rucksack",
+      "icon": "rucksack",
+      "weight": 10,
+      "buy": 80,
+      "sell": 22,
+      "slot": "pack",
+      "slots": 20
+    },
+    "purse": {
+      "name": "Coin purse",
+      "icon": "purse",
+      "weight": 1,
+      "buy": 4,
+      "sell": 1,
+      "slots": 4
+    },
+    "sack": {
+      "name": "Burlap sack",
+      "icon": "sack",
+      "weight": 3,
+      "buy": 10,
+      "sell": 2,
+      "slots": 10
+    },
+    "apple": {
+      "name": "Russet apple",
+      "icon": "apple",
+      "weight": 0.5,
+      "buy": 1,
+      "sell": 0,
+      "stack": true,
+      "food": 60000
+    },
+    "mushroom": {
+      "name": "Field mushroom",
+      "icon": "mushroom",
+      "weight": 0.2,
+      "buy": 2,
+      "sell": 0,
+      "stack": true,
+      "food": 90000
+    },
+    "sausage": {
+      "name": "Smoked sausage",
+      "icon": "sausage",
+      "weight": 2,
+      "buy": 5,
+      "sell": 0,
+      "stack": true,
+      "food": 240000
+    },
+    "trout": {
+      "name": "River trout",
+      "icon": "trout",
+      "weight": 3,
+      "buy": 5,
+      "sell": 0,
+      "stack": true,
+      "food": 300000
+    },
+    "pie": {
+      "name": "Mutton pie",
+      "icon": "pie",
+      "weight": 4,
+      "buy": 14,
+      "sell": 0,
+      "stack": true,
+      "food": 600000
+    },
+    "haunch": {
+      "name": "Boar haunch",
+      "icon": "haunch",
+      "weight": 8,
+      "buy": 9,
+      "sell": 0,
+      "stack": true,
+      "food": 480000
+    },
+    "draught": {
+      "name": "Red draught",
+      "icon": "draught",
+      "weight": 1,
+      "buy": 14,
+      "sell": 0,
+      "stack": true,
+      "heal": 30
+    },
+    "greattonic": {
+      "name": "Great red tonic",
+      "icon": "greattonic",
+      "weight": 3,
+      "buy": 75,
+      "sell": 0,
+      "stack": true,
+      "heal": 130
+    },
+    "drop": {
+      "name": "Blue drop",
+      "icon": "drop",
+      "weight": 1,
+      "buy": 16,
+      "sell": 0,
+      "stack": true,
+      "mana": 25
+    },
+    "greattincture": {
+      "name": "Great blue tincture",
+      "icon": "greattincture",
+      "weight": 3,
+      "buy": 85,
+      "sell": 0,
+      "stack": true,
+      "mana": 110
+    },
+    "elixir": {
+      "name": "Amber elixir",
+      "icon": "elixir",
+      "weight": 2,
+      "buy": 120,
+      "sell": 0,
+      "stack": true,
+      "heal": 70,
+      "mana": 60
+    },
+    "pelt": {
+      "name": "Rat pelt",
+      "icon": "pelt",
+      "weight": 1,
+      "buy": 0,
+      "sell": 4,
+      "stack": true
+    },
+    "horn": {
+      "name": "Beetle horn",
+      "icon": "horn",
+      "weight": 1,
+      "buy": 0,
+      "sell": 20,
+      "stack": true
+    },
+    "wax": {
+      "name": "Grub wax",
+      "icon": "wax",
+      "weight": 0.5,
+      "buy": 0,
+      "sell": 9,
+      "stack": true
+    },
+    "hide": {
+      "name": "Thornboar hide",
+      "icon": "hide",
+      "weight": 6,
+      "buy": 0,
+      "sell": 22,
+      "stack": true
+    },
+    "garnet": {
+      "name": "Garnet",
+      "icon": "garnet",
+      "weight": 0.2,
+      "buy": 0,
+      "sell": 40,
+      "stack": true
+    },
+    "amethyst": {
+      "name": "Amethyst cluster",
+      "icon": "amethyst",
+      "weight": 0.4,
+      "buy": 0,
+      "sell": 60,
+      "stack": true
+    },
+    "sapphire": {
+      "name": "Sapphire",
+      "icon": "sapphire",
+      "weight": 0.2,
+      "buy": 0,
+      "sell": 90,
+      "stack": true
+    },
+    "emerald": {
+      "name": "Emerald",
+      "icon": "emerald",
+      "weight": 0.2,
+      "buy": 0,
+      "sell": 120,
+      "stack": true
+    },
+    "amberstone": {
+      "name": "Amber",
+      "icon": "amberstone",
+      "weight": 0.2,
+      "buy": 0,
+      "sell": 50,
+      "stack": true
+    },
+    "pearl": {
+      "name": "Mire pearl",
+      "icon": "pearl",
+      "weight": 0.1,
+      "buy": 0,
+      "sell": 75,
+      "stack": true
+    },
+    "copperring": {
+      "name": "Copper ring",
+      "icon": "copperring",
+      "weight": 0.3,
+      "buy": 0,
+      "sell": 15
+    },
+    "silverring": {
+      "name": "Garnet ring",
+      "icon": "silverring",
+      "weight": 0.3,
+      "buy": 0,
+      "sell": 70
+    },
+    "goldring": {
+      "name": "Sapphire ring",
+      "icon": "goldring",
+      "weight": 0.3,
+      "buy": 0,
+      "sell": 160
+    },
+    "brooch": {
+      "name": "Emerald brooch",
+      "icon": "brooch",
+      "weight": 1,
+      "buy": 0,
+      "sell": 180
+    },
+    "locket": {
+      "name": "Gold locket",
+      "icon": "locket",
+      "weight": 1,
+      "buy": 0,
+      "sell": 85
+    },
+    "crown": {
+      "name": "Old crown",
+      "icon": "crown",
+      "weight": 0.1,
+      "buy": 0,
+      "sell": 10,
+      "stack": true
+    },
+    "key": {
+      "name": "Rusted key",
+      "icon": "key",
+      "weight": 1,
+      "buy": 0,
+      "sell": 3
+    },
+    "tinsoldier": {
+      "name": "Tin soldier",
+      "icon": "tinsoldier",
+      "weight": 1,
+      "buy": 0,
+      "sell": 6
+    },
+    "idol": {
+      "name": "Bone idol",
+      "icon": "idol",
+      "weight": 2,
+      "buy": 0,
+      "sell": 25
+    },
+    "glasseye": {
+      "name": "Glass eye",
+      "icon": "glasseye",
+      "weight": 0.2,
+      "buy": 0,
+      "sell": 12
+    },
+    "mapscrap": {
+      "name": "Torn map",
+      "icon": "mapscrap",
+      "weight": 0.2,
+      "buy": 0,
+      "sell": 8
     }
   },
   "creatures": {
@@ -291,8 +879,36 @@
           "chance": 0.6
         },
         {
+          "item": "pelt",
+          "chance": 0.25
+        },
+        {
           "item": "loaf",
           "chance": 0.08
+        },
+        {
+          "item": "apple",
+          "chance": 0.06
+        },
+        {
+          "item": "crown",
+          "chance": 0.03
+        },
+        {
+          "item": "key",
+          "chance": 0.02
+        },
+        {
+          "item": "knife",
+          "chance": 0.02
+        },
+        {
+          "item": "copperring",
+          "chance": 0.006
+        },
+        {
+          "item": "rustsword",
+          "chance": 0.005
         }
       ],
       "step": 520,
@@ -312,6 +928,46 @@
         {
           "item": "shell",
           "chance": 0.45
+        },
+        {
+          "item": "horn",
+          "chance": 0.15
+        },
+        {
+          "item": "mushroom",
+          "chance": 0.1
+        },
+        {
+          "item": "crown",
+          "chance": 0.04
+        },
+        {
+          "item": "garnet",
+          "chance": 0.02
+        },
+        {
+          "item": "amberstone",
+          "chance": 0.015
+        },
+        {
+          "item": "tinsoldier",
+          "chance": 0.012
+        },
+        {
+          "item": "glasseye",
+          "chance": 0.008
+        },
+        {
+          "item": "dagger",
+          "chance": 0.01
+        },
+        {
+          "item": "sapphire",
+          "chance": 0.004
+        },
+        {
+          "item": "sunshield",
+          "chance": 0.0006
         }
       ],
       "step": 700,
@@ -333,12 +989,44 @@
           "chance": 0.35
         },
         {
-          "item": "tonic",
-          "chance": 0.06
+          "item": "wax",
+          "chance": 0.25
+        },
+        {
+          "item": "mushroom",
+          "chance": 0.15
         },
         {
           "item": "cheese",
           "chance": 0.1
+        },
+        {
+          "item": "tonic",
+          "chance": 0.06
+        },
+        {
+          "item": "draught",
+          "chance": 0.05
+        },
+        {
+          "item": "pearl",
+          "chance": 0.012
+        },
+        {
+          "item": "idol",
+          "chance": 0.01
+        },
+        {
+          "item": "amethyst",
+          "chance": 0.008
+        },
+        {
+          "item": "locket",
+          "chance": 0.004
+        },
+        {
+          "item": "dawnblade",
+          "chance": 0.0008
         }
       ],
       "step": 900,
@@ -360,8 +1048,44 @@
           "chance": 0.5
         },
         {
+          "item": "hide",
+          "chance": 0.3
+        },
+        {
+          "item": "haunch",
+          "chance": 0.2
+        },
+        {
           "item": "cheese",
           "chance": 0.08
+        },
+        {
+          "item": "mapscrap",
+          "chance": 0.01
+        },
+        {
+          "item": "boarspear",
+          "chance": 0.006
+        },
+        {
+          "item": "silverring",
+          "chance": 0.005
+        },
+        {
+          "item": "emerald",
+          "chance": 0.004
+        },
+        {
+          "item": "brooch",
+          "chance": 0.002
+        },
+        {
+          "item": "goldring",
+          "chance": 0.002
+        },
+        {
+          "item": "greataxe",
+          "chance": 0.001
         }
       ],
       "step": 480,
@@ -436,33 +1160,92 @@
       "greeting": "Forge is hot. Weapons on the left wall, armour on the right. Say \"trade\".",
       "topics": {
         "tusks": "Boar tusks make good handles. I pay fair for them.",
-        "repair": "Good steel does not need me twice."
+        "repair": "Good steel does not need me twice.",
+        "trade": "Arms from cudgel to gilded steel, shields from a barrel lid up. The finest I only buy, never make."
       },
       "sells": [
         "cudgel",
+        "club",
+        "mace",
+        "flangedmace",
+        "maul",
         "shortsword",
-        "hatchet",
+        "broadsword",
         "blade",
+        "longsword",
+        "hatchet",
+        "beardedaxe",
+        "broadaxe",
+        "knife",
+        "dagger",
+        "dirk",
+        "spear",
+        "boarspear",
+        "halberd",
+        "lid",
         "buckler",
+        "heater",
         "banded",
+        "kite",
+        "tower",
         "cap",
         "coif",
+        "kettlehat",
+        "visorhelm",
+        "gildedhelm",
         "tunic",
+        "gambeson",
         "jerkin",
-        "boots"
+        "mailshirt",
+        "scalecoat",
+        "cuirass",
+        "boots",
+        "shodboots",
+        "sabatons"
       ],
       "buys": [
         "cudgel",
+        "club",
+        "mace",
+        "flangedmace",
+        "maul",
         "shortsword",
-        "hatchet",
+        "broadsword",
         "blade",
+        "longsword",
+        "hatchet",
+        "beardedaxe",
+        "broadaxe",
+        "knife",
+        "dagger",
+        "dirk",
+        "spear",
+        "boarspear",
+        "halberd",
+        "rustsword",
+        "dawnblade",
+        "greataxe",
+        "sunshield",
+        "lid",
         "buckler",
+        "heater",
         "banded",
+        "kite",
+        "tower",
         "cap",
         "coif",
+        "kettlehat",
+        "visorhelm",
+        "gildedhelm",
         "tunic",
+        "gambeson",
         "jerkin",
+        "mailshirt",
+        "scalecoat",
+        "cuirass",
         "boots",
+        "shodboots",
+        "sabatons",
         "tusk"
       ]
     },
@@ -470,11 +1253,17 @@
       "greeting": "Welcome to the Copper Kettle. Sit, eat, and do not start fights indoors.",
       "topics": {
         "rumours": "They say the grubs spin silk worth more than their meat. Odo pays well for it.",
-        "food": "A loaf keeps you going on the road. Cheese keeps you going longer."
+        "food": "An apple keeps you a minute, a loaf three, cheese six. A mutton pie will see you through ten."
       },
       "sells": [
+        "apple",
+        "mushroom",
         "loaf",
-        "cheese"
+        "sausage",
+        "trout",
+        "cheese",
+        "haunch",
+        "pie"
       ],
       "buys": []
     },
@@ -482,32 +1271,71 @@
       "greeting": "Mind the shelves. Tonics for the body, tinctures for the mind.",
       "topics": {
         "silk": "Grub silk. Bring it. I pay twenty-eight a skein.",
-        "shells": "Beetle shells grind into a fine glaze. Twelve each."
+        "shells": "Beetle shells grind into a fine glaze. Twelve each.",
+        "horn": "Beetle horn, ground fine, settles a fever. Twenty a piece. Grub wax seals my jars; nine."
       },
       "sells": [
+        "draught",
         "tonic",
-        "tincture"
+        "greattonic",
+        "drop",
+        "tincture",
+        "greattincture",
+        "elixir"
       ],
       "buys": [
+        "shell",
+        "horn",
         "silk",
-        "shell"
+        "wax"
       ]
     },
     "store": {
       "greeting": "Pell's provisions. Packs, pouches, and whatever the rats left behind.",
       "topics": {
-        "tails": "Rat tails? The tanner takes them. Two coins each."
+        "tails": "Rat tails? The tanner takes them. Two coins each.",
+        "trinkets": "Rings, stones, old coins, odd little things from the cellars. I buy them all and ask no questions."
       },
       "sells": [
+        "satchel",
         "pack",
+        "rucksack",
+        "purse",
         "pouch",
+        "sack",
+        "torch",
+        "knife",
         "loaf",
-        "torch"
+        "apple"
       ],
       "buys": [
         "tail",
+        "pelt",
+        "hide",
+        "satchel",
+        "pack",
+        "rucksack",
+        "purse",
         "pouch",
-        "pack"
+        "sack",
+        "knife",
+        "garnet",
+        "amethyst",
+        "sapphire",
+        "emerald",
+        "amberstone",
+        "pearl",
+        "copperring",
+        "silverring",
+        "goldring",
+        "brooch",
+        "locket",
+        "crown",
+        "key",
+        "tinsoldier",
+        "idol",
+        "glasseye",
+        "mapscrap"
       ]
     },
     "warden": {
