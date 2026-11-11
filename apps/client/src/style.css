@@ -51,7 +51,7 @@ svg { display: block; image-rendering: pixelated; }
 .banner { display: flex; position: relative; height: calc(14 * var(--u)); margin: calc(4 * var(--u)) calc(8 * var(--u)) calc(2 * var(--u)); background: var(--a-banner-mid) 0 0 / 100% 100%; image-rendering: pixelated; }
 .banner::before, .banner::after { content: ''; position: absolute; top: 0; width: calc(8 * var(--u)); height: 100%; background: var(--a-banner-l) 0 0 / 100% 100%; left: calc(-8 * var(--u)); image-rendering: pixelated; }
 .banner::after { left: auto; right: calc(-8 * var(--u)); background-image: var(--a-banner-r); }
-.banner > span { margin: auto; padding: calc(1 * var(--u)) 0 0; line-height: calc(12 * var(--u)); color: var(--bone); white-space: nowrap; font-weight: 700; }
+.banner > span { margin: 0 auto; padding: var(--u) 0 0; line-height: calc(12 * var(--u)); color: var(--bone); white-space: nowrap; font-weight: 700; }
 .plank { position: relative; display: grid; justify-items: center; padding: calc(3 * var(--u)) calc(4 * var(--u)) calc(3 * var(--u)); margin: 0 calc(8 * var(--u)); background: var(--a-plank-mid) 0 0 / calc(32 * var(--p, var(--u))) 100%; image-rendering: pixelated; color: var(--white); }
 .plank::before, .plank::after { content: ''; position: absolute; top: 0; height: 100%; width: calc(8 * var(--p, var(--u))); left: calc(-8 * var(--p, var(--u))); background: var(--a-plank-l) 0 0 / 100% 100%; image-rendering: pixelated; }
 .plank::after { left: auto; right: calc(-8 * var(--p, var(--u))); background-image: var(--a-plank-r); }
@@ -144,7 +144,7 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
 .world-canvas { width: 100%; height: 100%; display: block; image-rendering: pixelated; outline: none; }
 .zone { min-width: 0; min-height: 0; width: calc(var(--col) * var(--u)); display: flex; flex-direction: column; gap: calc(3 * var(--u)); padding: var(--u); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; }
 /* More windows below the fold: a small amber arrow at the column's foot, on the grid. */
-.zone[data-more]::after { content: ''; position: sticky; bottom: 0; flex: none; align-self: center; width: calc(9 * var(--u)); height: calc(7 * var(--u)); margin-top: calc(-7 * var(--u)); background: var(--a4); -webkit-mask: var(--a-arrow-down) center / calc(5 * var(--u)) calc(5 * var(--u)) no-repeat; mask: var(--a-arrow-down) center / calc(5 * var(--u)) calc(5 * var(--u)) no-repeat; pointer-events: none; z-index: 3; }
+.zone[data-more]::after { content: ''; position: sticky; bottom: 0; flex: none; align-self: flex-start; margin-left: calc(62 * var(--u)); width: calc(9 * var(--u)); height: calc(7 * var(--u)); margin-top: calc(-7 * var(--u)); background: var(--a4); -webkit-mask: var(--a-arrow-down) center / calc(5 * var(--u)) calc(5 * var(--u)) no-repeat; mask: var(--a-arrow-down) center / calc(5 * var(--u)) calc(5 * var(--u)) no-repeat; pointer-events: none; z-index: 3; }
 .chrome.v-classic { grid-template-columns: minmax(0, 1fr) calc((var(--col) + 2) * var(--u)); grid-template-rows: minmax(0, 1fr) calc(max(var(--foot), var(--foot-min, 0)) * var(--u)); }
 .chrome.v-classic .viewport { grid-area: 1 / 1; }
 .chrome.v-classic .zone { grid-area: 1 / 2 / 3 / 3; }
@@ -187,7 +187,8 @@ body.resizing-y, body.resizing-y * { cursor: row-resize !important; user-select:
 .win.lifted { position: fixed; z-index: 100; box-shadow: 0 0 0 var(--u) var(--a4), inset var(--u) var(--u) 0 var(--S), inset calc(-1 * var(--u)) calc(-1 * var(--u)) 0 var(--n); }
 .win-drop { flex: none; background: var(--a-dither-amber) 0 0 / calc(2 * var(--u)) calc(2 * var(--u)); box-shadow: 0 0 0 var(--u) var(--a2); }
 body.moving-win, body.moving-win * { cursor: grabbing !important; user-select: none; }
-h3.banner { font-size: inherit; }
+h3.banner { font-size: inherit; justify-self: start; padding: 0 calc(6 * var(--u)); }
+.st-xp .bar { margin-top: calc(4 * var(--u)); }
 
 /* status */
 .st-id { display: flex; gap: calc(4 * var(--u)); line-height: calc(12 * var(--u)); min-height: calc(12 * var(--u)); }
@@ -196,7 +197,7 @@ h3.banner { font-size: inherit; }
 .st-lvl { color: var(--muted); white-space: nowrap; }
 .st-lvl b { color: var(--a4); }
 .st-bars { display: grid; gap: calc(3 * var(--u)); margin: var(--u); }
-.st-xp { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: calc(4 * var(--u)); margin: 0 var(--u); line-height: calc(12 * var(--u)); color: var(--muted); }
+.st-xp { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: start; gap: calc(4 * var(--u)); margin: 0 var(--u); line-height: calc(12 * var(--u)); color: var(--muted); }
 .st-flags { display: flex; gap: calc(3 * var(--u)); margin: 0; padding: 0; list-style: none; }
 .st-flags li { padding: var(--u); background: var(--n); box-shadow: 0 0 0 var(--u) var(--k); }
 
@@ -204,14 +205,14 @@ h3.banner { font-size: inherit; }
 .p-mm { display: grid; grid-template-columns: auto auto; gap: calc(4 * var(--u)); justify-content: space-between; }
 .mm-canvas { display: block; width: calc(96 * var(--u)); height: calc(96 * var(--u)); image-rendering: pixelated; cursor: crosshair; box-shadow: 0 0 0 var(--u) var(--k), 0 0 0 calc(2 * var(--u)) var(--S); margin: calc(2 * var(--u)); }
 .mm-side { display: grid; align-content: start; gap: calc(3 * var(--u)); padding-top: calc(2 * var(--u)); }
-.mm-tag { width: calc(13 * var(--u)); text-align: center; line-height: calc(12 * var(--u)); color: var(--muted); }
+.mm-tag { width: calc(13 * var(--u)); text-align: right; line-height: calc(12 * var(--u)); color: var(--muted); }
 .mm-place { display: flex; justify-content: space-between; gap: calc(4 * var(--u)); line-height: calc(12 * var(--u)); color: var(--bone); }
 .mm-place .num { color: var(--muted); }
 
 /* the doll: three columns of slots on half-slot rows, over a faint figure */
 .doll { display: grid; grid-template-columns: repeat(3, calc(var(--cell) * var(--u))); grid-template-rows: repeat(9, calc((var(--cell) + 2) / 2 * var(--u))); column-gap: calc(2 * var(--u)); justify-content: center; background-repeat: no-repeat; background-position: center top; background-size: auto; image-rendering: pixelated; padding-top: var(--u); }
 .doll-slot { display: block; }
-.doll-box { display: grid; align-content: start; justify-items: center; padding-top: calc(2 * var(--u)); line-height: calc(12 * var(--u)); background: var(--n); box-shadow: 0 0 0 var(--u) var(--k); height: calc(var(--cell) * var(--u)); }
+.doll-box { display: grid; align-content: start; justify-items: start; padding: calc(2 * var(--u)) 0 0 calc(3 * var(--u)); line-height: calc(12 * var(--u)); background: var(--n); box-shadow: 0 0 0 var(--u) var(--k); height: calc(var(--cell) * var(--u)); }
 .doll-box span { color: var(--muted); }
 .doll-box b { color: var(--white); }
 /* Centred groups keep an even margin either side, or they would sit half a UI pixel off the grid: the body is 126 wide,
@@ -282,7 +283,7 @@ h3.banner { font-size: inherit; }
 .foot { min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto; margin: var(--u); }
 .con-top { display: flex; justify-content: flex-start; align-items: flex-end; gap: calc(16 * var(--u)); padding: calc(3 * var(--u)) calc(3 * var(--u)) 0; box-shadow: 0 var(--u) 0 var(--k); background: var(--n); margin: var(--u) var(--u) 0; }
 .con-tabs { display: flex; gap: var(--u); min-width: 0; overflow: hidden; }
-.con-tab { position: relative; height: calc(14 * var(--u)); padding: var(--u) calc(5 * var(--u)) 0; line-height: calc(12 * var(--u)); color: var(--muted); background: var(--s); box-shadow: inset var(--u) var(--u) 0 var(--S); white-space: nowrap; }
+.con-tab { position: relative; display: flex; align-items: flex-start; height: calc(14 * var(--u)); padding: var(--u) calc(5 * var(--u)) 0; line-height: calc(12 * var(--u)); color: var(--muted); background: var(--s); box-shadow: inset var(--u) var(--u) 0 var(--S); white-space: nowrap; }
 @media (hover: hover) { .con-tab:hover { color: var(--text); } }
 .con-tab[aria-selected='true'] { color: var(--white); background: var(--m); box-shadow: inset var(--u) var(--u) 0 var(--S), inset calc(-1 * var(--u)) 0 0 var(--n); }
 .con-tab[data-unread='true']::after { content: ''; position: absolute; right: var(--u); top: var(--u); width: calc(2 * var(--u)); height: calc(2 * var(--u)); background: var(--a3); }
@@ -389,7 +390,7 @@ label.opt .check { margin-top: var(--u); }
 .help dd { margin: 0; color: var(--bone); }
 
 /* ---------------------------------------------------------------- the gate */
-.gate { position: fixed; inset: 0; z-index: 400; display: grid; align-items: center; justify-items: start; padding: calc(16 * var(--u)) calc(24 * var(--u)); }
+.gate { position: fixed; inset: 0; z-index: 400; display: grid; align-items: start; justify-items: start; padding: max(calc(16 * var(--u)), round(down, calc(50vh - 140 * var(--u)), var(--u))) calc(24 * var(--u)) calc(16 * var(--u)); }
 /* the town shows through, darkened toward the left in three dithered steps, no gradient */
 .gate-shade { position: absolute; inset: 0; pointer-events: none; display: grid; grid-template-columns: calc(250 * var(--u)) calc(40 * var(--u)) calc(40 * var(--u)) 1fr; }
 .gate-shade { background:
@@ -398,7 +399,8 @@ label.opt .check { margin-top: var(--u); }
   linear-gradient(to right, transparent calc(290 * var(--u)), #06070d80 calc(290 * var(--u)) calc(330 * var(--u)), transparent calc(330 * var(--u))); }
 .gate-shade::before { content: ''; position: absolute; inset: 0 auto 0 0; width: calc(330 * var(--u)); background: var(--a-ground-column) 0 0 / calc(4 * var(--u)) calc(4 * var(--u)); opacity: 0.6; -webkit-mask: linear-gradient(to right, #000 0 calc(250 * var(--u)), transparent calc(250 * var(--u))); mask: linear-gradient(to right, #000 0 calc(250 * var(--u)), transparent calc(250 * var(--u))); }
 .gate-card { position: relative; display: grid; gap: calc(8 * var(--u)); width: min(calc(220 * var(--u)), 100%); }
-.plank.big { --p: calc(2 * var(--u)); margin: 0 calc(16 * var(--u)); padding: calc(6 * var(--u)) 0 calc(8 * var(--u)); justify-self: start; }
+/* The plank's art is 18 rows; at 3 UI pixels a row the sign is 54 tall: 8 above the 36-tall title, 10 below. */
+.plank.big { --p: calc(3 * var(--u)); margin: 0 calc(24 * var(--u)); padding: calc(8 * var(--u)) 0 calc(10 * var(--u)); justify-self: start; }
 .gate h1 { margin: 0; padding: 0 calc(8 * var(--u)); font-size: calc(36 * var(--u)); line-height: calc(36 * var(--u)); color: var(--a5); text-shadow: 0 calc(3 * var(--u)) 0 #2c1f15, calc(3 * var(--u)) 0 0 #3b2819; }
 .gate-kicker.banner { margin: 0 calc(8 * var(--u)); justify-self: start; padding: 0 calc(6 * var(--u)); }
 .lede { line-height: calc(14 * var(--u)); color: var(--bone); max-width: calc(210 * var(--u)); }
