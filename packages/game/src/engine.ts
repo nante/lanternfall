@@ -352,6 +352,7 @@ export class Engine {
 
   // ---- Actions -------------------------------------------------------------
   action(p: Hero, a: Action) {
+    if (!p.connected) throw new GameError('You have left the world.');
     this.torchCache = undefined; this.lightMemo = undefined;
     switch (a.kind) {
       case 'walk': if (!a.dx && !a.dy) return; p.path = [{ x: p.x + a.dx, y: p.y + a.dy, z: p.z }]; p.manual = true; break;

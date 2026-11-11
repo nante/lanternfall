@@ -412,3 +412,11 @@ test('finding no free tile is a game error, not a crash', () => {
   const e = new Engine(map, balance);
   assert.throws(() => e.geo.near(map.shrine, () => true), (error: unknown) => error instanceof GameError && /no free tile/.test(error.message));
 });
+
+test('a logged-out hero cannot act', () => {
+  const e = new Engine(map, balance);
+  const p = place(e.createPlayer('Tess'), 40, 34);
+  e.action(p, { kind: 'logout' });
+  assert.throws(() => e.action(p, { kind: 'say', text: 'still here?' }), /left the world/);
+  assert.throws(() => e.action(p, { kind: 'useKind', item: 'loaf' }), /left the world/);
+});

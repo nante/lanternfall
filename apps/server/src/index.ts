@@ -79,6 +79,8 @@ class TownRoom extends Room {
     try{result=refuse('That did not work. Try again.');}
     catch(again){console.error(JSON.stringify({event:'action_unsaved',error:String(again)}));client.send('result',{ok:false,text:'The action could not be saved. Reconnect before trying again.',resync:true});return;}}}
   client.send('result',result);
+  // Logging out ends the session here, not only in the client: the binding goes, so nothing more can be done as that hero.
+  if(result.ok&&read.ok&&read.req.action.kind==='logout'){this.flushNotices();this.bindings.delete(client.sessionId);client.leave(1000);return;}
   this.sendView(client);this.flushNotices();}
  /** A Studio edit changed this character: show it to them at once. */
  edited(id:string){const p=engine.state.players[id];if(p?.connected)engine.note(p,'Your character was changed in the Studio.');for(const c of this.clients)if(this.bindings.get(c.sessionId)?.id===id)this.sendView(c);this.flushNotices();}
