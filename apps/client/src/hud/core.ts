@@ -33,7 +33,7 @@ export function stats(v: GameView) {
 }
 const kidsCache = new WeakMap<GameView, Map<string, GameItem[]>>();
 /** Items by the container (or slot holder) they sit in, for this view. */
-export function byParent(v: GameView) {
+function byParent(v: GameView) {
   let m = kidsCache.get(v);
   if (m) return m;
   m = new Map();

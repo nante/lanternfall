@@ -103,7 +103,7 @@ document.body.append(dlg);
 let settle: ((n: number | null) => void) | undefined;
 export const countOpen = () => !dlg.hidden;
 /** Up and down change by one, Page Up and Down by ten, Home is all, End is one; digits type; Enter moves, Escape cancels. */
-export function askCount(i: GameItem, x: number, y: number): Promise<number | null> {
+function askCount(i: GameItem, x: number, y: number): Promise<number | null> {
   settle?.(null);
   const max = i.count, def = itemDef(i.kind);
   dlg.innerHTML = `<header class="w-head"><h2>Move how many?</h2></header>

@@ -26,7 +26,7 @@ export const grid = { setting: 'auto' as ScaleSetting, u: 2 };
 function readSetting(): ScaleSetting { try { const v = localStorage.getItem(SCALE_KEY); return v === '1' || v === '2' || v === '3' ? (Number(v) as 1 | 2 | 3) : 'auto'; } catch { return 'auto'; } }
 /** Auto follows the window height (as the world's upscale does) so the column holds the map, the hero and a few containers. In device pixels. */
 function autoDevice() { return Math.max(1, Math.round((innerHeight * (devicePixelRatio || 1)) / 520)); }
-export function applyScale(setting = grid.setting) {
+function applyScale(setting = grid.setting) {
   grid.setting = setting;
   const dpr = devicePixelRatio || 1;
   grid.u = (setting === 'auto' ? autoDevice() : Math.max(1, Math.round(setting * dpr))) / dpr;
@@ -56,7 +56,7 @@ document.addEventListener('scroll', e => {
 export const snap = (px: number) => Math.round(px / grid.u) * grid.u;
 
 // ---------------------------------------------------------------- drawn parts
-export type BarKind = 'hp' | 'mp' | 'xp' | 'skill' | 'foe';
+type BarKind = 'hp' | 'mp' | 'xp' | 'skill' | 'foe';
 /** A stepped bar: the fill is cut to whole UI pixels by CSS, the number sits on it. */
 export function bar(kind: BarKind, value: number, max: number, label: string, text = '') {
   const v = Math.max(0, Math.min(max, value)), p = max > 0 ? v / max : 0;
@@ -65,4 +65,3 @@ export function bar(kind: BarKind, value: number, max: number, label: string, te
 /** A glyph from art.css (masks take the text colour). */
 export const glyph = (name: string, cls = '') => `<i class="g g-${name}${cls ? ` ${cls}` : ''}" aria-hidden="true"></i>`;
 export const art = (name: string, cls = '') => `<i class="art a-${name}${cls ? ` ${cls}` : ''}" aria-hidden="true"></i>`;
-export const iconBtn = (name: string, label: string, attrs = '') => `<button type="button" class="ibtn" aria-label="${esc(label)}" ${attrs}>${glyph(name)}</button>`;

@@ -26,7 +26,7 @@ function freeSlotIn(parent: string, size: number, reserved?: Set<string>) {
   return -1;
 }
 /** Where an item should go in a set of containers: onto a matching stack with room, else the first free slot. */
-export function targetIn(parents: { id: string; size: number }[], item?: GameItem, reserved?: Set<string>) {
+function targetIn(parents: { id: string; size: number }[], item?: GameItem, reserved?: Set<string>) {
   if (item && itemDef(item.kind).stack) for (const c of parents) {
     const stack = kids(core.view!, c.id).find(j => j.kind === item.kind && j.id !== item.id && j.count < 100);
     if (stack) return { parent: c.id, slot: stack.slot };
@@ -51,7 +51,7 @@ const isContainer = (k: ItemKind) => !!itemDef(k).slots;
 
 // ---------------------------------------------------------------- actions
 /** What a double-click (and the first menu entry) does with an item, as a word. */
-export function primaryLabel(i: GameItem): string | undefined {
+function primaryLabel(i: GameItem): string | undefined {
   const v = core.view; if (!v) return;
   const def = itemDef(i.kind), eq = equipKey(v);
   if (isContainer(i.kind)) return 'Open';
@@ -77,11 +77,11 @@ export function primary(i: GameItem, from?: string) {
 /** What looking at each kind of item said, so its tooltip can carry the description after the first look. */
 const looks = new Map<ItemKind, string>();
 let looking: { kind: ItemKind; at: number } | undefined;
-export function lookAt(i: GameItem) { const s = core.view?.self; if (!s) return; looking = { kind: i.kind, at: performance.now() }; core.send({ kind: 'look', at: { x: s.x, y: s.y, z: s.z }, item: i.id }); }
+function lookAt(i: GameItem) { const s = core.view?.self; if (!s) return; looking = { kind: i.kind, at: performance.now() }; core.send({ kind: 'look', at: { x: s.x, y: s.y, z: s.z }, item: i.id }); }
 /** An information line just came back: if it answers a look at an item, remember it. */
 export function heardInfo(text: string) { if (looking && performance.now() - looking.at < 2000) { looks.set(looking.kind, text); looking = undefined; } }
 
-export function itemMenu(i: GameItem, from?: string): Menu | undefined {
+function itemMenu(i: GameItem, from?: string): Menu | undefined {
   const v = core.view; if (!v) return;
   const main = primaryLabel(i), mine = isCarried(v, i.id), entries: Entry[] = [];
   const now = () => findItem(core.view, i.id);
@@ -94,7 +94,7 @@ export function itemMenu(i: GameItem, from?: string): Menu | undefined {
   return { title: `${itemDef(i.kind).name}${i.count > 1 ? ` × ${i.count}` : ''}`, entries, alive: () => !!now() };
 }
 
-export function describe(i: GameItem) {
+function describe(i: GameItem) {
   const d = itemDef(i.kind), bits: string[] = [];
   if (d.attack) bits.push(`Attack ${d.attack}`); if (d.defense) bits.push(`Defence ${d.defense}`); if (d.armor) bits.push(`Armour ${d.armor}`);
   if (d.slots) bits.push(`${d.slots} slots`); if (d.heal) bits.push(`Restores about ${d.heal} health`); if (d.mana) bits.push(`Restores about ${d.mana} mana`); if (d.food) bits.push(`Feeds ${Math.round(d.food / 60000)} min`);

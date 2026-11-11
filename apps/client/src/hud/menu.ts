@@ -13,7 +13,6 @@ document.body.append(el);
 let open: Menu | undefined;
 let returnTo: HTMLElement | null = null;
 export const menuOpen = () => !el.hidden;
-export const menuEl = el;
 /** What gets focus back when the menu closes over the world. */
 let worldFocus: () => void = () => {};
 export function setWorldFocus(f: () => void) { worldFocus = f; }

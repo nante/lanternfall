@@ -7,7 +7,7 @@ import { icon } from '../icons.ts';
 import { closeTip, showTip } from './tooltip.ts';
 
 type Slot = { label: string; sub: string; icon: string; disabled: boolean; cooldown: number; count?: number; run: () => void };
-export function hotbarSlots(): Slot[] {
+function hotbarSlots(): Slot[] {
   const v = core.view;
   if (!v) return [];
   const st = stats(v), self = v.self, cd = Math.max(0, self.spellAt - serverNow());

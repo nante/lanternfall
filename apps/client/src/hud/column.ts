@@ -59,7 +59,6 @@ export class Column {
   private say(text: string) { this.announcer.textContent = text; }
 
   setLayout(id: ChromeLayout) { if (id === this.id && this.built) return; this.id = id; this.built = ''; this.render(); this.o.onViewportResize(); }
-  isOpen(id: string) { return !this.collapsed.has(id) && (id in this.o.statics || this.dynamic.some(d => d.id === id)); }
   toggle(id: string) { if (this.collapsed.has(id)) this.collapsed.delete(id); else this.collapsed.add(id); this.persist(); this.render(); this.o.onViewportResize(); }
   reset() { this.layouts[this.id] = structuredClone(this.o.defaults[this.id]); this.heights = {}; this.foot = {}; this.collapsed = new Set(this.o.collapsedByDefault); this.persist(); this.built = ''; this.render(); this.say('Window layout reset.'); }
   setDynamic(list: WinSpec[]) { this.dynamic = list; }

@@ -9,7 +9,7 @@ import { cellHtml, move, packTarget } from './items.ts';
 import { statusLine } from './overlay.ts';
 import type { WinSpec } from './column.ts';
 
-export type Source = { kind: 'item'; id: string } | { kind: 'corpse'; id: string } | { kind: 'ground'; at: Pos } | { kind: 'vault' };
+type Source = { kind: 'item'; id: string } | { kind: 'corpse'; id: string } | { kind: 'ground'; at: Pos } | { kind: 'vault' };
 type Win = { key: string; src: Source; trail: Source[] };
 const wins: Win[] = [];
 let next = 1;
@@ -63,9 +63,8 @@ export function openContainer(src: Source, from?: string) {
   else reveal = wins.find(w => sameSrc(w.src, src))!.key;
   core.redraw();
 }
-export function closeContainer(key: string) { const i = wins.findIndex(w => w.key === key); if (i >= 0) wins.splice(i, 1); core.redraw(); }
+function closeContainer(key: string) { const i = wins.findIndex(w => w.key === key); if (i >= 0) wins.splice(i, 1); core.redraw(); }
 export function back(key: string) { const w = wins.find(w => w.key === key); if (w?.trail.length) { w.src = w.trail.pop()!; core.redraw(); } }
-export const isOpen = (src: Source) => wins.some(w => sameSrc(w.src, src) || w.trail.some(t => sameSrc(t, src)));
 export const vaultOpen = () => wins.some(w => w.src.kind === 'vault');
 /** The window a container item is shown in, if any. */
 export const windowOf = (el: Element | null) => el?.closest<HTMLElement>('.k-bag')?.dataset.win;
@@ -79,7 +78,6 @@ export function closeNewest() {
   }
   return false;
 }
-export const anyOpen = () => wins.length > 0;
 /** The worn pack, open in a window (at the start of play). */
 export function openPack() {
   const v = core.view; if (!v) return;
