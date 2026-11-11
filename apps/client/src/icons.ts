@@ -1,5 +1,5 @@
 import iconsJson from '../../../content/icons.json' with { type: 'json' };
-import { Icons, missingIcons } from '../../../packages/game/src/content-schema.ts';
+import { Icons, ICON_SIZE, iconAlphabet, missingIcons } from '../../../packages/game/src/content-schema.ts';
 import { iconSvg } from '../../../packages/game/src/icon-svg.ts';
 import { defaultBalance } from '../../../packages/game/src/default-balance.ts';
 
@@ -14,14 +14,17 @@ export function icon(kind: string, label?: string) {
 }
 
 const canvases = new Map<string, HTMLCanvasElement>();
-/** The icon as a 16×16 canvas, for drawing items lying in the world. */
+/** The painted icon as a canvas, one pixel a pixel. */
 export function iconCanvas(kind: string) {
   let c = canvases.get(kind);
   if (c) return c;
   const def = icons[kind] ?? icons.bag;
-  c = document.createElement('canvas'); c.width = c.height = 16;
+  c = document.createElement('canvas'); c.width = c.height = ICON_SIZE;
   const g = c.getContext('2d')!;
-  def.pixels.forEach((row, y) => [...row].forEach((ch, x) => { if (ch === '.') return; g.fillStyle = def.palette['123456789abcdefghijklmnopqrstuvwxyz'.indexOf(ch)]; g.fillRect(x, y, 1, 1); }));
+  def.pixels.forEach((row, y) => [...row].forEach((ch, x) => { if (ch === '.') return; g.fillStyle = def.palette[iconAlphabet.indexOf(ch)]; g.fillRect(x, y, 1, 1); }));
   canvases.set(kind, c);
   return c;
 }
+
+/** Every icon definition, painted and world: the floor sprites (render/floor-items.ts) build their atlas from these. */
+export const iconDefs = icons;

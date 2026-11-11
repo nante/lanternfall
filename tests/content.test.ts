@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { Engine } from '../packages/game/src/engine.ts';
 import { buildTown } from '../packages/game/src/town.ts';
-import { Balance, Icons, RenderStyle, RegionMoods, missingIcons, balanceWarnings, xpCurveRises } from '../packages/game/src/content-schema.ts';
+import { Balance, Icons, ICON_SIZE, RenderStyle, RegionMoods, missingIcons, balanceWarnings, xpCurveRises } from '../packages/game/src/content-schema.ts';
 import { stylePresets } from '../packages/game/src/style-presets.ts';
 import { iconSvg } from '../packages/game/src/icon-svg.ts';
 import { fightScenarios, spellScenarios } from './m0-scenarios.ts';
@@ -71,10 +71,10 @@ test('the xp curve check covers every level, not just the first few hundred', ()
 
 test('icon renderer rejects pixels outside the palette', () => {
   const icons = Icons.parse(JSON.parse(readFileSync('content/icons.json', 'utf8')));
-  const broken = structuredClone(icons.sword);
-  broken.pixels[0] = 'z'.padEnd(16, '.');
-  assert.equal(Icons.safeParse({ sword: broken }).success, false);
-  assert.match(iconSvg(icons.sword), /^<svg/);
+  const broken = structuredClone(icons.shortsword);
+  broken.pixels[0] = 'z'.padEnd(ICON_SIZE, '.');
+  assert.equal(Icons.safeParse({ shortsword: broken }).success, false);
+  assert.match(iconSvg(icons.shortsword), /^<svg viewBox="0 0 24 24"/);
 });
 
 test('the saved look and every preset are valid render styles', () => {

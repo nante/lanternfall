@@ -1,4 +1,4 @@
-import { iconAlphabet, type IconDef } from '../../../packages/game/src/content-schema.ts';
+import { iconAlphabet, ICON_SIZE as S, type IconDef } from '../../../packages/game/src/content-schema.ts';
 import { iconSvg } from '../../../packages/game/src/icon-svg.ts';
 import { spellIds, uiIcons } from '../../../packages/game/src/ids.ts';
 import type { Store } from './store.ts';
@@ -7,7 +7,7 @@ import { decodePng, encodePng, download, pickFile, hex } from './png.ts';
 import type { View } from './balance.ts';
 
 type Tool = 'pencil' | 'eraser' | 'picker';
-const ZOOM = 24;
+const ZOOM = 16;
 
 export function iconsView(ctx: { store: Store; selected: string | null; select: (id: string) => void }): View {
   const store = ctx.store;
@@ -34,18 +34,18 @@ export function iconsView(ctx: { store: Store; selected: string | null; select: 
   search.addEventListener('input', drawList);
 
   // ---- canvas
-  const canvas = h('canvas', { width: 16 * ZOOM, height: 16 * ZOOM, class: 'pixels', 'aria-label': `Pixel editor for ${name}. Use the tools to draw.` });
+  const canvas = h('canvas', { width: S * ZOOM, height: S * ZOOM, class: 'pixels', 'aria-label': `Pixel editor for ${name}. Use the tools to draw.` });
   const g = canvas.getContext('2d')!;
   const draw = () => {
     const def = icons()[name];
-    for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) {
+    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
       const ch = def.pixels[y][x];
       g.fillStyle = (x + y) % 2 ? '#2a2724' : '#221f1d';
       g.fillRect(x * ZOOM, y * ZOOM, ZOOM, ZOOM);
       if (ch !== '.') { g.fillStyle = def.palette[iconAlphabet.indexOf(ch)]; g.fillRect(x * ZOOM, y * ZOOM, ZOOM, ZOOM); }
     }
     g.strokeStyle = 'rgba(255,240,220,.06)'; g.lineWidth = 1;
-    for (let i = 1; i < 16; i++) { g.beginPath(); g.moveTo(i * ZOOM + 0.5, 0); g.lineTo(i * ZOOM + 0.5, 16 * ZOOM); g.moveTo(0, i * ZOOM + 0.5); g.lineTo(16 * ZOOM, i * ZOOM + 0.5); g.stroke(); }
+    for (let i = 1; i < S; i++) { g.beginPath(); g.moveTo(i * ZOOM + 0.5, 0); g.lineTo(i * ZOOM + 0.5, S * ZOOM); g.moveTo(0, i * ZOOM + 0.5); g.lineTo(S * ZOOM, i * ZOOM + 0.5); g.stroke(); }
     previews.replaceChildren(
       h('figure', {}, h('div', { class: 'pv x1' }, svg(iconSvg(def))), h('figcaption', {}, '1×')),
       h('figure', {}, h('div', { class: 'pv x2' }, svg(iconSvg(def))), h('figcaption', {}, '2×')),
@@ -54,9 +54,9 @@ export function iconsView(ctx: { store: Store; selected: string | null; select: 
     const thumb = list.querySelector('[aria-pressed="true"] svg');
     if (thumb) thumb.replaceWith(svg(iconSvg(def)));
   };
-  const cellAt = (e: PointerEvent) => { const r = canvas.getBoundingClientRect(); return { x: Math.floor(((e.clientX - r.left) / r.width) * 16), y: Math.floor(((e.clientY - r.top) / r.height) * 16) }; };
+  const cellAt = (e: PointerEvent) => { const r = canvas.getBoundingClientRect(); return { x: Math.floor(((e.clientX - r.left) / r.width) * S), y: Math.floor(((e.clientY - r.top) / r.height) * S) }; };
   const paint = (x: number, y: number, pick: boolean) => {
-    if (x < 0 || y < 0 || x > 15 || y > 15) return;
+    if (x < 0 || y < 0 || x >= S || y >= S) return;
     const def = icons()[name], ch = def.pixels[y][x];
     if (pick || tool === 'picker') { if (ch !== '.') { colour = iconAlphabet.indexOf(ch); drawPalette(); } return; }
     const next = tool === 'eraser' ? '.' : iconAlphabet[colour];
@@ -100,12 +100,12 @@ export function iconsView(ctx: { store: Store; selected: string | null; select: 
     const file = await pickFile(); if (!file) return;
     try {
       const img = await decodePng(file);
-      if (img.width !== 16 || img.height !== 16) throw new Error(`Icons must be exactly 16×16; this image is ${img.width}×${img.height}.`);
+      if (img.width !== S || img.height !== S) throw new Error(`Icons must be exactly ${S}×${S}; this image is ${img.width}×${img.height}.`);
       const pal: string[] = [], rows: string[] = [];
-      for (let y = 0; y < 16; y++) {
+      for (let y = 0; y < S; y++) {
         let row = '';
-        for (let x = 0; x < 16; x++) {
-          const o = (y * 16 + x) * 4, a = img.data[o + 3];
+        for (let x = 0; x < S; x++) {
+          const o = (y * S + x) * 4, a = img.data[o + 3];
           if (a === 0) { row += '.'; continue; }
           if (a !== 255) throw new Error('Partial transparency found. Export with every pixel either fully opaque or fully transparent.');
           const c = hex(img.data[o], img.data[o + 1], img.data[o + 2]);
@@ -121,9 +121,9 @@ export function iconsView(ctx: { store: Store; selected: string | null; select: 
     } catch (e) { toast((e as Error).message, 'error'); }
   };
   const exportPng = async () => {
-    const def: IconDef = icons()[name], data = new Uint8ClampedArray(16 * 16 * 4);
-    def.pixels.forEach((row, y) => [...row].forEach((ch, x) => { if (ch === '.') return; const c = def.palette[iconAlphabet.indexOf(ch)]; const o = (y * 16 + x) * 4; data.set([parseInt(c.slice(1, 3), 16), parseInt(c.slice(3, 5), 16), parseInt(c.slice(5, 7), 16), 255], o); }));
-    download(await encodePng({ width: 16, height: 16, data }), `${name}.png`);
+    const def: IconDef = icons()[name], data = new Uint8ClampedArray(S * S * 4);
+    def.pixels.forEach((row, y) => [...row].forEach((ch, x) => { if (ch === '.') return; const c = def.palette[iconAlphabet.indexOf(ch)]; const o = (y * S + x) * 4; data.set([parseInt(c.slice(1, 3), 16), parseInt(c.slice(3, 5), 16), parseInt(c.slice(5, 7), 16), 255], o); }));
+    download(await encodePng({ width: S, height: S, data }), `${name}.png`);
   };
 
   const keys = (e: KeyboardEvent) => {

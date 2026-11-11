@@ -69,7 +69,7 @@
   "items": {
     "cudgel": {
       "name": "Ash cudgel",
-      "icon": "club",
+      "icon": "cudgel",
       "weight": 12,
       "buy": 8,
       "sell": 2,
@@ -79,7 +79,7 @@
     },
     "shortsword": {
       "name": "Iron shortsword",
-      "icon": "sword",
+      "icon": "shortsword",
       "weight": 16,
       "buy": 60,
       "sell": 18,
@@ -89,7 +89,7 @@
     },
     "hatchet": {
       "name": "Woodman's hatchet",
-      "icon": "axe",
+      "icon": "hatchet",
       "weight": 20,
       "buy": 140,
       "sell": 40,
@@ -118,7 +118,7 @@
     },
     "banded": {
       "name": "Banded shield",
-      "icon": "shield",
+      "icon": "banded",
       "weight": 22,
       "buy": 200,
       "sell": 60,
@@ -136,7 +136,7 @@
     },
     "coif": {
       "name": "Iron coif",
-      "icon": "helmet",
+      "icon": "coif",
       "weight": 12,
       "buy": 80,
       "sell": 22,
@@ -154,7 +154,7 @@
     },
     "jerkin": {
       "name": "Studded jerkin",
-      "icon": "armor",
+      "icon": "jerkin",
       "weight": 24,
       "buy": 120,
       "sell": 35,
@@ -172,7 +172,7 @@
     },
     "pack": {
       "name": "Canvas pack",
-      "icon": "bag",
+      "icon": "pack",
       "weight": 6,
       "buy": 15,
       "sell": 4,
@@ -197,7 +197,7 @@
     },
     "loaf": {
       "name": "Rye loaf",
-      "icon": "bread",
+      "icon": "loaf",
       "weight": 2,
       "buy": 3,
       "sell": 0,
@@ -265,7 +265,7 @@
     },
     "torch": {
       "name": "Torch",
-      "icon": "club",
+      "icon": "torch",
       "weight": 4,
       "buy": 8,
       "sell": 0,

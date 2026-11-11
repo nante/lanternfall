@@ -92,7 +92,7 @@ export const Balance = z.object({
   progression: Progression,
   world: World.default(defaultWorld),
   items: exhaustive(itemKinds, ItemDef).extend({
-    torch: ItemDef.default({ name: 'Torch', icon: 'club', weight: 4, buy: 8, sell: 0, slot: 'shield', defense: 0, light: 6 }),
+    torch: ItemDef.default({ name: 'Torch', icon: 'torch', weight: 4, buy: 8, sell: 0, slot: 'shield', defense: 0, light: 6 }),
   }),
   creatures: exhaustive(mobKinds, CreatureDef),
   spells: z.object({ mend: HealSpell, ember: AttackSpell, renew: HealSpell, cinderburst: AreaSpell }).strict(),
@@ -125,16 +125,37 @@ export type HealSpell = z.infer<typeof HealSpell>;
 export type AttackSpell = z.infer<typeof AttackSpell>;
 
 export const iconAlphabet = '123456789abcdefghijklmnopqrstuvwxyz';
-export const IconDef = z.object({
-  palette: z.array(z.string().regex(/^#[0-9a-f]{6}$/i, 'Colours are #rrggbb')).min(1).max(iconAlphabet.length),
-  pixels: z.array(z.string().length(16)).length(16),
+/** Icons are square, this many pixels a side: shown 1:1 with world pixels on the floor and at a whole-number scale in the HUD. */
+export const ICON_SIZE = 24;
+/** A world sprite's normal: the octahedral fold, 6 bits an axis, one character each. */
+export const normalAlphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+export const worldKinds = ['matte', 'metal', 'gem', 'glass', 'liquid', 'emissive'] as const;
+export type WorldKind = (typeof worldKinds)[number];
+const colour = z.string().regex(/^#[0-9a-f]{6}$/i, 'Colours are #rrggbb');
+const indexed = (rows: string[], palette: string[], ctx: z.RefinementCtx, path: string) => rows.forEach((row, y) => [...row].forEach((ch, x) => {
+  if (ch === '.') return;
+  const i = iconAlphabet.indexOf(ch);
+  if (i < 0 || i >= palette.length) ctx.addIssue({ code: 'custom', path: [path, y], message: `Pixel ${x},${y} uses "${ch}", which is not in the palette` });
+}));
+/**
+ * How an item looks lying in the world: albedo only (no painted light), a surface normal per pixel and a material kind
+ * per colour, so the scene lights it. Written by tools/icons; the Studio edits the painted icon, not this.
+ */
+export const WorldSprite = z.object({
+  palette: z.array(colour).min(1).max(iconAlphabet.length),
+  kinds: z.array(z.enum(worldKinds)),
+  pixels: z.array(z.string().length(ICON_SIZE)).length(ICON_SIZE),
+  normals: z.array(z.string().length(ICON_SIZE * 2).regex(/^[A-Za-z0-9_.-]*$/)).length(ICON_SIZE),
 }).strict().superRefine((d, ctx) => {
-  d.pixels.forEach((row, y) => [...row].forEach((ch, x) => {
-    if (ch === '.') return;
-    const i = iconAlphabet.indexOf(ch);
-    if (i < 0 || i >= d.palette.length) ctx.addIssue({ code: 'custom', path: ['pixels', y], message: `Pixel ${x},${y} uses "${ch}", which is not in the palette` });
-  }));
+  if (d.kinds.length !== d.palette.length) ctx.addIssue({ code: 'custom', path: ['kinds'], message: 'One kind per palette colour' });
+  indexed(d.pixels, d.palette, ctx, 'pixels');
 });
+export const IconDef = z.object({
+  palette: z.array(colour).min(1).max(iconAlphabet.length),
+  pixels: z.array(z.string().length(ICON_SIZE)).length(ICON_SIZE),
+  world: WorldSprite.optional(),
+}).strict().superRefine((d, ctx) => indexed(d.pixels, d.palette, ctx, 'pixels'));
+export type WorldSprite = z.infer<typeof WorldSprite>;
 export const Icons = z.record(z.string().regex(/^[a-z][a-z0-9]*$/), IconDef);
 export type IconDef = z.infer<typeof IconDef>;
 export type Icons = z.infer<typeof Icons>;
