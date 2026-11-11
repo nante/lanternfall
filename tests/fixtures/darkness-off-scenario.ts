@@ -12,6 +12,8 @@ export function darknessOffScenario(): GameView[] {
   try {
     const balance = structuredClone(defaultBalance);
     Object.assign(balance.world, { darkness: false });
+    // The baseline was recorded with the rat's loot of that time; content changes to loot must not move it.
+    balance.creatures.gutterRat.loot = [{ item: 'tail', chance: 0.6 }, { item: 'loaf', chance: 0.08 }];
     const e = new Engine(buildTown(), balance);
     e.state.rng = 4242;
     e.state.time = 1_700_000;
