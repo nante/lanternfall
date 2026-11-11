@@ -3,7 +3,7 @@
 import { equipSlots, type GameItem, type ItemKind } from '../../../../packages/game/src/model.ts';
 import { icon } from '../icons.ts';
 import { core, equipKey, findItem, groundKey, isCarried, itemDef, kids, vaultKey } from './core.ts';
-import { esc, glyph } from './kit.ts';
+import { esc } from './kit.ts';
 import { openMenu, type Entry, type Menu } from './menu.ts';
 import { closeTip, showTip } from './tooltip.ts';
 import { statusLine } from './overlay.ts';
@@ -13,7 +13,7 @@ import { dragItem, dragSuppressesClick } from './drag.ts';
 /** A framed slot; empty slots on the doll show a faint picture of what goes there. */
 export function cellHtml(i: GameItem | undefined, parent: string, slot: number, placeholder = '') {
   const attrs = `class="cell${i ? '' : ' empty'}" data-parent="${esc(parent)}" data-slot="${slot}"`;
-  if (!i) return `<div ${attrs}>${placeholder ? glyph(placeholder, 'ph') : ''}</div>`;
+  if (!i) return `<div ${attrs}>${placeholder ? `<span class="ph">${icon(placeholder)}</span>` : ''}</div>`;
   const d = itemDef(i.kind);
   return `<div ${attrs}><button type="button" class="item" data-id="${i.id}" aria-label="${esc(d.name)}${i.count > 1 ? ` × ${i.count}` : ''}">${icon(d.icon)}${i.count > 1 ? `<span class="n num">${i.count}</span>` : ''}</button></div>`;
 }

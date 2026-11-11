@@ -20,10 +20,9 @@ export const statusWindow: WinSpec = {
   render(body) {
     const v = core.view!, s = v.self, st = stats(v), lo = rules.xpAt(st.level), hi = rules.xpAt(st.level + 1), f = flags();
     const pct = Math.floor(((s.xp - lo) / (hi - lo)) * 100);
-    patch(body, `<div class="st-id"><b class="st-name" title="${esc(s.name)}">${esc(s.name)}</b><span class="st-lvl">Level <b class="num">${st.level}</b></span></div>`
+    patch(body, `<div class="st-id"><b class="st-name" title="${esc(s.name)}">${esc(s.name)}</b><ul class="st-flags" aria-label="Conditions">${f.map(x => `<li tabindex="0" data-flag="${x.id}" aria-label="${esc(x.label)}: ${esc(x.tip)}">${art(x.art)}</li>`).join('')}</ul></div>`
       + `<div class="st-bars">${bar('hp', s.hp, st.maxHp, 'Health', `${Math.max(0, s.hp)}/${st.maxHp}`)}${bar('mp', s.mana, st.maxMana, 'Mana', `${Math.max(0, s.mana)}/${st.maxMana}`)}</div>`
-      + `<div class="st-xp" title="${(hi - s.xp).toLocaleString('en')} experience to level ${st.level + 1}">${bar('xp', s.xp - lo, hi - lo, 'Experience to the next level')}<span class="num">${pct}%</span></div>`
-      + `<ul class="st-flags" aria-label="Conditions">${f.map(x => `<li tabindex="0" data-flag="${x.id}" aria-label="${esc(x.label)}: ${esc(x.tip)}">${art(x.art)}</li>`).join('')}</ul>`);
+      + `<div class="st-xp" title="${(hi - s.xp).toLocaleString('en')} experience to level ${st.level + 1}"><span class="st-lvl">Level <b class="num">${st.level}</b></span>${bar('xp', s.xp - lo, hi - lo, 'Experience to the next level')}<span class="num">${pct}%</span></div>`);
   },
 };
 document.addEventListener('pointerover', e => {

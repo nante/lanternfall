@@ -22,7 +22,7 @@ type Saved = { layouts: Partial<Record<ChromeLayout, Layout>>; heights: Record<s
 const BAGS = '@bags';
 const KEY = 'lanternfall.column.v2';
 const zoneNames: Record<string, string> = { side: 'side column', left: 'left column', right: 'right column' };
-const FOOT = { min: 56, max: 220, def: 92 };
+const FOOT = { min: 64, max: 240, def: 104 };
 
 export class Column {
   id: ChromeLayout = 'classic';
@@ -37,7 +37,7 @@ export class Column {
   private drag: null | { id: string; el: HTMLElement; ph?: HTMLElement; x: number; y: number; pointer: number } = null;
   private resize: null | { kind: 'panel' | 'foot'; id: string; start: number; from: number; pointer: number } = null;
 
-  constructor(private o: { root: HTMLElement; viewport: HTMLElement; footer: HTMLElement; labels: HTMLElement; statics: Record<string, WinSpec>; defaults: Record<ChromeLayout, Layout>; collapsedByDefault: string[]; onViewportResize: () => void }) {
+  constructor(private o: { root: HTMLElement; viewport: HTMLElement; footer: HTMLElement; labels: HTMLElement; statics: Record<string, WinSpec | (() => WinSpec)>; defaults: Record<ChromeLayout, Layout>; collapsedByDefault: string[]; onViewportResize: () => void; canDraw: () => boolean }) {
     const saved = this.read();
     const ids = Object.keys(o.defaults) as ChromeLayout[];
     const all = (l: Layout) => Object.values(l).flat().sort().join();
@@ -80,7 +80,7 @@ export class Column {
       for (const w of this.wins.values()) w.el.remove();
     }
     root.style.setProperty('--foot', String(this.foot[this.id] ?? FOOT.def));
-    const specs = new Map<string, WinSpec>([...Object.entries(this.o.statics), ...this.dynamic.map(d => [d.id, d] as const)]);
+    const specs = new Map<string, WinSpec>([...Object.entries(this.o.statics).map(([k, v]) => [k, typeof v === 'function' ? v() : v] as const), ...this.dynamic.map(d => [d.id, d] as const)]);
     for (const [z, list] of Object.entries(L)) {
       const zoneEl = root.querySelector<HTMLElement>(`.zone[data-zone="${z}"]`)!;
       const order = list.flatMap(id => (id === BAGS ? this.dynamic.map(d => d.id) : [id]));
@@ -88,13 +88,13 @@ export class Column {
       for (const id of order) {
         const el = this.ensure(specs.get(id)!);
         if (this.drag?.id === id && this.drag.ph) { prev = this.drag.ph; continue; }
-        const want = prev ? prev.nextElementSibling : zoneEl.firstElementChild;
+        const want: Element | null = prev ? prev.nextElementSibling : zoneEl.firstElementChild;
         if (want !== el || el.parentElement !== zoneEl) { if (prev) prev.after(el); else zoneEl.prepend(el); }
         prev = el;
       }
     }
     for (const [id, w] of this.wins) if (!specs.has(id)) { w.el.remove(); this.wins.delete(id); }
-    for (const w of this.wins.values()) if (!this.collapsed.has(w.spec.id)) w.spec.render(w.body);
+    if (this.o.canDraw()) for (const w of this.wins.values()) if (!this.collapsed.has(w.spec.id)) w.spec.render(w.body);
     this.place();
   }
 
@@ -125,7 +125,9 @@ export class Column {
   /** Clip world labels to the view, and set the console splitter over the console's top edge. */
   private place() {
     const vr = this.o.viewport.getBoundingClientRect();
-    this.o.labels.style.clipPath = `inset(${vr.top}px ${innerWidth - vr.right}px ${innerHeight - vr.bottom}px ${vr.left}px)`;
+    const clip = `inset(${vr.top}px ${innerWidth - vr.right}px ${innerHeight - vr.bottom}px ${vr.left}px)`;
+    this.o.labels.style.clipPath = clip;
+    const fx = document.getElementById('fx'); if (fx) fx.style.clipPath = clip;
     const split = this.o.root.querySelector<HTMLElement>('.split'), fr = this.o.footer.getBoundingClientRect();
     if (split) Object.assign(split.style, { left: `${fr.left}px`, width: `${fr.width}px`, top: `${fr.top - 3 * grid.u}px` });
   }
@@ -134,7 +136,7 @@ export class Column {
     const L = this.layouts[this.id];
     for (const list of Object.values(L)) { const i = list.indexOf(id); if (i >= 0) list.splice(i, 1); }
     L[z].splice(Math.max(0, Math.min(index, L[z].length)), 0, id);
-    this.say(`${this.o.statics[id]?.title ?? id} moved to position ${L[z].indexOf(id) + 1} of ${L[z].length}.`);
+    this.say(`${this.wins.get(id)?.spec.title ?? id} moved to position ${L[z].indexOf(id) + 1} of ${L[z].length}.`);
   }
 
   private wire() {

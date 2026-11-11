@@ -1,6 +1,6 @@
 // The shared kit every HUD window builds from: the UI pixel grid, markup helpers and the few drawn parts (bars, buttons,
 // banners) so no window invents its own.
-import { icon } from '../icons.ts';
+import { ICON_SIZE } from '../../../../packages/game/src/content-schema.ts';
 
 export const $ = <T extends HTMLElement = HTMLElement>(sel: string, root: ParentNode = document) => { const n = root.querySelector(sel); if (!n) throw Error(`Missing ${sel}`); return n as T; };
 export const esc = (s: string) => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
@@ -11,8 +11,8 @@ const rendered = new WeakMap<Element, string>();
 export function patch(el: Element, html: string) { if (rendered.get(el) === html) return false; rendered.set(el, html); el.innerHTML = html; return true; }
 export function forget(el: Element) { rendered.delete(el); }
 
-/** Item icons are square; their size comes from the icons themselves, so the cells follow when the icon set changes. */
-export const ICON = Number(/viewBox="0 0 (\d+)/.exec(icon('gold'))?.[1] ?? 16);
+/** Item icons are square, ICON UI pixels a side; cells and the column follow it. */
+export const ICON = ICON_SIZE;
 
 // ---------------------------------------------------------------- the UI pixel grid
 /** One UI pixel in CSS pixels, chosen so it is a whole number of device pixels. */

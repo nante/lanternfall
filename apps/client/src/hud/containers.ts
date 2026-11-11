@@ -76,6 +76,12 @@ export function closeNewest() {
   return false;
 }
 export const anyOpen = () => wins.length > 0;
+/** The worn pack, open in a window (at the start of play). */
+export function openPack() {
+  const v = core.view; if (!v) return;
+  const pack = kids(v, equipKey(v)).find(i => i.slot === equipSlots.indexOf('pack'));
+  if (pack) openContainer({ kind: 'item', id: pack.id });
+}
 export function togglePack() {
   const v = core.view; if (!v) return;
   const pack = kids(v, equipKey(v)).find(i => i.slot === equipSlots.indexOf('pack'));
