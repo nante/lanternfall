@@ -16,7 +16,7 @@ import { clockAt, lightGrid, lightLevel, lightPasses, staticSources } from '../.
 import { fieldUniforms } from '../../src/render/lightfield.ts';
 import { startLab, places } from './harness.ts';
 
-const tabs = { light: 'Light', figures: 'Figures', scenery: 'Scenery', darkness: 'Darkness' } as const;
+const tabs = { light: 'Light', figures: 'Figures', scenery: 'Scenery', darkness: 'Darkness', items: 'Items' } as const;
 /** Each prototype tab can add its own pickers. A module exports `mount(ctx)`; see tabs/README.md. */
 export type TabContext = { view: WorldView; lab: ReturnType<typeof startLab>; url: URL; picks: HTMLElement; write: (reload: boolean) => void };
 const tabMounts: Partial<Record<string, () => Promise<{ mount: (ctx: TabContext) => void }>>> = import.meta.glob('./tabs/*.ts') as never;

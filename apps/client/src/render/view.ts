@@ -23,6 +23,8 @@ import { clockAt, lightLevel, lightPasses, outdoorAmbient, staticSources, type C
 import { prefersReducedMotion } from './feel.ts';
 import { postVertex, postFragment, blitFragment } from './post.ts';
 import { Mood, moodUniforms } from './mood.ts';
+import { FloorItems } from './floor-items.ts';
+import { iconDefs } from '../icons.ts';
 /** Flame flicker is motion: off when the viewer asks for reduced motion. */
 const REDUCED_MOTION = prefersReducedMotion();
 
@@ -62,8 +64,7 @@ export class WorldView {
   readonly sun = new THREE.DirectionalLight('#ffb06a', 4.4);
   readonly sky = new THREE.HemisphereLight('#7aaab4', '#34443a', 1.9);
   readonly glows: THREE.Sprite[] = [];
-  readonly groundItems = new Map<string, THREE.Sprite>();
-  private itemMats = new Map<string, THREE.SpriteMaterial>();
+  readonly floorItems = new FloorItems(iconDefs);
   itemIcon: (kind: string) => HTMLCanvasElement | null = () => null;
   /** Return true to take over a press (e.g. start dragging an item off the floor). */
   beforePick: (tile: Pos, e: PointerEvent) => boolean = () => false;
@@ -226,7 +227,7 @@ export class WorldView {
     this.targetRing = new THREE.LineSegments(square(0.98, 0.03), new THREE.LineBasicMaterial({ color: '#ff6a4a' }));
     this.targetRing.visible = false;
     this.routeLine = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: '#ffe2a8', transparent: true, opacity: 0.35 }));
-    this.scene.add(this.marker, this.targetRing, this.routeLine);
+    this.scene.add(this.marker, this.targetRing, this.routeLine, this.floorItems.group);
 
     this.setFloor(0, {});
     canvas.addEventListener('pointerdown', e => { canvas.focus({ preventScroll: true }); if (e.button === 0 || e.button === 2) this.click(e); });
@@ -490,42 +491,23 @@ export class WorldView {
     if (prev?.self.z !== view.self.z) this.center.set(view.self.x, 0, view.self.y);
   }
 
-  /** Items lying on tiles: the top three of each pile, drawn as pixel-icon sprites. */
+  /** Items lying on tiles: the top three of each pile, lit by the scene (render/floor-items.ts). */
   private drawGround(view: GameView) {
     const piles = new Map<string, GameView['ground']>();
     for (const i of view.ground) { const l = piles.get(i.parent) ?? []; l.push(i); piles.set(i.parent, l); }
-    const live = new Set<string>();
+    const live = new Set<string>(), rule = !!(view as GameView & { world?: { darkness: boolean } }).world?.darkness;
     for (const [parent, items] of piles) {
       const [x, y] = parent.slice(7).split(',').map(Number);
+      // Under the darkness rule loot is hidden where it is dark, unless our hero stands beside it.
+      const near = Math.max(Math.abs(x - view.self.x), Math.abs(y - view.self.y)) <= 1;
+      const seen = !rule || near || lightLevel(this.map, { x, y, z: this.floor }, this.lastSources, view.doors, this.clock) > 0;
       items.sort((a, b) => a.slot - b.slot).slice(-3).forEach((it, k, top) => {
         live.add(it.id);
-        let s = this.groundItems.get(it.id);
-        if (!s || s.userData.kind !== it.kind) {
-          if (s) this.scene.remove(s);
-          let shared = this.itemMats.get(it.kind);
-          if (!shared) {
-            const icon = this.itemIcon(it.kind);
-            const tex = icon ? new THREE.CanvasTexture(icon) : null;
-            if (tex) { tex.magFilter = tex.minFilter = THREE.NearestFilter; tex.colorSpace = THREE.SRGBColorSpace; tex.generateMipmaps = false; }
-            shared = new THREE.SpriteMaterial({ map: tex, alphaTest: 0.5, color: '#f2ece0' });
-            this.itemMats.set(it.kind, shared);
-          }
-          // Each pile takes the light at its own tile, so the material is per sprite.
-          s = new THREE.Sprite(shared.clone()); s.scale.set(0.62, 0.62, 1); s.userData.kind = it.kind;
-          this.scene.add(s); this.groundItems.set(it.id, s);
-        }
-        // Loot takes the rule's light at its tile: hidden where it is dark, dim where it is dim.
-        const lv = this.view ? lightLevel(this.map, { x, y, z: this.floor }, this.lastSources, view.doors, this.clock) : 7;
-        const near = Math.max(Math.abs(x - view.self.x), Math.abs(y - view.self.y)) <= 1;
-        const rule = !!(view as GameView & { world?: { darkness: boolean } }).world?.darkness;
-        s.visible = !rule || lv > 0 || near;
-        (s.material as THREE.SpriteMaterial).color.set('#f2ece0').multiplyScalar([0.25, 0.4, 0.62, 0.74, 0.84, 0.92, 1, 1][lv]);
         const depth = top.length - 1 - k;
-        s.position.set(x - 0.08 * depth, 0.3 + 0.02 * k, y - 0.08 * depth);
-        s.renderOrder = k;
+        this.floorItems.place(it.id, defaultBalance.items[it.kind]?.icon ?? it.kind, x - 0.1 * depth, y - 0.08 * depth, k, seen);
       });
     }
-    for (const [id, s] of this.groundItems) if (!live.has(id)) { this.scene.remove(s); this.groundItems.delete(id); }
+    this.floorItems.keep(live);
   }
   private nearestLights() {
     const f = this.floors[this.floor]; if (!f) return;

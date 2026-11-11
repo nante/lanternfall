@@ -34,7 +34,7 @@ export function setSpriteLight(key: Key, sunDir: THREE.Vector3, cave: boolean, w
  * One sprite texel lands on one render pixel: the plane is placed in tiles from texel offsets at the sheet's density
  * (`uPx` texels per tile), and in the orthographic stops the feet snap to a pixel corner.
  */
-const vertex = /* glsl */`
+export const spriteVertex = /* glsl */`
 ${fieldVertex}
 #include <fog_pars_vertex>
 uniform vec4 uRect; uniform vec2 uAnchor; uniform vec3 uFoot; uniform float uFront; uniform float uTilt; uniform vec2 uRes; uniform float uPx;
@@ -81,13 +81,8 @@ vec3 normalOf(vec4 t) {
   return normalize(n);
 }`;
 
-const fragment = /* glsl */`
-${fieldFragment}
-${atlasRead}
-uniform vec4 uRect; uniform vec3 uFoot;
-uniform vec3 uSunDir; uniform vec3 uSunCol; uniform vec3 uSky; uniform vec3 uGround; uniform float uFlash; uniform float uDim; uniform float uSelf; uniform float uYaw; uniform float uGhost;
-varying vec2 vTex;
-#include <fog_pars_fragment>
+/** Shared with floor items (render/floor-items.ts): the three light steps and where the light field's light comes from. */
+export const spriteLightChunk = /* glsl */`
 // Three steps of light, so faces turn in clusters like painted pixels instead of smooth gradients.
 float band(float x) { return x < 0.12 ? 0.0 : x < 0.5 ? 0.55 : 1.0; }
 // Where the field's light comes from at p: the sum of directions to every source that reaches the tile, by strength.
@@ -105,6 +100,16 @@ vec3 fieldDir(vec2 p) {
   }
   return length(dir) > 1e-3 ? normalize(dir) : vec3(0.0, 1.0, 0.0);
 }
+`;
+
+const fragment = /* glsl */`
+${fieldFragment}
+${atlasRead}
+uniform vec4 uRect; uniform vec3 uFoot;
+uniform vec3 uSunDir; uniform vec3 uSunCol; uniform vec3 uSky; uniform vec3 uGround; uniform float uFlash; uniform float uDim; uniform float uSelf; uniform float uYaw; uniform float uGhost;
+varying vec2 vTex;
+#include <fog_pars_fragment>
+${spriteLightChunk}
 void main() {
   vec2 t = floor(vTex) + 0.5;
   vec4 tx = texture2D(uColor, (uRect.xy + t) / uAtlas);
@@ -204,7 +209,7 @@ export class SpriteBody {
     const own = { uRect: { value: new THREE.Vector4() }, uAnchor: { value: new THREE.Vector2() }, uFoot: { value: new THREE.Vector3() }, uFront: { value: 0 }, uTilt: { value: 0 }, uFlash: { value: 0 }, uDim: { value: 0 }, uSelf: { value: 0 }, uGhost: { value: 0 }, uPx: { value: sheet.atlas.px } };
     this.u = own;
     const mat = new THREE.ShaderMaterial({
-      vertexShader: vertex, fragmentShader: fragment, side: THREE.DoubleSide, fog: true,
+      vertexShader: spriteVertex, fragmentShader: fragment, side: THREE.DoubleSide, fog: true,
       uniforms: { ...fieldUniforms, ...spriteLight, ...THREE.UniformsLib.fog, fogBand: { value: fogBand }, uColor: { value: sheet.color }, uPalette: { value: paletteTexture }, uAtlas: { value: atlasSize }, ...own },
     });
     this.mesh = new THREE.Mesh(quad, mat);
