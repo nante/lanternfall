@@ -112,9 +112,11 @@ const net = new Net({
   closed: reason => { hud.dataset.ready = 'false'; showGate(reason); },
 });
 /** Where actions go: the server, or the local engine in the Studio preview. */
-let send: (a: Action) => void = a => { net.send(a); };
-// Dev builds expose the view and the action sender, so a probe can drive and measure the real game.
-if (import.meta.env.DEV) Object.assign(window, { __game: { world, send: (a: Action) => send(a), notice: (n: Notice) => addLog(n) } });
+let route: (a: Action) => void = a => { net.send(a); };
+let tap: ((a: Action) => void) | undefined;
+const send = (a: Action) => { tap?.(a); route(a); };
+// Dev builds expose the view, the action sender, a tap on every action sent and a way to post a notice, so a probe can drive and check the real game.
+if (import.meta.env.DEV) Object.assign(window, { __game: { world, send, notice: (n: Notice) => addLog(n), tap: (f?: (a: Action) => void) => { tap = f; } } });
 
 // ---------------------------------------------------------------- chrome: the HUD frame (layout picked in the Studio's Look tab)
 const panels: Record<string, PanelDef> = {
@@ -207,7 +209,7 @@ if (previewScene !== null) {
   // Studio Look tab: no server. A local engine plays a scene through the real HUD, and the Studio streams style and layout changes in.
   $('#gate').hidden = true;
   hud.dataset.ready = 'true';
-  const play = (scene: string) => { view = undefined; log.length = 0; $('#log-lines').innerHTML = ''; const p = startPreview(map, scene, { view: onView, notice: addLog }, params.has('dark')); send = a => p.send(a); };
+  const play = (scene: string) => { view = undefined; log.length = 0; $('#log-lines').innerHTML = ''; const p = startPreview(map, scene, { view: onView, notice: addLog }, params.has('dark')); route = a => p.send(a); };
   play(previewScene);
   addEventListener('message', e => {
     if (!/^http:\/\/(127\.0\.0\.1|localhost):4174$/.test(e.origin)) return;
