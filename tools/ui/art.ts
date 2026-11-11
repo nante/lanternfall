@@ -25,7 +25,7 @@ function svg(art: string[]) {
       x += n;
     }
   });
-  return `url("data:image/svg+xml,${`<svg xmlns='http://www.w3.org/2000/svg' width='${w}' height='${h}' viewBox='0 0 ${w} ${h}' shape-rendering='crispEdges'>${rects}</svg>`.replace(/[<>#%"]/g, encodeURIComponent)}")`;
+  return `url("data:image/svg+xml,${`<svg xmlns='http://www.w3.org/2000/svg' width='${w}' height='${h}' viewBox='0 0 ${w} ${h}' preserveAspectRatio='none' shape-rendering='crispEdges'>${rects}</svg>`.replace(/[<>#%"]/g, encodeURIComponent)}")`;
 }
 
 const art: Record<string, string[]> = {};

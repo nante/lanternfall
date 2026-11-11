@@ -35,13 +35,13 @@ function figureArt() {
   const c = ICON + 4, g = 2, half = (c + g) / 2, w = 3 * c + 2 * g, h = 8 * half;
   const r = (x: number, y: number, rw: number, rh: number) => `<rect x='${Math.round(x)}' y='${Math.round(y)}' width='${Math.round(rw)}' height='${Math.round(rh)}'/>`;
   const cx = w / 2;
-  const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='${w}' height='${h}' shape-rendering='crispEdges' fill='%231e2646'>`
+  const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='${w}' height='${h}' preserveAspectRatio='none' shape-rendering='crispEdges' fill='%231e2646'>`
     + r(cx - c * 0.15, c, c * 0.3, half) // neck
     + r(c * 0.5, half * 3 - 2, w - c, 4) // shoulders
     + r(c * 0.4, half * 3, 4, half * 2) + r(w - c * 0.4 - 4, half * 3, 4, half * 2) // arms
     + r(cx - c * 0.35, half * 4 + c, c * 0.25, half * 3) + r(cx + c * 0.1, half * 4 + c, c * 0.25, half * 3) // legs
     + '</svg>';
-  figure = `url("data:image/svg+xml,${svg.replace(/[<>#"]/g, encodeURIComponent)}")`;
+  figure = `url('data:image/svg+xml,${svg.replace(/[<>#"']/g, c => (c === "'" ? '%27' : encodeURIComponent(c)))}')`;
   return figure;
 }
 
