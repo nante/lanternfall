@@ -27,7 +27,7 @@ export function startPreview(map: MapData, sceneId: string, out: { view: (v: Gam
   const hunt = (p: Hero) => {
     if (!scene.prey || (p.target && e.state.monsters[p.target]?.hp)) return;
     const m = Object.values(e.state.monsters).filter(m => m.hp > 0 && m.kind === scene.prey && m.z === p.z).sort((a, b) => distance(a, p) - distance(b, p))[0];
-    if (m && distance(m, p) < 14) e.action(p, { kind: 'target', id: m.id });
+    if (m && distance(m, p) < 14) try { e.action(p, { kind: 'target', id: m.id }); } catch { /* refused: out of sight */ }
   };
   timer = window.setInterval(() => {
     for (const p of [hero, ...friends]) { hunt(p); const s = e.stats(p); if (p.hp < s.maxHp * 0.4) p.hp = s.maxHp; p.fed = 60_000; }

@@ -1,15 +1,18 @@
 import {
-  type Action, type State, type Hero, type Mob, type Pos, type GameItem, type ItemKind, type Notice, type GameView, type MapData, type Effect, type NpcSpawn, type SpellId, type Shade, type PublicHero, type Worn,
+  type Action, type State, type Hero, type Mob, type Body, type Pos, type GameItem, type ItemKind, type Notice, type GameView, type MapData, type Effect, type NpcSpawn, type SpellId, type Shade, type PublicHero, type Worn,
   key, distance, equipSlots, stackMax, T, G,
 } from './model.ts';
 import { Geography } from './world.ts';
+import { GameError } from './errors.ts';
+export { GameError };
 import type { Balance } from './content-schema.ts';
 import { createRules, type Rules } from './rules.ts';
 import { grounds, things } from './ids.ts';
 import { clockAt, lightLevel, lightPasses, perceive, sourceLevelAt, staticSources, type LightSource } from './light.ts';
 
 const uid = () => crypto.randomUUID();
-export class GameError extends Error {}
+const healSpread = 20, manaSpread = 15;
+const greeting = /^(?:hi|hello|hey|greetings)\b[\s,!.]*(.*?)[\s!.?]*$/;
 /** Items lying on a tile have the parent "ground:x,y,z". */
 export const groundKey = (p: Pos) => `ground:${p.x},${p.y},${p.z}`;
 export function groundPos(parent: string): Pos | null {
@@ -37,6 +40,7 @@ export class Engine {
   private torchCache?: { time: number; carriers: string[] };
   /** Light level per tile, shared by every viewer within a tick; keyed on the carriers' positions so a step mid-tick refreshes it. */
   private lightMemo?: { key: string; levels: Map<number, number> };
+  private roomNoticeAt = new Map<string, number>();
   constructor(readonly map: MapData, balance: Balance, public state: State = emptyState()) {
     this.balance = balance;
     this.rules = createRules(balance);
@@ -75,8 +79,15 @@ export class Engine {
     if (root === `equip:${p.id}`) return true;
     if (root === `vault:${p.id}`) return distance(p, this.map.vault) <= 2;
     const corpse = this.state.corpses[root];
-    if (corpse) return corpse.stage < 2 && distance(p, corpse) <= 1 && (corpse.owner === p.id || this.state.time >= corpse.protectedUntil);
+    if (corpse) return corpse.stage < 2 && distance(p, corpse) <= 1 && (corpse.owner === p.id || this.state.time >= corpse.protectedUntil)
+      && this.topCorpse(corpse) === corpse && !this.occupied(corpse, p.id);
     return false;
+  }
+  /** Corpses on one tile stack: the one that landed last (latest `born`, then greatest id) lies on top. */
+  topCorpse(at: Pos) {
+    let top: Body | undefined;
+    for (const c of Object.values(this.state.corpses)) if (distance(c, at) === 0 && (!top || c.born > top.born || (c.born === top.born && c.id > top.id))) top = c;
+    return top;
   }
   access(p: Hero, id: string) { const item = this.state.items[id]; return this.canReach(p, item ? this.root(item) : id); }
   freeSlot(parent: string) { const max = this.capacityOf(parent), used = new Set(this.children(parent).map(i => i.slot)); for (let i = 0; i < max; i++) if (!used.has(i)) return i; return -1; }
@@ -115,7 +126,8 @@ export class Engine {
     if (dest && !this.rules.item(dest.kind).slots) throw new GameError('That is not a container.');
     if (a.slot >= this.capacityOf(a.parent)) throw new GameError('There is no room there.');
     if (a.parent.startsWith('equip:') && equipSlots.indexOf(def.slot ?? ('none' as never)) !== a.slot) throw new GameError(`The ${def.name.toLowerCase()} does not go there.`);
-    if (this.state.corpses[a.parent] && this.root(i) !== a.parent) throw new GameError('You cannot put things into a corpse.');
+    const from = this.root(i), to = dest ? this.root(dest) : a.parent;
+    if (this.state.corpses[to] && from !== to) throw new GameError('You cannot put things into a corpse.');
     const other = this.children(a.parent).find(j => j.slot === a.slot && j.id !== i.id);
     const n = Math.min(i.count, a.count);
     const before = this.weight(p);
@@ -126,7 +138,7 @@ export class Engine {
         if (!moved) throw new GameError('That stack is full.');
         other.count += moved; other.version++; i.count -= moved; i.version++; if (!i.count) delete this.state.items[i.id];
       }
-      else if (n === i.count) { other.parent = i.parent; other.slot = i.slot; other.version++; i.parent = a.parent; i.slot = a.slot; i.version++; if (other.parent.startsWith('equip:') && equipSlots.indexOf(this.rules.item(other.kind).slot ?? ('none' as never)) !== other.slot) throw new GameError('Those items cannot swap places.'); }
+      else if (n === i.count) { if (this.state.corpses[from] && from !== to) throw new GameError('You cannot put things into a corpse.'); other.parent = i.parent; other.slot = i.slot; other.version++; i.parent = a.parent; i.slot = a.slot; i.version++; if (other.parent.startsWith('equip:') && equipSlots.indexOf(this.rules.item(other.kind).slot ?? ('none' as never)) !== other.slot) throw new GameError('Those items cannot swap places.'); }
       else throw new GameError('That slot is taken.');
     } else if (n < i.count) { i.count -= n; i.version++; this.add(i.kind, a.parent, a.slot, n); }
     else { i.parent = a.parent; i.slot = a.slot; i.version++; }
@@ -140,25 +152,33 @@ export class Engine {
     if (g === G.void || g === G.water) return false;
     return [T.none, T.flowers, T.table, T.counter, T.bed, T.stump].includes(t);
   }
-  /** Drop or throw an item onto a tile: within throw range and sight, on the same floor. It lands on top of the pile. */
+  /**
+   * Drop or throw an item onto a tile: within throw range and sight, on the same floor. It lands on top of the pile,
+   * merging only with a top stack of its own kind, and keeps its id unless only part of it moved.
+   */
   dropOnGround(p: Hero, i: GameItem, to: Pos, count: number) {
     const w = this.balance.world, key = groundKey(to);
     if (to.z !== p.z || distance(p, to) > w.throwRange) throw new GameError('That is too far away to throw.');
-    if (!this.geo.sight(p, to)) throw new GameError('You cannot throw there.');
+    if (!this.geo.sight(p, to, this.state.doors)) throw new GameError('You cannot throw there.');
     if (!this.canHoldItems(to)) throw new GameError('There is no room there.');
-    const pile = this.children(key).filter(j => j.id !== i.id);
+    const pile = this.children(key).filter(j => j.id !== i.id), under = pile.at(-1);
+    const merge = under && under.kind === i.kind && this.rules.item(i.kind).stack ? under : undefined;
     let n = Math.min(i.count, count);
     if (pile.length >= w.tileItemLimit) {
-      // Full tile: only what fits on matching stacks lands; the rest stays where it was.
-      const room = this.rules.item(i.kind).stack ? pile.filter(j => j.kind === i.kind).reduce((r, j) => r + stackMax - j.count, 0) : 0;
+      // Full tile: only what fits on the top stack lands; the rest stays where it was.
+      const room = merge ? stackMax - merge.count : 0;
       if (!room) throw new GameError('There is no room there.');
       n = Math.min(n, room);
     }
-    const top = pile.length ? pile[pile.length - 1].slot + 1 : 0;
-    if (i.parent === key && n === i.count) { i.slot = top; i.version++; this.assertItems(); return; }
-    if (n < i.count) { i.count -= n; i.version++; this.add(i.kind, key, top, n); }
-    else { i.parent = key; i.slot = top; i.version++; }
-    if (this.rules.item(i.kind).stack) this.stackInto(key, i.kind);
+    const whole = n === i.count, top = under ? under.slot + 1 : 0;
+    if (merge && whole && merge.count + n <= stackMax) {
+      i.count += merge.count; i.parent = key; i.slot = merge.slot; i.version++; delete this.state.items[merge.id];
+    } else {
+      const fill = merge ? Math.min(n, stackMax - merge.count) : 0, rest = n - fill;
+      if (fill) { merge!.count += fill; merge!.version++; }
+      if (whole) { i.count = rest; i.parent = key; i.slot = top; i.version++; }
+      else { i.count -= n; i.version++; if (rest) this.add(i.kind, key, top, rest); }
+    }
     this.assertItems();
   }
   /**
@@ -200,6 +220,16 @@ export class Engine {
       || this.map.npcs.some(n => distance(n, pos) === 0);
   }
   present(p: Hero) { return p.connected || p.combatUntil > this.state.time; }
+  /** Any hero on the tile, logged in or not: their body comes back there. */
+  heroAt(q: Pos) { return Object.values(this.state.players).some(h => distance(h, q) === 0); }
+  /** Back in the world. A body that took the hero's tile meanwhile sends them one step aside, or, with no room there, to the shrine start. */
+  rejoin(p: Hero) {
+    p.connected = true;
+    if (!this.occupied(p, p.id)) return;
+    const aside = [[0, -1], [1, 0], [0, 1], [-1, 0], [1, -1], [1, 1], [-1, 1], [-1, -1]].map(([dx, dy]) => ({ x: p.x + dx, y: p.y + dy, z: p.z }))
+      .find(q => !this.geo.blocked(q, this.state) && !this.map.links[key(q)] && !this.occupied(q, p.id));
+    Object.assign(p, aside ?? this.geo.near(this.map.shrine, q => this.occupied(q, p.id)));
+  }
 
   private lighting() {
     const world = this.balance.world, time = this.state.time;
@@ -278,11 +308,25 @@ export class Engine {
     const list = this.map.npcs.filter(n => n.z === p.z && distance(n, p) <= 3 && (!id || n.id === id));
     return list.sort((a, b) => distance(p, a) - distance(p, b))[0];
   }
+  /** Who a line is spoken to: the NPC already in conversation, or one the line greets (by name or as the nearest in sight). */
+  addressee(p: Hero, text: string) {
+    const hello = greeting.exec(text);
+    if (!hello) return p.talking ? this.npcNear(p, p.talking) : undefined;
+    const name = hello[1];
+    const greeted = (n: NpcSpawn) => !name || n.name.toLowerCase() === name || n.name.toLowerCase().split(' ').includes(name);
+    return this.map.npcs.filter(n => n.z === p.z && distance(n, p) <= 3 && greeted(n) && this.geo.sight(p, n, this.state.doors))
+      .sort((a, b) => distance(p, a) - distance(p, b))[0];
+  }
+  /** Every present hero within earshot on the speaker's floor hears the line. */
+  speak(p: Hero, line: string) {
+    const text = `${p.name}: ${line}`, at = this.state.time;
+    for (const h of Object.values(this.state.players)) if ((h.id === p.id || this.present(h)) && distance(h, p) <= 9) this.notices.push({ player: h.id, text, kind: 'say', at, from: p.id });
+  }
   talk(p: Hero, npc: NpcSpawn, text: string): void {
     const def = this.balance.merchants[npc.role];
     const say = (line: string) => this.note(p, line, 'npc', npc.id);
     if (/\b(bye|farewell)\b/.test(text)) { say('Safe roads.'); p.talking = null; return; }
-    if (p.talking !== npc.id || /\b(hi|hello|greetings)\b/.test(text)) { p.talking = npc.id; say(def.greeting); if (!/\b(hi|hello|greetings)\b/.test(text)) return this.talk(p, npc, text); return; }
+    if (p.talking !== npc.id || greeting.test(text)) { p.talking = npc.id; say(def.greeting); if (!greeting.test(text)) return this.talk(p, npc, text); return; }
     if (/\btrade\b/.test(text)) { say(def.sells.length || def.buys.length ? 'Have a look.' : 'I have nothing to sell, friend.'); return; }
     if (npc.role === 'shrine' && /\bheal\b/.test(text)) {
       const s = this.stats(p);
@@ -302,12 +346,13 @@ export class Engine {
       }
       return say('You have done enough for the shrine. The lanterns thank you.');
     }
-    for (const [topic, line] of Object.entries(def.topics)) if (line && text.includes(topic.replace(/s$/, ''))) return say(line);
+    for (const [topic, line] of Object.entries(def.topics)) if (line && new RegExp(`\\b${topic.replace(/s$/, '')}s?\\b`).test(text)) return say(line);
     say(def.sells.length || def.buys.length ? 'Ask me to "trade", or about something you have heard.' : 'Hm. Ask me about something else.');
   }
 
   // ---- Actions -------------------------------------------------------------
   action(p: Hero, a: Action) {
+    if (!p.connected) throw new GameError('You have left the world.');
     this.torchCache = undefined; this.lightMemo = undefined;
     switch (a.kind) {
       case 'walk': if (!a.dx && !a.dy) return; p.path = [{ x: p.x + a.dx, y: p.y + a.dy, z: p.z }]; p.manual = true; break;
@@ -320,7 +365,7 @@ export class Engine {
       }
       case 'stop': p.path = []; p.target = null; break;
       case 'target': {
-        if (a.id) { const m = this.state.monsters[a.id]; if (!m || m.hp <= 0 || m.z !== p.z) throw new GameError('That creature is not here.'); if (this.geo.pz(p)) throw new GameError('You may not attack from a protection zone.'); if (this.balance.world.darkness && !this.targetVisible(p, m)) throw new GameError('You cannot see that creature.'); }
+        if (a.id) { const m = this.state.monsters[a.id]; if (!m || m.hp <= 0 || m.z !== p.z) throw new GameError('That creature is not here.'); if (this.geo.pz(p)) throw new GameError('You may not attack from a protection zone.'); if (!this.geo.sight(p, m, this.state.doors)) throw new GameError('You cannot see that creature.'); if (this.balance.world.darkness && !this.targetVisible(p, m)) throw new GameError('You cannot see that creature.'); }
         p.target = a.id; p.path = []; p.manual = false; break;
       }
       case 'useTile': {
@@ -331,7 +376,12 @@ export class Engine {
         }
         const link = this.map.links[key(a.to)];
         if (link) { this.travel(p, link); break; }
-        if (t === T.door) { this.state.doors[key(a.to)] = !this.state.doors[key(a.to)]; break; }
+        if (t === T.door) {
+          const open = !!this.state.doors[key(a.to)];
+          if (open && (this.occupied(a.to) || this.heroAt(a.to))) throw new GameError('Someone is standing in the doorway.');
+          if (open && this.topCorpse(a.to)) throw new GameError('Something lies in the doorway.');
+          this.state.doors[key(a.to)] = !open; break;
+        }
         if (t === T.vault) { if (distance(p, this.map.vault) > 2) throw new GameError('Stand in front of the vault.'); this.note(p, 'You open your vault.', 'info'); break; }
         if (t === T.well) { this.note(p, 'The water is cold and clear.'); break; }
         if (t === T.altar) { this.note(p, 'The altar lantern burns steadily.'); break; }
@@ -339,11 +389,11 @@ export class Engine {
       }
       case 'say': {
         const text = a.text.trim().toLowerCase();
+        this.speak(p, a.text.trim());
         const spell = Object.entries(this.balance.spells).find(([, s]) => s.words === text);
         if (spell) { this.cast(p, spell[0] as SpellId); break; }
-        const npc = this.npcNear(p, p.talking) ?? this.npcNear(p);
-        if (npc) { this.note(p, `${p.name}: ${a.text}`, 'info'); this.talk(p, npc, text); }
-        else this.note(p, `${p.name}: ${a.text}`);
+        const npc = this.addressee(p, text);
+        if (npc) this.talk(p, npc, text);
         break;
       }
       case 'talk': {
@@ -364,9 +414,46 @@ export class Engine {
         if (a.fight) p.fightMode = a.fight;
         if (a.chase !== undefined) { p.chase = a.chase; if (!a.chase && !p.manual) p.path = []; }
         break;
-      case 'look': this.note(p, this.describe(p, a.at, a.actor), 'info'); break;
+      case 'look': {
+        if (a.item === undefined) { this.note(p, this.describe(p, a.at, a.actor), 'info'); break; }
+        const item = this.state.items[a.item];
+        if (!item || !this.access(p, item.id)) throw new GameError('You cannot reach that.');
+        this.note(p, this.describeItem(item), 'info'); break;
+      }
+      case 'push': this.push(p, a.id, a.to); break;
       default: { const exhaustive: never = a; return exhaustive; }
     }
+  }
+  /** Push a hero, a creature or the top corpse of a tile one tile on. Pushing tires the pusher like a step. */
+  push(p: Hero, id: string, to: Pos) {
+    const now = this.state.time, corpse = this.state.corpses[id], mob = this.state.monsters[id], hero = this.state.players[id];
+    const creature = mob && mob.hp > 0 ? mob : undefined, other = hero && hero.id !== p.id && this.present(hero) ? hero : undefined;
+    const body = corpse ?? creature ?? other;
+    if (!body) throw new GameError('You cannot push that.');
+    if (distance(p, body) > 1) throw new GameError('Move closer to push that.');
+    if (p.moveAt > now) throw new GameError('You are still recovering.');
+    if (distance(body, to) !== 1) throw new GameError('There is no room there.');
+    if (corpse) {
+      if (this.topCorpse(corpse) !== corpse) throw new GameError('Something lies on top of it.');
+      if (this.geo.blocked(to, this.state) || this.map.links[key(to)]) throw new GameError('There is no room there.');
+      const under = this.topCorpse(to);
+      corpse.born = Math.max(now, under ? under.born + 1 : 0); corpse.x = to.x; corpse.y = to.y;
+    } else {
+      if (distance(p, to) === 0 || !this.geo.stepAllowed(body, to, this.state, true) || this.occupied(to, body.id) || (creature && this.geo.pz(to))) throw new GameError('There is no room there.');
+      if (this.geo.door(to)) this.state.doors[key(to)] = true;
+      body.x = to.x; body.y = to.y;
+      const ground = grounds[this.geo.ground(to)];
+      if (creature) {
+        creature.moveAt = Math.max(creature.moveAt, now + this.rules.creatureStepMs(this.balance.creatures[creature.kind].step, ground, false));
+        if (creature.target === null) creature.target = p.id;
+      } else if (other) {
+        other.path = []; other.manual = false;
+        other.moveAt = Math.max(other.moveAt, now + this.rules.stepMs(this.rules.heroSpeed(this.stats(other).level), ground, false));
+        const link = this.map.links[key(other)];
+        if (link) this.travel(other, link);
+      }
+    }
+    p.moveAt = now + 1000;
   }
   travel(p: Hero, to: Pos) {
     const spot = this.geo.near(to, q => this.occupied(q, p.id));
@@ -378,8 +465,8 @@ export class Engine {
     if (def.food) { if (p.fed + def.food > this.balance.world.foodCapSec * 1000) throw new GameError('You are full.'); p.fed += def.food; this.consume(i); this.note(p, `You eat the ${def.name.toLowerCase()}.`); return; }
     if (def.heal || def.mana) {
       if (this.state.time < p.spellAt - 500) throw new GameError('You are exhausted.');
-      if (def.heal) { if (p.hp >= s.maxHp) throw new GameError('You are not hurt.'); const v = Math.min(s.maxHp - p.hp, def.heal + this.random(20)); p.hp += v; this.effect('heal', p, v); }
-      if (def.mana) { if (p.mana >= s.maxMana) throw new GameError('Your mind is already clear.'); const v = Math.min(s.maxMana - p.mana, def.mana + this.random(15)); p.mana += v; this.effect('mana', p, v); }
+      if (def.heal) { if (p.hp >= s.maxHp) throw new GameError('You are not hurt.'); const v = Math.min(s.maxHp - p.hp, def.heal + this.random(healSpread)); p.hp += v; this.effect('heal', p, v); }
+      if (def.mana) { if (p.mana >= s.maxMana) throw new GameError('Your mind is already clear.'); const v = Math.min(s.maxMana - p.mana, def.mana + this.random(manaSpread)); p.mana += v; this.effect('mana', p, v); }
       p.spellAt = this.state.time + 1000; this.consume(i); return;
     }
     throw new GameError(def.slots ? 'Open it in your inventory.' : 'Equip it from your inventory.');
@@ -399,7 +486,7 @@ export class Engine {
       // A ring of fire around the caster: every creature it can see within the radius burns.
       if (this.geo.pz(p)) throw new GameError('You may not attack from a protection zone.');
       const r = spell.radius;
-      const caught = Object.values(this.state.monsters).filter(m => m.hp > 0 && m.z === p.z && (m.x - p.x) ** 2 + (m.y - p.y) ** 2 <= r * r + r && this.geo.sight(p, m));
+      const caught = Object.values(this.state.monsters).filter(m => m.hp > 0 && m.z === p.z && (m.x - p.x) ** 2 + (m.y - p.y) ** 2 <= r * r + r && this.geo.sight(p, m, this.state.doors));
       this.effect('burst', p, 0, p);
       for (const m of caught) { const dmg = power + this.random(spell.spread); this.effect('ember', m, dmg, p); this.hurt(p, m, dmg); }
       p.combatUntil = this.state.time + this.balance.world.fightLockSec * 1000;
@@ -407,7 +494,7 @@ export class Engine {
       if (this.geo.pz(p)) throw new GameError('You may not attack from a protection zone.');
       const m = p.target ? this.state.monsters[p.target] : undefined;
       if (!m || m.hp <= 0) throw new GameError('Choose a target first.');
-      if (distance(p, m) > spell.range || !this.geo.sight(p, m)) throw new GameError('Your target is out of reach.');
+      if (distance(p, m) > spell.range || !this.geo.sight(p, m, this.state.doors)) throw new GameError('Your target is out of reach.');
       if (this.balance.world.darkness && this.perception(p, m) !== 'full') throw new GameError('Your target is not lit.');
       const dmg = power + this.random(spell.spread);
       this.effect('ember', m, dmg, p);
@@ -523,6 +610,9 @@ export class Engine {
           const alt = distance(p, goal) > 1 && !(avoidPz && this.geo.pz(goal)) ? this.geo.path(p, goal, this.state, 2500, q => this.occupied(q, p.id) || (avoidPz && this.geo.pz(q))) : [];
           p.path = alt.length && !this.occupied(alt[0], p.id) ? alt : [];
           p.moveAt = now + 150;
+          if (!p.path.length && p.manual && this.occupied(next, p.id) && (this.roomNoticeAt.get(p.id) ?? -Infinity) <= now - 1000) {
+            this.roomNoticeAt.set(p.id, now); this.note(p, 'There is not enough room.', 'error');
+          }
         }
       }
       if (p.target && this.geo.pz(p)) { this.dropTarget(p); this.note(p, 'You may not attack from a protection zone.', 'error'); }
@@ -553,7 +643,8 @@ export class Engine {
   decay(now: number) {
     for (const c of Object.values(this.state.corpses)) {
       const st = c.kind === 'hero' ? this.balance.world.heroCorpseStages : this.balance.world.corpseStages;
-      const age = (now - c.born) / 1000, stage = age < st[0] ? 0 : age < st[0] + st[1] ? 1 : 2;
+      // Counted back from expiry, not from `born`: moving a corpse re-stacks it by `born` without resetting its rot.
+      const left = (c.expiresAt - now) / 1000, stage = left > st[1] + st[2] ? 0 : left > st[2] ? 1 : 2;
       if (now >= c.expiresAt || stage === 2) for (const i of Object.values(this.state.items)) if (this.state.items[i.id] && this.root(i) === c.id) delete this.state.items[i.id];
       if (now >= c.expiresAt) { delete this.state.corpses[c.id]; continue; }
       if (stage !== c.stage) {
@@ -585,10 +676,7 @@ export class Engine {
     if (distance(p, at) > 8) return 'That is too far away to make out.';
     const pile = this.children(groundKey(at));
     if (pile.length) {
-      const top = pile[pile.length - 1], d = this.rules.item(top.kind);
-      const what = top.count > 1 ? `${top.count} × ${d.name.toLowerCase()}` : a(d.name.toLowerCase());
-      const stats = [d.attack && `attack ${d.attack}`, d.defense && `block ${d.defense}`, d.armor && `armour ${d.armor}`].filter(Boolean).join(', ');
-      return `You see ${what}${stats ? ` (${stats})` : ''}. It weighs ${(d.weight * top.count).toFixed(1)} oz.`;
+      return this.describeItem(pile[pile.length - 1]);
     }
     const corpse = Object.values(this.state.corpses).find(c => c.x === at.x && c.y === at.y && c.z === at.z);
     if (corpse) {
@@ -608,6 +696,14 @@ export class Engine {
     const groundText: Partial<Record<string, string>> = { grass: 'grass', meadow: 'tall grass', dirt: 'a dirt path', cobble: 'cobblestones', plank: 'wooden planks', stone: 'stone floor', water: 'water', sand: 'sand', moss: 'mossy stone', flagstone: 'flagstones' };
     return `You see ${groundText[ground] ?? 'nothing special'}.${zone}`;
   }
+  describeItem(item: GameItem) {
+    const d = this.rules.item(item.kind), name = d.name.toLowerCase(), each = item.count > 1 ? ' each' : '';
+    const what = item.count > 1 ? `${item.count} × ${name}` : /^[aeiou]/.test(name) ? `an ${name}` : `a ${name}`;
+    const does = [d.attack && `attack ${d.attack}`, d.defense && `block ${d.defense}`, d.armor && `armour ${d.armor}`,
+      d.heal && `heals ${d.heal} to ${d.heal + healSpread}${each}`, d.mana && `restores ${d.mana} to ${d.mana + manaSpread} mana${each}`,
+      d.food && `feeds ${Math.round(d.food / 60_000)} min${each}`, d.slots && `holds ${d.slots}`].filter(Boolean).join(', ');
+    return `You see ${what}${does ? ` (${does})` : ''}. It weighs ${(d.weight * item.count).toFixed(1)} oz.`;
+  }
   /** Drop a hero's target along with any automatic (chase) route; a manual walk carries on. */
   dropTarget(p: Hero) { p.target = null; if (!p.manual) p.path = []; }
   /** Armour soaks between half and all of its value: ⌊a/2⌋ + random(0 … ⌊a/2⌋−1); tiny armour rolls 0 … a. */
@@ -622,7 +718,7 @@ export class Engine {
       // A respawn waits while anyone stands near the spawn; a taken spawn square uses the nearest free one.
       if (players.some(p => p.z === m.home.z && distance(p, m.home) <= w.blockRange)) return;
       let spot: Pos;
-      try { spot = this.geo.near(m.home, q => this.occupied(q, m.id)); } catch { return; }
+      try { spot = this.geo.near(m.home, q => this.occupied(q, m.id) || this.heroAt(q)); } catch { return; }
       Object.assign(m, spot); m.hp = def.hp; m.damage = {}; m.target = null;
       return;
     }
@@ -639,7 +735,7 @@ export class Engine {
     let p = current && this.present(current) && this.onScreen(current, m) && !this.geo.pz(current) ? current : undefined;
     if (!p) {
       const light = w.darkness ? this.lighting() : undefined;
-      p = watching.filter(h => !this.geo.pz(h) && distance(h, m) <= def.aggro && this.geo.sight(m, h)
+      p = watching.filter(h => !this.geo.pz(h) && distance(h, m) <= def.aggro && this.geo.sight(m, h, this.state.doors)
         && (!light || distance(h, m) <= 3 || light.levelAt(h) >= 2))
         .sort((a, b) => distance(m, a) - distance(m, b))[0];
     }

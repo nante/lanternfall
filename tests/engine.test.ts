@@ -399,7 +399,7 @@ test('stepping into a protection zone cancels the attack and offensive spells ar
 test('switching to stand stops an automatic chase route', () => {
   const { e, p } = fresh();
   const rat = Object.values(e.state.monsters).find(m => m.kind === 'gutterRat')!;
-  Object.assign(p, e.geo.near({ x: rat.x + 5, y: rat.y, z: 1 }, q => e.occupied(q, p.id))); p.hp = 1e9;
+  Object.assign(p, e.geo.near({ x: rat.x + 4, y: rat.y, z: 1 }, q => e.occupied(q, p.id))); p.hp = 1e9;
   e.action(p, { kind: 'target', id: rat.id });
   e.tick(50);
   assert.ok(p.path.length > 0, 'chasing');
@@ -478,7 +478,7 @@ test('look reads naturally for corpses', () => {
 test('a kill by someone else stops the chase; reroutes never lead into a protection zone', () => {
   const { e, p } = fresh();
   const rat = Object.values(e.state.monsters).find(m => m.kind === 'gutterRat')!;
-  Object.assign(p, e.geo.near({ x: rat.x + 5, y: rat.y, z: 1 }, q => e.occupied(q, p.id))); p.hp = 1e9;
+  Object.assign(p, e.geo.near({ x: rat.x + 4, y: rat.y, z: 1 }, q => e.occupied(q, p.id))); p.hp = 1e9;
   e.action(p, { kind: 'target', id: rat.id });
   e.tick(50);
   assert.ok(p.path.length > 0);

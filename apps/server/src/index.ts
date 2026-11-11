@@ -7,7 +7,9 @@ import { defineServer,defineRoom,Room,type Client } from '@colyseus/core';
 import { WebSocketTransport } from '@colyseus/ws-transport';
 import { z } from 'zod';
 import { Engine,GameError } from '../../../packages/game/src/engine.ts';
-import { GameState,Envelope,HeroName,type State } from '../../../packages/game/src/model.ts';
+import { HeroName,type State } from '../../../packages/game/src/model.ts';
+import { loadWorld } from '../../../packages/game/src/save.ts';
+import { readEnvelope } from './envelope.ts';
 import { accountOf,applyAccountEdit,AccountEdit,StaleItems } from '../../../packages/game/src/accounts.ts';
 import { buildTown } from '../../../packages/game/src/town.ts';
 import { defaultBalance } from '../../../packages/game/src/default-balance.ts';
@@ -16,12 +18,22 @@ mkdirSync('.local',{recursive:true});
 const db=new Database(process.env.LANTERNFALL_DB??'.local/lanternfall.sqlite');
 db.pragma('journal_mode=WAL');db.pragma('synchronous=NORMAL');
 if(!process.env.LANTERNFALL_DB)chmodSync('.local/lanternfall.sqlite',0o600);
-db.exec('CREATE TABLE IF NOT EXISTS world(id INTEGER PRIMARY KEY CHECK(id=1), data TEXT NOT NULL); CREATE TABLE IF NOT EXISTS receipts(player TEXT NOT NULL, request TEXT NOT NULL, hash TEXT NOT NULL, result TEXT NOT NULL, PRIMARY KEY(player,request));');
+db.exec('CREATE TABLE IF NOT EXISTS world(id INTEGER PRIMARY KEY CHECK(id=1), data TEXT NOT NULL); CREATE TABLE IF NOT EXISTS receipts(player TEXT NOT NULL, request TEXT NOT NULL, hash TEXT NOT NULL, result TEXT NOT NULL, PRIMARY KEY(player,request)); CREATE TABLE IF NOT EXISTS world_backup(id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, problems TEXT NOT NULL, data TEXT NOT NULL);');
 const saved=z.object({data:z.string()}).optional().parse(db.prepare('SELECT data FROM world WHERE id=1').get());
 const map=buildTown();
-const restored=saved?GameState.safeParse(JSON.parse(saved.data)):undefined;
-if(restored&&!restored.success)console.warn(JSON.stringify({event:'world_reset',reason:'saved world is from an older version'}));
-const engine=new Engine(map,defaultBalance,restored?.success?restored.data:undefined);
+const loaded=loadWorld(saved?.data);
+if(!loaded.ok){
+ // A save that does not load is never written over: it is copied aside first, and the server only starts empty when told to.
+ db.prepare('INSERT INTO world_backup(at,problems,data) SELECT ?,?,? WHERE NOT EXISTS(SELECT 1 FROM world_backup WHERE data=?)').run(new Date().toISOString(),JSON.stringify(loaded.problems),saved!.data,saved!.data);
+ const backup=z.object({id:z.number()}).parse(db.prepare('SELECT id FROM world_backup WHERE data=?').get(saved!.data)).id;
+ const where=`world_backup row ${backup} in ${process.env.LANTERNFALL_DB??'.local/lanternfall.sqlite'}`;
+ if(process.env.LANTERNFALL_FRESH_WORLD!=='1'){
+  console.error(JSON.stringify({event:'world_unreadable',problems:loaded.problems,backup:where,fix:'Repair the save, or start an empty world with LANTERNFALL_FRESH_WORLD=1 (the backup stays).'}));
+  db.close();process.exit(1);
+ }
+ console.warn(JSON.stringify({event:'world_reset',problems:loaded.problems,backup:where}));
+}
+const engine=new Engine(map,defaultBalance,loaded.ok?loaded.state:undefined);
 for(const p of Object.values(engine.state.players)){p.connected=false;p.combatUntil=0;p.path=[];p.target=null;p.talking=null;}
 for(const m of Object.values(engine.state.monsters))m.target=null;
 const writeWorld=db.prepare('INSERT INTO world VALUES(1,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data');
@@ -39,7 +51,7 @@ class TownRoom extends Room {
  bindings=new Map<string,{id:string;epoch:number}>();
  onCreate(){room=this;this.onMessage('action',(client:Client,input:unknown)=>this.action(client,input));this.onMessage('ready',(client:Client)=>this.sendView(client));this.setSimulationInterval(()=>this.tick(),50);}
  onJoin(client:Client,input:unknown){const options=Join.parse(input);const existing=options.token?Object.values(engine.state.players).find(p=>p.token===options.token):undefined;if(options.token&&!existing)throw new Error('This character could not be found. Start a new wayfarer.');
-  const id=transaction(()=>{const p=existing?engine.state.players[existing.id]:engine.createPlayer(options.name);engine.tidy(p);p.connected=true;p.epoch++;p.seq=0;p.path=[];return p.id;});const p=engine.state.players[id];
+  const id=transaction(()=>{const p=existing?engine.state.players[existing.id]:engine.createPlayer(options.name);engine.tidy(p);engine.rejoin(p);p.epoch++;p.seq=0;p.path=[];return p.id;});const p=engine.state.players[id];
   for(const old of this.clients){const binding=this.bindings.get(old.sessionId);if(old!==client&&binding?.id===id){old.send('fenced',{});old.leave();}}
   this.bindings.set(client.sessionId,{id,epoch:p.epoch});client.send('welcome',{id:p.id,token:p.token,epoch:p.epoch});this.sendView(client);this.flushNotices();}
  onLeave(client:Client){this.detachPlayer(client);}
@@ -48,18 +60,32 @@ class TownRoom extends Room {
  player(client:Client){const b=this.bindings.get(client.sessionId);if(!b)return;const p=engine.state.players[b.id];return p?.epoch===b.epoch?p:undefined;}
  sendView(client:Client){const p=this.player(client);if(p)client.send('view',engine.view(p));}
  flushNotices(){for(const n of engine.notices.splice(0))for(const c of this.clients)if(this.bindings.get(c.sessionId)?.id===n.player)c.send('notice',n);}
- action(client:Client,input:unknown){const parsed=Envelope.safeParse(input);const p=this.player(client);if(!parsed.success||!p){client.send('result',{ok:false,text:'Invalid action. Reconnect to resynchronize.'});return;}const req=parsed.data,hash=createHash('sha256').update(JSON.stringify(req.action)).digest('hex');
+ action(client:Client,input:unknown){const read=readEnvelope(input);const p=this.player(client);
+  if(!p){client.send('result',{ok:false,text:'This session has ended. Reconnect to continue.',resync:true});return;}
+  // A message the server cannot act on still advances the sequence when its header is valid, so client and server stay in step.
+  const req=read.ok?read.req:read.header;if(!req){client.send('result',{ok:false,text:'Invalid action. Reconnect to resynchronize.',resync:true});return;}
+  const hash=createHash('sha256').update(JSON.stringify(read.ok?read.req.action:(input as {action?:unknown}).action??null)).digest('hex');
   const prior=z.object({hash:z.string(),result:z.string()}).optional().parse(getReceipt.get(p.id,req.requestId));
   if(prior){client.send('result',prior.hash===hash?JSON.parse(prior.result):{ok:false,text:'Request identity was reused for another action.'});return;}
   if(req.epoch!==p.epoch||req.seq!==p.seq+1){client.send('result',{ok:false,text:'Action sequence changed. Reconnect to continue.',resync:true});return;}
-  const id=p.id;let result:{ok:boolean;text:string;requestId:string};
-  try{result=transaction(()=>{const current=engine.state.players[id];if(current.epoch!==req.epoch)throw new GameError('This session has ended.');engine.action(current,req.action);current.seq=req.seq;return {ok:true,text:'',requestId:req.requestId};},value=>({player:id,request:req.requestId,hash,result:JSON.stringify(value)}));}
-  catch(error){if(!(error instanceof GameError)){console.error(JSON.stringify({event:'action_failed',error:String(error)}));client.send('result',{ok:false,text:'The action could not be saved. Reconnect before trying again.',resync:true});return;}
-   result=transaction(()=>{engine.state.players[id].seq=req.seq;return {ok:false,text:error.message,requestId:req.requestId};},value=>({player:id,request:req.requestId,hash,result:JSON.stringify(value)}));}
-  client.send('result',result);this.sendView(client);this.flushNotices();}
+  const id=p.id,receipt=(value:unknown)=>({player:id,request:req.requestId,hash,result:JSON.stringify(value)});
+  const refuse=(text:string)=>transaction(()=>{engine.state.players[id].seq=req.seq;return {ok:false,text,requestId:req.requestId};},receipt);
+  let result:{ok:boolean;text:string;requestId:string};
+  if(!read.ok)result=refuse('That action is not understood.');
+  else try{result=transaction(()=>{const current=engine.state.players[id];if(current.epoch!==req.epoch)throw new GameError('This session has ended.');engine.action(current,read.req.action);current.seq=req.seq;return {ok:true,text:'',requestId:req.requestId};},receipt);}
+  catch(error){
+   if(error instanceof GameError)result=refuse(error.message);
+   else{console.error(JSON.stringify({event:'action_failed',error:String(error)}));
+    try{result=refuse('That did not work. Try again.');}
+    catch(again){console.error(JSON.stringify({event:'action_unsaved',error:String(again)}));client.send('result',{ok:false,text:'The action could not be saved. Reconnect before trying again.',resync:true});return;}}}
+  client.send('result',result);
+  // Logging out ends the session here, not only in the client: the binding goes, so nothing more can be done as that hero.
+  if(result.ok&&read.ok&&read.req.action.kind==='logout'){this.flushNotices();this.bindings.delete(client.sessionId);client.leave(1000);return;}
+  this.sendView(client);this.flushNotices();}
  /** A Studio edit changed this character: show it to them at once. */
  edited(id:string){const p=engine.state.players[id];if(p?.connected)engine.note(p,'Your character was changed in the Studio.');for(const c of this.clients)if(this.bindings.get(c.sessionId)?.id===id)this.sendView(c);this.flushNotices();}
- tick(){if(!Object.values(engine.state.players).some(p=>p.connected||p.combatUntil>engine.state.time))return;const started=performance.now();try{transaction(()=>engine.tick(50),undefined,++ticks%40===0);if(ticks%2===0)for(const c of this.clients)this.sendView(c);this.flushNotices();}catch(error){console.error(JSON.stringify({event:'tick_rolled_back',error:String(error)}));}const elapsed=performance.now()-started;if(elapsed>50)console.warn(JSON.stringify({event:'tick_overrun',ms:Math.round(elapsed)}));}
+ /** The world runs whenever the server is up. With nobody online it is saved every 10 s instead of every 2 s: only respawns and rot are at stake. */
+ tick(){const online=Object.values(engine.state.players).some(p=>engine.present(p));const started=performance.now();try{transaction(()=>engine.tick(50),undefined,++ticks%(online?40:200)===0);if(ticks%2===0)for(const c of this.clients)this.sendView(c);this.flushNotices();}catch(error){console.error(JSON.stringify({event:'tick_rolled_back',error:String(error)}));}const elapsed=performance.now()-started;if(elapsed>50)console.warn(JSON.stringify({event:'tick_overrun',ms:Math.round(elapsed)}));}
 }
 let room:TownRoom|undefined;
 const PORT=Number(process.env.PORT??2567);
