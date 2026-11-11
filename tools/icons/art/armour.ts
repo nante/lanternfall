@@ -72,7 +72,7 @@ export const armour: Record<string, Draw> = {
   coif: i => {
     i.poly(mirror([[12, 2.5], [7, 3.6], [4, 8], [3.5, 16], [2.8, 21.5], [12, 21.5]]), 'mail', { form: 'dome' });
     i.poly(mirror([[12, 7], [9, 7.6], [7.6, 11], [8, 16], [12, 17]]), 'leather', { form: 'pillow', bevel: 3 });
-    i.cutEllipse(12, 12.4, 3.2, 4.4);
+    i.ellipse(12, 12.4, 3.2, 4.4, 'dark', { form: 'flat' });
     i.rect(5, 17.5, 19, 19.5, 'leather', { form: 'pillow', bevel: 1 });
     return i;
   },

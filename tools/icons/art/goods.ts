@@ -162,11 +162,12 @@ export const goods: Record<string, Draw> = {
   tusk: i => { i.poly([[3.4, 18], [7, 21], [12.6, 18.4], [17.4, 12.4], [20.6, 3], [15, 10], [9.6, 14.4]], 'ivory', { form: 'dome' }); i.rect(2.6, 17, 6.6, 21.4, 'rind', { form: 'pillow', bevel: 1.5 }); return i; },
   hide: i => {
     i.poly([[4, 6], [9, 4], [15, 4], [20, 6], [21.4, 12], [20, 19], [15, 21], [9, 21], [4, 19], [2.6, 12]], 'hide', { form: 'pillow', bevel: 4 });
-    for (const [a, b] of [[[7, 8], [9, 7]], [[13, 9], [15, 7]], [[9, 15], [11, 13]], [[15, 16], [17, 14]]] as [V2, V2][]) i.markLine(a, b, { mat: 'bone', tone: 2 });
+    i.poly([[6.4, 8], [10, 6.6], [14, 6.6], [17.6, 8], [18.8, 12], [17.6, 17], [14, 18.6], [10, 18.6], [6.4, 17], [5.2, 12]], 'leather', { form: 'pillow', bevel: 3 });
+    for (const [a, b] of [[[8, 10], [10, 9]], [[13, 11], [15, 9]], [[9, 15], [11, 14]], [[14, 16], [16, 14]]] as [V2, V2][]) i.markLine(a, b, { dt: 1 });
     return i;
   },
   // Valuables.
-  gold: i => { coin(i, 'gold', 15, 10.6, 6.2, 0.95); for (const y of [19.4, 17.2, 15]) coin(i, 'gold', 8.6, y, 5.4, 0.42); coin(i, 'gold', 17.4, 19.6, 4.4, 0.42); return i; },
+  gold: i => { coin(i, 'gold', 15, 9.8, 6.2, 0.95); for (const y of [18.6, 16.4, 14.2]) coin(i, 'gold', 8.6, y, 5.4, 0.42); coin(i, 'gold', 17.4, 18.8, 4.4, 0.42); return i; },
   crown: i => { coin(i, 'silver', 12, 11.6, 9); i.poly(mirror([[12, 7.6], [9.4, 9], [8, 8], [8.6, 14.6], [12, 14.6]]), 'silver', { form: 'pillow', bevel: 1.2 }); return i; },
   garnet: i => { i.ellipse(12, 12.6, 8, 7, 'garnet', { form: 'dome' }); return i; },
   sapphire: i => crystal(i, 'sapphire', 12, 2.4, 22, 5.6),

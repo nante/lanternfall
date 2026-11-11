@@ -1,5 +1,5 @@
 import type { MatId } from './materials.ts';
-import { Icon, type V2, type ShapeOpts } from './raster.ts';
+import type { Icon, V2 } from './raster.ts';
 
 /**
  * A frame along a diagonal: t runs along the item from `origin` towards `angle` (radians, 0 = right, −π/4 = up-right),
@@ -58,4 +58,3 @@ export function bottle(i: Icon, o: { liquid: MatId; shape: 'vial' | 'flask' | 'r
   }
   return i;
 }
-export const opts = (o: ShapeOpts) => o;

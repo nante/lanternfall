@@ -77,6 +77,8 @@ export const materials = {
   ember: m(['#2e130b', '#5c2410', '#93391a', '#c95a24', '#ec8a35', '#ffb95e'], 'emissive', '#ffb95e'),
   // Magic only: the Lantern's teal (palette.ts says teal means magic and nothing else).
   magic: m(['#0d3236', '#0d3236', '#17605e', '#2c9a8e', '#5fd7c4', '#bff7ec'], 'emissive', '#bff7ec'),
+  /** Empty equipment slots on the HUD's doll: one flat, faint slate, no light and no outline of its own. */
+  ghost: m(['#3a4456', '#3a4456', '#3a4456', '#3a4456', '#3a4456', '#3a4456'], 'matte', '#3a4456'),
   // Interface glyphs: parchment on its own outline.
   ink: m(['#06070d', '#3b2819', '#7b5737', '#c4a072', '#ece2c8', '#fbf4e2'], 'matte', '#99a5cd'),
 } satisfies Record<string, Material>;
