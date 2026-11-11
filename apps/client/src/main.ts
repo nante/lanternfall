@@ -85,8 +85,11 @@ function redraw() {
   const v = core.view;
   drawViews();
   if (!v) return;
-  dialogue.update();
-  column.setDynamic([dialogue.dialogueWindow(), ...containers.windows()].filter(w => !!w));
+  column.setDynamic(containers.windows());
+  dialogue.drawTalk();
+  // A shop needs room under the view: the console grows while one is open.
+  const footMin = dialogue.trading() ? '156' : v.self.talking ? '110' : '0';
+  if (hud.style.getPropertyValue('--foot-min') !== footMin) { hud.style.setProperty('--foot-min', footMin); requestAnimationFrame(() => world.resize()); }
   column.render();
   const shown = containers.takeReveal();
   if (shown) column.win(shown)?.scrollIntoView({ block: 'nearest' });
@@ -151,7 +154,7 @@ document.addEventListener('contextmenu', e => { const t = e.target as HTMLElemen
 const params = new URLSearchParams(location.search);
 const previewScene = params.get('preview');
 // The server sends its clock only under the darkness rule. Without it, use the bundled day length; Studio previews open at midday, not at the engine's 05:00 start.
-const fallbackWorld = previewScene !== null ? { ...balance.world, dayOffset: hourToMinute(12) * 60_000 } : balance.world;
+const fallbackWorld = previewScene !== null ? { ...balance.world, dayOffset: hourToMinute(Number(params.get('hour') ?? 12)) * 60_000 } : balance.world;
 if (previewScene !== null) {
   // Studio Look tab: no server. A local engine plays a scene through the real HUD, and the Studio streams style and layout changes in.
   $('#gate').hidden = true;
@@ -188,4 +191,4 @@ function onView(v: GameView) {
 setInterval(() => { if (core.view) drawHotbar(); }, 100);
 
 // Developer hook for automated screenshots.
-Object.assign(window, { __lanternfall: { world, net, enter, get view() { return core.view; }, mobDefs: balance.creatures, stylePresets, column } });
+Object.assign(window, { __lanternfall: { world, net, enter, get view() { return core.view; }, mobDefs: balance.creatures, stylePresets, column, core, redraw } });

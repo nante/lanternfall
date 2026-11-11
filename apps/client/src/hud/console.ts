@@ -15,7 +15,7 @@ const MAX = 300;
 
 export function mountConsole(footer: HTMLElement) {
   footer.innerHTML = `<div class="con-top"><div class="con-tabs" role="tablist" aria-label="Channels" id="con-tabs"></div><nav class="hotbar" id="hotbar" aria-label="Actions"></nav></div>
-    <div class="con-body"><ol class="con-lines" id="con-lines" aria-live="polite" data-tab="local"></ol><button type="button" class="btn small con-new" id="con-new" hidden>${glyph('arrow-down')}New messages</button></div>
+    <div class="con-body"><div class="con-scroll"><ol class="con-lines" id="con-lines" aria-live="polite" data-tab="local"></ol><button type="button" class="btn small con-new" id="con-new" hidden>${glyph('arrow-down')}New messages</button></div><section class="talk" id="talk" aria-label="Conversation" hidden></section></div>
     <form class="con-say" id="chat" autocomplete="off"><input class="field" id="chat-input" maxlength="180" placeholder="Press Enter to speak" aria-label="Say something" spellcheck="false"><button type="submit" class="btn">Say</button></form>`;
   drawTabs();
   $('#con-tabs').addEventListener('click', e => { const t = (e.target as HTMLElement).closest<HTMLElement>('[data-tab]')?.dataset.tab as Tab | undefined; if (t) show(t); });
@@ -45,6 +45,8 @@ export function remember(text: string) { const i = history.indexOf(text); if (i 
 function drawTabs() {
   patch($('#con-tabs'), tabs.map(([id, label]) => `<button type="button" role="tab" class="con-tab" data-tab="${id}" aria-selected="${active === id}" tabindex="${active === id ? 0 : -1}"${unread.has(id) ? ' data-unread="true"' : ''}>${label}</button>`).join(''));
 }
+/** Shows a channel (a conversation brings up the NPC channel). */
+export function showChannel(t: Tab) { show(t); }
 function show(t: Tab) { active = t; unread.delete(t); $('#con-lines').dataset.tab = t; drawTabs(); scrollDown(); }
 const atBottom = () => { const ol = $('#con-lines'); return ol.scrollHeight - ol.scrollTop - ol.clientHeight < 8; };
 function scrollDown() { const ol = $('#con-lines'); ol.scrollTop = ol.scrollHeight; $('#con-new').hidden = true; }
