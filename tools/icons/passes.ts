@@ -135,7 +135,10 @@ export function render(icon: Icon): IconDef {
       if (c && p) {
         const mark = icon.marks.find(m => m.x === x && m.y === y);
         const g = grainAt(c, x, y, icon.seed) * (materials[c.mat].amount ?? 0);
-        const base = materials[p.mat].kind === 'emissive' ? p.tone : mark ? Math.min(4, Math.max(1, p.tone)) : g > 0.12 ? 4 : g < -0.12 ? 2 : 3;
+        // Form occlusion only, the same from every side: a surface turning away from the viewer at the silhouette is a
+        // step darker, as figure bakes do; which side the light comes from is left to the scene.
+        const occ = c.n[2] < 0.5 ? -1 : 0;
+        const base = materials[p.mat].kind === 'emissive' ? p.tone : mark ? Math.min(4, Math.max(1, p.tone)) : (g > 0.12 ? 4 : g < -0.12 ? 2 : 3) + occ;
         row += windex(ramp(p.mat)[base], materials[p.mat].kind);
         nrow += packNormal(c.n);
       } else if (outlineOf[i]) {

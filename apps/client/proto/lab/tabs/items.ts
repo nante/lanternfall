@@ -10,6 +10,6 @@ export function mount(ctx: TabContext) {
   if ((url.searchParams.get('pile') ?? 'show') === 'all') itemKinds.forEach((k, i) => lay(k, (i % 15) - 7, -2 - Math.floor(i / 15)));
   else {
     lay('shortsword', -2, -2); lay('sapphire', -1, -2); lay('tonic', 0, -2); lay('loaf', 1, -2);
-    for (const k of ['gold', 'mace', 'greattincture'] as const) lay(k, 2, -2);
+    for (const k of ['gold', 'mace', 'greattincture'] as const) lay(k, 3, -3);
   }
 }
