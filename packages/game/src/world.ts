@@ -1,5 +1,6 @@
 import { type MapData, type Pos, type State, G, T, key, distance, thingBlocks } from './model.ts';
 import { lightPasses } from './light.ts';
+import { GameError } from './errors.ts';
 
 export class Geography {
   private readonly npcTiles: Set<string>;
@@ -57,7 +58,7 @@ export class Geography {
       const q = { x: p.x + dx, y: p.y + dy, z: p.z };
       if (!this.blocked(q) && !taken(q)) return q;
     }
-    throw Error(`No open tile near ${key(p)}`);
+    throw new GameError('There is no free tile nearby.');
   }
   /** Line of sight on one floor: walls, trees and closed doors between the two tiles block it, the same rays light takes. */
   sight(a: Pos, b: Pos, doors: Record<string, boolean>) { return lightPasses(this.data, a, b, doors); }

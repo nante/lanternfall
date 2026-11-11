@@ -396,3 +396,19 @@ test('a swap never puts anything into a corpse, nor into a bag lying in one', ()
   e.action(ann, { kind: 'moveItem', id: coins.id, parent: loaf.parent, slot: e.freeSlot(loaf.parent), count: coins.count, version: coins.version });
   assert.equal(e.gold(ann), 80, 'taking out of the corpse still works');
 });
+
+// ---- B4 sequence numbers stay in step; B6 logging out ends the session ---------------------------
+import { GameError } from '../packages/game/src/engine.ts';
+import { readEnvelope } from '../apps/server/src/envelope.ts';
+
+test('a malformed action keeps its sequence header, so the server can advance past it', () => {
+  const requestId = '6f1c2a3e-1b2c-4d5e-8f90-123456789abc';
+  assert.deepEqual(readEnvelope({ requestId, epoch: 2, seq: 7, action: { kind: 'fly' } }), { ok: false, header: { requestId, epoch: 2, seq: 7 } });
+  assert.deepEqual(readEnvelope({ requestId, epoch: 2, seq: 7, action: { kind: 'stop' } }), { ok: true, req: { requestId, epoch: 2, seq: 7, action: { kind: 'stop' } } });
+  assert.deepEqual(readEnvelope('junk'), { ok: false, header: undefined });
+});
+
+test('finding no free tile is a game error, not a crash', () => {
+  const e = new Engine(map, balance);
+  assert.throws(() => e.geo.near(map.shrine, () => true), (error: unknown) => error instanceof GameError && /no free tile/.test(error.message));
+});

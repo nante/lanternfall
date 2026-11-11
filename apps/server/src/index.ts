@@ -7,8 +7,9 @@ import { defineServer,defineRoom,Room,type Client } from '@colyseus/core';
 import { WebSocketTransport } from '@colyseus/ws-transport';
 import { z } from 'zod';
 import { Engine,GameError } from '../../../packages/game/src/engine.ts';
-import { Envelope,HeroName,type State } from '../../../packages/game/src/model.ts';
+import { HeroName,type State } from '../../../packages/game/src/model.ts';
 import { loadWorld } from '../../../packages/game/src/save.ts';
+import { readEnvelope } from './envelope.ts';
 import { accountOf,applyAccountEdit,AccountEdit,StaleItems } from '../../../packages/game/src/accounts.ts';
 import { buildTown } from '../../../packages/game/src/town.ts';
 import { defaultBalance } from '../../../packages/game/src/default-balance.ts';
@@ -59,15 +60,26 @@ class TownRoom extends Room {
  player(client:Client){const b=this.bindings.get(client.sessionId);if(!b)return;const p=engine.state.players[b.id];return p?.epoch===b.epoch?p:undefined;}
  sendView(client:Client){const p=this.player(client);if(p)client.send('view',engine.view(p));}
  flushNotices(){for(const n of engine.notices.splice(0))for(const c of this.clients)if(this.bindings.get(c.sessionId)?.id===n.player)c.send('notice',n);}
- action(client:Client,input:unknown){const parsed=Envelope.safeParse(input);const p=this.player(client);if(!parsed.success||!p){client.send('result',{ok:false,text:'Invalid action. Reconnect to resynchronize.'});return;}const req=parsed.data,hash=createHash('sha256').update(JSON.stringify(req.action)).digest('hex');
+ action(client:Client,input:unknown){const read=readEnvelope(input);const p=this.player(client);
+  if(!p){client.send('result',{ok:false,text:'This session has ended. Reconnect to continue.',resync:true});return;}
+  // A message the server cannot act on still advances the sequence when its header is valid, so client and server stay in step.
+  const req=read.ok?read.req:read.header;if(!req){client.send('result',{ok:false,text:'Invalid action. Reconnect to resynchronize.',resync:true});return;}
+  const hash=createHash('sha256').update(JSON.stringify(read.ok?read.req.action:(input as {action?:unknown}).action??null)).digest('hex');
   const prior=z.object({hash:z.string(),result:z.string()}).optional().parse(getReceipt.get(p.id,req.requestId));
   if(prior){client.send('result',prior.hash===hash?JSON.parse(prior.result):{ok:false,text:'Request identity was reused for another action.'});return;}
   if(req.epoch!==p.epoch||req.seq!==p.seq+1){client.send('result',{ok:false,text:'Action sequence changed. Reconnect to continue.',resync:true});return;}
-  const id=p.id;let result:{ok:boolean;text:string;requestId:string};
-  try{result=transaction(()=>{const current=engine.state.players[id];if(current.epoch!==req.epoch)throw new GameError('This session has ended.');engine.action(current,req.action);current.seq=req.seq;return {ok:true,text:'',requestId:req.requestId};},value=>({player:id,request:req.requestId,hash,result:JSON.stringify(value)}));}
-  catch(error){if(!(error instanceof GameError)){console.error(JSON.stringify({event:'action_failed',error:String(error)}));client.send('result',{ok:false,text:'The action could not be saved. Reconnect before trying again.',resync:true});return;}
-   result=transaction(()=>{engine.state.players[id].seq=req.seq;return {ok:false,text:error.message,requestId:req.requestId};},value=>({player:id,request:req.requestId,hash,result:JSON.stringify(value)}));}
-  client.send('result',result);this.sendView(client);this.flushNotices();}
+  const id=p.id,receipt=(value:unknown)=>({player:id,request:req.requestId,hash,result:JSON.stringify(value)});
+  const refuse=(text:string)=>transaction(()=>{engine.state.players[id].seq=req.seq;return {ok:false,text,requestId:req.requestId};},receipt);
+  let result:{ok:boolean;text:string;requestId:string};
+  if(!read.ok)result=refuse('That action is not understood.');
+  else try{result=transaction(()=>{const current=engine.state.players[id];if(current.epoch!==req.epoch)throw new GameError('This session has ended.');engine.action(current,read.req.action);current.seq=req.seq;return {ok:true,text:'',requestId:req.requestId};},receipt);}
+  catch(error){
+   if(error instanceof GameError)result=refuse(error.message);
+   else{console.error(JSON.stringify({event:'action_failed',error:String(error)}));
+    try{result=refuse('That did not work. Try again.');}
+    catch(again){console.error(JSON.stringify({event:'action_unsaved',error:String(again)}));client.send('result',{ok:false,text:'The action could not be saved. Reconnect before trying again.',resync:true});return;}}}
+  client.send('result',result);
+  this.sendView(client);this.flushNotices();}
  /** A Studio edit changed this character: show it to them at once. */
  edited(id:string){const p=engine.state.players[id];if(p?.connected)engine.note(p,'Your character was changed in the Studio.');for(const c of this.clients)if(this.bindings.get(c.sessionId)?.id===id)this.sendView(c);this.flushNotices();}
  /** The world runs whenever the server is up. With nobody online it is saved every 10 s instead of every 2 s: only respawns and rot are at stake. */

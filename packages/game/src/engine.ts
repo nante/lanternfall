@@ -3,6 +3,8 @@ import {
   key, distance, equipSlots, stackMax, T, G,
 } from './model.ts';
 import { Geography } from './world.ts';
+import { GameError } from './errors.ts';
+export { GameError };
 import type { Balance } from './content-schema.ts';
 import { createRules, type Rules } from './rules.ts';
 import { grounds, things } from './ids.ts';
@@ -11,7 +13,6 @@ import { clockAt, lightLevel, lightPasses, perceive, sourceLevelAt, staticSource
 const uid = () => crypto.randomUUID();
 const healSpread = 20, manaSpread = 15;
 const greeting = /^(?:hi|hello|hey|greetings)\b[\s,!.]*(.*?)[\s!.?]*$/;
-export class GameError extends Error {}
 /** Items lying on a tile have the parent "ground:x,y,z". */
 export const groundKey = (p: Pos) => `ground:${p.x},${p.y},${p.z}`;
 export function groundPos(parent: string): Pos | null {
