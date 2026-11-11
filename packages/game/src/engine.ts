@@ -125,7 +125,8 @@ export class Engine {
     if (dest && !this.rules.item(dest.kind).slots) throw new GameError('That is not a container.');
     if (a.slot >= this.capacityOf(a.parent)) throw new GameError('There is no room there.');
     if (a.parent.startsWith('equip:') && equipSlots.indexOf(def.slot ?? ('none' as never)) !== a.slot) throw new GameError(`The ${def.name.toLowerCase()} does not go there.`);
-    if (this.state.corpses[a.parent] && this.root(i) !== a.parent) throw new GameError('You cannot put things into a corpse.');
+    const from = this.root(i), to = dest ? this.root(dest) : a.parent;
+    if (this.state.corpses[to] && from !== to) throw new GameError('You cannot put things into a corpse.');
     const other = this.children(a.parent).find(j => j.slot === a.slot && j.id !== i.id);
     const n = Math.min(i.count, a.count);
     const before = this.weight(p);
@@ -136,7 +137,7 @@ export class Engine {
         if (!moved) throw new GameError('That stack is full.');
         other.count += moved; other.version++; i.count -= moved; i.version++; if (!i.count) delete this.state.items[i.id];
       }
-      else if (n === i.count) { other.parent = i.parent; other.slot = i.slot; other.version++; i.parent = a.parent; i.slot = a.slot; i.version++; if (other.parent.startsWith('equip:') && equipSlots.indexOf(this.rules.item(other.kind).slot ?? ('none' as never)) !== other.slot) throw new GameError('Those items cannot swap places.'); }
+      else if (n === i.count) { if (this.state.corpses[from] && from !== to) throw new GameError('You cannot put things into a corpse.'); other.parent = i.parent; other.slot = i.slot; other.version++; i.parent = a.parent; i.slot = a.slot; i.version++; if (other.parent.startsWith('equip:') && equipSlots.indexOf(this.rules.item(other.kind).slot ?? ('none' as never)) !== other.slot) throw new GameError('Those items cannot swap places.'); }
       else throw new GameError('That slot is taken.');
     } else if (n < i.count) { i.count -= n; i.version++; this.add(i.kind, a.parent, a.slot, n); }
     else { i.parent = a.parent; i.slot = a.slot; i.version++; }
@@ -150,25 +151,33 @@ export class Engine {
     if (g === G.void || g === G.water) return false;
     return [T.none, T.flowers, T.table, T.counter, T.bed, T.stump].includes(t);
   }
-  /** Drop or throw an item onto a tile: within throw range and sight, on the same floor. It lands on top of the pile. */
+  /**
+   * Drop or throw an item onto a tile: within throw range and sight, on the same floor. It lands on top of the pile,
+   * merging only with a top stack of its own kind, and keeps its id unless only part of it moved.
+   */
   dropOnGround(p: Hero, i: GameItem, to: Pos, count: number) {
     const w = this.balance.world, key = groundKey(to);
     if (to.z !== p.z || distance(p, to) > w.throwRange) throw new GameError('That is too far away to throw.');
     if (!this.geo.sight(p, to, this.state.doors)) throw new GameError('You cannot throw there.');
     if (!this.canHoldItems(to)) throw new GameError('There is no room there.');
-    const pile = this.children(key).filter(j => j.id !== i.id);
+    const pile = this.children(key).filter(j => j.id !== i.id), under = pile.at(-1);
+    const merge = under && under.kind === i.kind && this.rules.item(i.kind).stack ? under : undefined;
     let n = Math.min(i.count, count);
     if (pile.length >= w.tileItemLimit) {
-      // Full tile: only what fits on matching stacks lands; the rest stays where it was.
-      const room = this.rules.item(i.kind).stack ? pile.filter(j => j.kind === i.kind).reduce((r, j) => r + stackMax - j.count, 0) : 0;
+      // Full tile: only what fits on the top stack lands; the rest stays where it was.
+      const room = merge ? stackMax - merge.count : 0;
       if (!room) throw new GameError('There is no room there.');
       n = Math.min(n, room);
     }
-    const top = pile.length ? pile[pile.length - 1].slot + 1 : 0;
-    if (i.parent === key && n === i.count) { i.slot = top; i.version++; this.assertItems(); return; }
-    if (n < i.count) { i.count -= n; i.version++; this.add(i.kind, key, top, n); }
-    else { i.parent = key; i.slot = top; i.version++; }
-    if (this.rules.item(i.kind).stack) this.stackInto(key, i.kind);
+    const whole = n === i.count, top = under ? under.slot + 1 : 0;
+    if (merge && whole && merge.count + n <= stackMax) {
+      i.count += merge.count; i.parent = key; i.slot = merge.slot; i.version++; delete this.state.items[merge.id];
+    } else {
+      const fill = merge ? Math.min(n, stackMax - merge.count) : 0, rest = n - fill;
+      if (fill) { merge!.count += fill; merge!.version++; }
+      if (whole) { i.count = rest; i.parent = key; i.slot = top; i.version++; }
+      else { i.count -= n; i.version++; if (rest) this.add(i.kind, key, top, rest); }
+    }
     this.assertItems();
   }
   /**

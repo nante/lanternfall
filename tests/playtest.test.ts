@@ -358,3 +358,41 @@ test('you cannot throw through a closed door', () => {
   open(); throwTo();
   assert.equal(e.children('ground:49,45,0')[0].kind, 'loaf');
 });
+
+// ---- D1 drops land on top, D2 nothing is swapped into a corpse -----------------------------------
+import { groundKey } from '../packages/game/src/engine.ts';
+
+test('a stack dropped on a pile lands on top and keeps its id; it merges only with a top stack of its kind', () => {
+  const e = new Engine(map, balance);
+  const p = place(e.createPlayer('Tess'), 40, 34);
+  const tile = groundKey({ x: 41, y: 34, z: 0 }), pack = e.equipped(p, 'pack')!;
+  e.add('gold', tile, 0, 10); e.add('shortsword', tile, 1);
+  const pile = () => e.children(tile).map(i => [i.kind, i.count, i.id]);
+  const purse = e.add('gold', pack.id, 11, 5);
+  const drop = (id: string, count: number) => e.action(p, { kind: 'moveItem', id, parent: tile, slot: 0, count, version: e.state.items[id].version });
+  const [ten, sword] = e.children(tile);
+  drop(purse.id, 5);
+  assert.deepEqual(pile(), [['gold', 10, ten.id], ['shortsword', 1, sword.id], ['gold', 5, purse.id]]);
+  const more = e.add('gold', pack.id, 12, 3);
+  drop(more.id, 3);
+  assert.deepEqual(pile(), [['gold', 10, ten.id], ['shortsword', 1, sword.id], ['gold', 8, more.id]], 'merged with the top stack, under the id that was moved');
+  const big = e.add('gold', pack.id, 13, 95);
+  drop(big.id, 95);
+  assert.deepEqual(pile(), [['gold', 10, ten.id], ['shortsword', 1, sword.id], ['gold', 100, more.id], ['gold', 3, big.id]], 'the top fills to a hundred, the rest lands on it');
+  drop(e.equipped(p, 'weapon')!.id, 1);
+  assert.equal(pile().at(-1)![0], 'cudgel');
+});
+
+test('a swap never puts anything into a corpse, nor into a bag lying in one', () => {
+  const { e, ann, body, ratBody } = corpses();
+  body.protectedUntil = 0; delete e.state.corpses[ratBody.id];
+  place(ann, 40, 35);
+  const lostPack = e.children(body.id).find(i => i.kind === 'pack')!;
+  const coins = e.children(lostPack.id).find(i => i.kind === 'gold')!;
+  const loaf = e.carried(ann).find(i => i.kind === 'loaf')!;
+  assert.throws(() => e.action(ann, { kind: 'moveItem', id: coins.id, parent: loaf.parent, slot: loaf.slot, count: coins.count, version: coins.version }), /into a corpse/, 'the loaf would land in the corpse');
+  assert.throws(() => e.action(ann, { kind: 'moveItem', id: loaf.id, parent: lostPack.id, slot: 15, count: loaf.count, version: loaf.version }), /into a corpse/);
+  assert.equal(e.state.items[loaf.id].parent, e.equipped(ann, 'pack')!.id);
+  e.action(ann, { kind: 'moveItem', id: coins.id, parent: loaf.parent, slot: e.freeSlot(loaf.parent), count: coins.count, version: coins.version });
+  assert.equal(e.gold(ann), 80, 'taking out of the corpse still works');
+});
