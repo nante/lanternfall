@@ -15,6 +15,9 @@ const wins: Win[] = [];
 let next = 1;
 const sameSrc = (a: Source, b: Source) => a.kind === b.kind && (a.kind === 'vault' || (a.kind === 'ground' ? groundKey(a.at) === groundKey((b as { at: Pos }).at) : a.id === (b as { id: string }).id));
 const COLS = 4;
+let reveal: string | undefined;
+/** The window just opened, once, so the column can scroll it into view. */
+export function takeReveal() { const r = reveal; reveal = undefined; return r; }
 
 /** What a source shows right now, or why it cannot be shown. */
 type Shown = { parent: string; size: number; title: string; icon: string; loot: boolean; pile?: boolean };
@@ -56,7 +59,8 @@ const parseGround = (k: string) => { const [x, y, z] = k.slice(7).split(',').map
 export function openContainer(src: Source, from?: string) {
   const w = from && wins.find(w => w.key === from);
   if (w) { if (!sameSrc(w.src, src)) { w.trail.push(w.src); w.src = src; } }
-  else if (!wins.some(w => sameSrc(w.src, src))) wins.push({ key: `bag${next++}`, src, trail: [] });
+  else if (!wins.some(w => sameSrc(w.src, src))) { const key = `bag${next++}`; wins.push({ key, src, trail: [] }); reveal = key; }
+  else reveal = wins.find(w => sameSrc(w.src, src))!.key;
   core.redraw();
 }
 export function closeContainer(key: string) { const i = wins.findIndex(w => w.key === key); if (i >= 0) wins.splice(i, 1); core.redraw(); }

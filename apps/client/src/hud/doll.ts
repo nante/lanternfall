@@ -1,4 +1,4 @@
-// The equipment window: a figure with a framed slot for each thing worn, capacity and gold beside it, then the fight
+// The hero's window: health, mana and experience (status.ts), then a figure with a framed slot for each thing worn, capacity and gold beside it, then the fight
 // mode, chase or stand, and the Options and Log out buttons. Slots are placed from a table, on a grid of half-slot
 // rows (side slots sit half a slot lower than the centre ones), so more slots can be added as rows of the table.
 import type { EquipSlot } from '../../../../packages/game/src/model.ts';
@@ -6,6 +6,7 @@ import { equipSlots } from '../../../../packages/game/src/model.ts';
 import { core, countOf, equipKey, kids, stats, weightOf } from './core.ts';
 import { ICON, esc, glyph, patch } from './kit.ts';
 import { cellHtml } from './items.ts';
+import { statusHtml } from './status.ts';
 import type { WinSpec } from './column.ts';
 import { icon } from '../icons.ts';
 
@@ -44,22 +45,23 @@ function figureArt() {
   return figure;
 }
 
-export const dollWindow: WinSpec = {
-  id: 'gear', title: 'Equipment', icon: 'w-gear', fixed: true, kind: 'gear',
+/** The hero's window: its title is the hero's name; status on top, the doll and fight controls below. */
+export const dollWindow = (): WinSpec => ({
+  id: 'gear', title: core.view?.self.name ?? 'You', icon: 'w-status', fixed: true, kind: 'gear',
   render(body) {
     const v = core.view!, s = v.self, st = stats(v), eq = equipKey(v), worn = kids(v, eq);
     const free = Math.max(0, Math.floor(st.cap - weightOf(v)));
     const cells = places.map(p => `<div class="doll-slot" style="grid-column:${p.col};grid-row:${p.row} / span 2" title="${p.label}">${p.slot
       ? cellHtml(worn.find(i => i.slot === equipSlots.indexOf(p.slot!)), eq, equipSlots.indexOf(p.slot), `slot${p.id}`)
       : `<div class="cell empty locked" aria-disabled="true" aria-label="${p.label}: not used yet"><span class="ph">${icon(`slot${p.id}`)}</span></div>`}</div>`).join('');
-    patch(body, `<div class="gear"><div class="doll" style="background-image:${figureArt()}">${cells}`
+    patch(body, `${statusHtml()}<div class="gear"><div class="doll" style="background-image:${figureArt()}">${cells}`
       + `<div class="doll-box" style="grid-column:1;grid-row:8 / span 2" title="${weightOf(v).toFixed(1)} of ${st.cap} oz carried"><span>Cap</span><b class="num">${free}</b></div>`
       + `<div class="doll-box" style="grid-column:3;grid-row:8 / span 2" title="Gold carried"><span>Gold</span><b class="num">${countOf(v, 'gold')}</b></div></div>`
       + `<div class="doll-ctl" role="group" aria-label="Fighting">${modes.map(([k, g, tip]) => `<button type="button" class="ibtn btn big" data-mode="${k}" aria-pressed="${s.fightMode === k}" aria-label="${esc(tip)}" title="${esc(tip)}">${glyph(`m-${g}`)}</button>`).join('')}`
       + `<button type="button" class="ibtn btn big gap" data-chase aria-pressed="${s.chase}" aria-label="${s.chase ? 'Chase: you follow your target' : 'Stand: you hold your place'}" title="${s.chase ? 'Chase: you follow your target. Click to stand your ground.' : 'Stand: you hold your place. Click to chase your target.'}">${glyph(s.chase ? 'm-chase' : 'm-stand')}</button>`
       + `<button type="button" class="ibtn btn big gap" data-open="options" aria-label="Options" title="Options">${glyph('m-options')}</button><button type="button" class="ibtn btn big" data-open="logout" aria-label="Log out" title="Log out">${glyph('m-logout')}</button></div></div>`);
   },
-};
+});
 document.addEventListener('click', e => {
   const t = (e.target as HTMLElement).closest<HTMLElement>('[data-mode], [data-chase]'), v = core.view;
   if (!t || !v) return;

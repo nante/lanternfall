@@ -11,14 +11,14 @@ export const previewScenes: Record<string, { at: Pos; prey?: MobKind; label: str
 };
 
 let timer = 0;
-/** `dark` turns the darkness rule on, so creatures out of the light come through as shades (for checking input on them). */
-export function startPreview(map: MapData, sceneId: string, out: { view: (v: GameView) => void; notice: (n: Notice) => void }, dark = false) {
+/** `dark` turns the darkness rule on, so creatures out of the light come through as shades (for checking input on them); `names` renames the hero and the two friends. */
+export function startPreview(map: MapData, sceneId: string, out: { view: (v: GameView) => void; notice: (n: Notice) => void }, dark = false, names: string[] = []) {
   clearInterval(timer);
   const scene = previewScenes[sceneId] ?? previewScenes.meadow;
   const e = new Engine(map, dark ? { ...defaultBalance, world: { ...defaultBalance.world, darkness: true } } : defaultBalance);
   e.state.rng = 4242;
   const place = (p: Hero, dx: number, dy: number) => Object.assign(p, e.geo.near({ ...scene.at, x: scene.at.x + dx, y: scene.at.y + dy }, q => e.occupied(q, p.id)));
-  const hero = e.createPlayer('Wayfarer of the Long Road'), friends = [e.createPlayer('Ash'), e.createPlayer('Mira')];
+  const hero = e.createPlayer(names[0] || 'Wayfarer of the Long Road'), friends = [e.createPlayer(names[1] || 'Ash'), e.createPlayer(names[2] || 'Mira')];
   place(hero, 0, 0); place(friends[0], -2, 1); place(friends[1], 2, -1);
   for (const p of [hero, ...friends]) { p.xp = 900; p.hp = e.stats(p).maxHp; }
   hero.xp = e.rules.xpAt(14) + 900; hero.melee = e.rules.meleeAt(31) + 40; hero.shielding = e.rules.shieldingAt(24) + 30; hero.magic = e.rules.magicAt(3) + 500;

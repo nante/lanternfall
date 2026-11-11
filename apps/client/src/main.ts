@@ -17,7 +17,6 @@ import { $ } from './hud/kit.ts';
 import { balance, core, findItem } from './hud/core.ts';
 import { Column } from './hud/column.ts';
 import { minimapWindow } from './hud/minimap.ts';
-import { statusWindow } from './hud/status.ts';
 import { dollWindow } from './hud/doll.ts';
 import { battleWindow } from './hud/battle.ts';
 import { journalWindow, skillsWindow } from './hud/skills.ts';
@@ -66,11 +65,11 @@ if (import.meta.env.DEV) Object.assign(window, { __game: { world, send: core.sen
 // ---------------------------------------------------------------- the frame (arrangement picked in the Studio's Look tab)
 const column = new Column({
   root: hud, viewport, footer, labels: $('#labels'),
-  statics: { map: minimapWindow, status: statusWindow, gear: dollWindow, battle: battleWindow, skills: skillsWindow, journal: journalWindow },
+  statics: { map: minimapWindow, gear: dollWindow, battle: battleWindow, skills: skillsWindow, journal: journalWindow },
   defaults: {
-    classic: { side: ['map', 'status', 'gear', 'battle', '@bags', 'skills', 'journal'] },
-    rails: { left: ['battle', 'skills', 'journal'], right: ['map', 'status', 'gear', '@bags'] },
-    glass: { left: ['battle', 'skills', 'journal'], right: ['map', 'status', 'gear', '@bags'] },
+    classic: { side: ['map', 'gear', 'battle', '@bags', 'skills', 'journal'] },
+    rails: { left: ['battle', 'skills', 'journal'], right: ['map', 'gear', '@bags'] },
+    glass: { left: ['battle', 'skills', 'journal'], right: ['map', 'gear', '@bags'] },
   },
   collapsedByDefault: ['journal', 'skills'],
   onViewportResize: () => world.resize(),
@@ -89,6 +88,8 @@ function redraw() {
   dialogue.update();
   column.setDynamic([dialogue.dialogueWindow(), ...containers.windows()].filter(w => !!w));
   column.render();
+  const shown = containers.takeReveal();
+  if (shown) column.win(shown)?.scrollIntoView({ block: 'nearest' });
   checkTip(a => !a.dataset.id || !!findItem(core.view, a.dataset.id));
   checkMenu();
   markSelected();
@@ -155,7 +156,7 @@ if (previewScene !== null) {
   // Studio Look tab: no server. A local engine plays a scene through the real HUD, and the Studio streams style and layout changes in.
   $('#gate').hidden = true;
   hud.dataset.ready = 'true';
-  const play = (scene: string) => { core.view = undefined; clearConsole(); const p = startPreview(core.map, scene, { view: onView, notice }, params.has('dark')); route = a => p.send(a); };
+  const play = (scene: string) => { core.view = undefined; clearConsole(); const p = startPreview(core.map, scene, { view: onView, notice }, params.has('dark'), params.get('names')?.split(',') ?? []); route = a => p.send(a); };
   play(previewScene);
   addEventListener('message', e => {
     if (!/^http:\/\/(127\.0\.0\.1|localhost):4174$/.test(e.origin)) return;

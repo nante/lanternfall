@@ -20,12 +20,13 @@ export type ScaleSetting = 'auto' | 1 | 2 | 3;
 const SCALE_KEY = 'lanternfall.ui-scale';
 export const grid = { setting: 'auto' as ScaleSetting, u: 2 };
 function readSetting(): ScaleSetting { try { const v = localStorage.getItem(SCALE_KEY); return v === '1' || v === '2' || v === '3' ? (Number(v) as 1 | 2 | 3) : 'auto'; } catch { return 'auto'; } }
-/** Auto follows the window height so a UI pixel sits near a world pixel (the world upscales by its height too). */
-function autoScale() { return Math.max(1, Math.min(3, Math.round(innerHeight / 450))); }
+/** Auto follows the window height (as the world's upscale does) so the column holds the map, the hero and a few containers. In device pixels. */
+function autoDevice() { return Math.max(1, Math.round((innerHeight * (devicePixelRatio || 1)) / 520)); }
 export function applyScale(setting = grid.setting) {
   grid.setting = setting;
-  const css = setting === 'auto' ? autoScale() : setting, dpr = devicePixelRatio || 1;
-  grid.u = Math.max(1, Math.round(css * dpr)) / dpr;
+  const dpr = devicePixelRatio || 1;
+  grid.u = (setting === 'auto' ? autoDevice() : Math.max(1, Math.round(setting * dpr))) / dpr;
+  const css = grid.u;
   const root = document.documentElement;
   root.style.setProperty('--u', `${grid.u}px`);
   root.style.setProperty('--icon', String(ICON));

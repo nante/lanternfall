@@ -167,7 +167,8 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
 body.resizing-y, body.resizing-y * { cursor: row-resize !important; user-select: none; }
 
 /* ---------------------------------------------------------------- windows */
-.win { flex: 0 1 auto; display: flex; flex-direction: column; min-height: calc(46 * var(--u)); }
+.win { flex: 0 1 auto; display: flex; flex-direction: column; min-height: calc(42 * var(--u)); }
+.win.k-bag { min-height: calc((var(--cell) + 27) * var(--u)); }
 .win.fixed, .win.collapsed { flex-shrink: 0; min-height: 0; }
 .w-head { flex: none; display: flex; align-items: flex-start; gap: calc(2 * var(--u)); height: calc(15 * var(--u)); padding: 0 calc(2 * var(--u)) 0 var(--u); margin: var(--u) var(--u) 0; background: var(--n); box-shadow: 0 var(--u) 0 var(--k); cursor: grab; user-select: none; -webkit-user-select: none; touch-action: none; }
 .w-head h2 { flex: 1; min-width: 0; margin: 0; padding-bottom: var(--u); font-size: inherit; line-height: calc(14 * var(--u)); color: var(--bone); white-space: nowrap; overflow: hidden; text-overflow: clip; }
@@ -190,7 +191,7 @@ h3.banner { font-size: inherit; }
 .st-lvl { color: var(--muted); white-space: nowrap; }
 .st-lvl b { color: var(--a4); }
 .st-bars { display: grid; gap: calc(3 * var(--u)); margin: var(--u); }
-.st-xp { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: calc(4 * var(--u)); margin: 0 var(--u); line-height: calc(12 * var(--u)); color: var(--muted); }
+.st-xp { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: calc(4 * var(--u)); margin: 0 var(--u); line-height: calc(12 * var(--u)); color: var(--muted); }
 .st-flags { display: flex; gap: calc(3 * var(--u)); margin: 0; padding: 0; list-style: none; }
 .st-flags li { padding: var(--u); background: var(--n); box-shadow: 0 0 0 var(--u) var(--k); }
 
@@ -398,3 +399,4 @@ label.opt .check { margin-top: var(--u); }
 
 @media (prefers-reduced-motion: reduce) { .place, .tooltip[data-show] { transition: none; } }
 .ibtn.btn:active:not(:disabled) { padding: calc(5 * var(--u)) calc(4 * var(--u)) calc(3 * var(--u)); }
+.count .w-head h2, .menu .w-head h2 { padding-left: calc(3 * var(--u)); }
