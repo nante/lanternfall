@@ -252,7 +252,7 @@ h3.banner { font-size: inherit; justify-self: start; padding: 0 calc(6 * var(--u
 .tasks .done b { color: var(--c-info); }
 
 /* conversation and shop: a panel beside the console lines */
-.talk { width: calc(280 * var(--u)); min-height: 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--t) var(--n); display: grid; align-content: start; gap: calc(4 * var(--u)); padding: calc(4 * var(--u)) calc(5 * var(--u)) calc(4 * var(--u)) calc(6 * var(--u)); box-shadow: inset var(--u) 0 0 var(--k), inset calc(2 * var(--u)) 0 0 var(--S); }
+.talk { width: calc(280 * var(--u)); min-height: 0; overflow-y: auto; scrollbar-width: none; display: grid; align-content: start; gap: calc(3 * var(--u)); padding: calc(4 * var(--u)) calc(5 * var(--u)) calc(4 * var(--u)) calc(6 * var(--u)); box-shadow: inset var(--u) 0 0 var(--k), inset calc(2 * var(--u)) 0 0 var(--S); }
 .talk-head { display: flex; align-items: flex-start; gap: calc(4 * var(--u)); }
 .talk-head .plank { margin: 0 calc(8 * var(--u)); padding: calc(3 * var(--u)) calc(2 * var(--u)) calc(3 * var(--u)); }
 .talk-head small { flex: 1; font-size: inherit; line-height: calc(12 * var(--u)); padding-top: calc(3 * var(--u)); color: var(--muted); }
@@ -265,7 +265,7 @@ h3.banner { font-size: inherit; justify-self: start; padding: 0 calc(6 * var(--u
 .stock { display: flex; gap: calc(3 * var(--u)); margin: 0; padding: var(--u) var(--u) calc(2 * var(--u)); list-style: none; overflow-x: auto; scrollbar-width: thin; scrollbar-color: var(--t) var(--n); }
 .stock li { flex: none; }
 .stock { min-height: calc((var(--cell) + 18) * var(--u)); }
-.stock li { display: grid; justify-items: center; gap: var(--u); cursor: pointer; }
+.stock li { display: grid; justify-items: end; gap: var(--u); cursor: pointer; }
 .stock .item { pointer-events: none; }
 .stock .cell .n { position: absolute; right: 0; bottom: calc(-1 * var(--u)); line-height: calc(12 * var(--u)); text-shadow: var(--outline); }
 .stock .price { line-height: calc(12 * var(--u)); color: var(--a4); }
