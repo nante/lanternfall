@@ -224,42 +224,42 @@
     "club": {
       "name": "Knotted club",
       "icon": "club",
-      "weight": 16,
+      "weight": 20,
       "buy": 20,
       "sell": 5,
       "slot": "weapon",
       "attack": 9,
-      "defense": 3
+      "defense": 4
     },
     "mace": {
       "name": "Iron mace",
       "icon": "mace",
-      "weight": 24,
+      "weight": 28,
       "buy": 110,
       "sell": 30,
       "slot": "weapon",
       "attack": 13,
-      "defense": 5
+      "defense": 6
     },
     "flangedmace": {
       "name": "Flanged mace",
       "icon": "flangedmace",
-      "weight": 30,
-      "buy": 320,
-      "sell": 90,
+      "weight": 34,
+      "buy": 260,
+      "sell": 72,
       "slot": "weapon",
       "attack": 17,
-      "defense": 6
+      "defense": 8
     },
     "maul": {
       "name": "Gilded maul",
       "icon": "maul",
-      "weight": 42,
-      "buy": 1100,
-      "sell": 300,
+      "weight": 48,
+      "buy": 850,
+      "sell": 230,
       "slot": "weapon",
       "attack": 23,
-      "defense": 7
+      "defense": 9
     },
     "rustsword": {
       "name": "Pitted sword",
@@ -304,7 +304,7 @@
     "beardedaxe": {
       "name": "Bearded axe",
       "icon": "beardedaxe",
-      "weight": 26,
+      "weight": 30,
       "buy": 340,
       "sell": 95,
       "slot": "weapon",
@@ -314,9 +314,9 @@
     "broadaxe": {
       "name": "Blued broad axe",
       "icon": "broadaxe",
-      "weight": 34,
-      "buy": 900,
-      "sell": 250,
+      "weight": 40,
+      "buy": 800,
+      "sell": 220,
       "slot": "weapon",
       "attack": 21,
       "defense": 8
@@ -324,7 +324,7 @@
     "greataxe": {
       "name": "Barrow axe",
       "icon": "greataxe",
-      "weight": 44,
+      "weight": 52,
       "buy": 0,
       "sell": 700,
       "slot": "weapon",
@@ -339,7 +339,7 @@
       "sell": 3,
       "slot": "weapon",
       "attack": 6,
-      "defense": 5
+      "defense": 3
     },
     "dagger": {
       "name": "Iron dagger",
@@ -349,7 +349,7 @@
       "sell": 14,
       "slot": "weapon",
       "attack": 9,
-      "defense": 8
+      "defense": 5
     },
     "dirk": {
       "name": "Steel dirk",
@@ -359,12 +359,12 @@
       "sell": 65,
       "slot": "weapon",
       "attack": 13,
-      "defense": 11
+      "defense": 7
     },
     "spear": {
       "name": "Ash spear",
       "icon": "spear",
-      "weight": 18,
+      "weight": 20,
       "buy": 35,
       "sell": 10,
       "slot": "weapon",
@@ -374,7 +374,7 @@
     "boarspear": {
       "name": "Boar spear",
       "icon": "boarspear",
-      "weight": 24,
+      "weight": 28,
       "buy": 200,
       "sell": 55,
       "slot": "weapon",
@@ -384,7 +384,7 @@
     "halberd": {
       "name": "Warden's halberd",
       "icon": "halberd",
-      "weight": 38,
+      "weight": 44,
       "buy": 700,
       "sell": 190,
       "slot": "weapon",
@@ -398,7 +398,7 @@
       "buy": 10,
       "sell": 2,
       "slot": "shield",
-      "defense": 4
+      "defense": 5
     },
     "heater": {
       "name": "Iron heater",
@@ -554,7 +554,7 @@
     "apple": {
       "name": "Russet apple",
       "icon": "apple",
-      "weight": 1.5,
+      "weight": 0.5,
       "buy": 1,
       "sell": 0,
       "stack": true,
@@ -563,7 +563,7 @@
     "mushroom": {
       "name": "Field mushroom",
       "icon": "mushroom",
-      "weight": 0.5,
+      "weight": 0.2,
       "buy": 2,
       "sell": 0,
       "stack": true,
@@ -654,7 +654,7 @@
     "pelt": {
       "name": "Rat pelt",
       "icon": "pelt",
-      "weight": 2,
+      "weight": 1,
       "buy": 0,
       "sell": 4,
       "stack": true
@@ -662,7 +662,7 @@
     "horn": {
       "name": "Beetle horn",
       "icon": "horn",
-      "weight": 2,
+      "weight": 1,
       "buy": 0,
       "sell": 20,
       "stack": true
@@ -670,7 +670,7 @@
     "wax": {
       "name": "Grub wax",
       "icon": "wax",
-      "weight": 1,
+      "weight": 0.5,
       "buy": 0,
       "sell": 9,
       "stack": true
@@ -678,7 +678,7 @@
     "hide": {
       "name": "Thornboar hide",
       "icon": "hide",
-      "weight": 12,
+      "weight": 6,
       "buy": 0,
       "sell": 22,
       "stack": true
@@ -686,7 +686,7 @@
     "garnet": {
       "name": "Garnet",
       "icon": "garnet",
-      "weight": 0.3,
+      "weight": 0.2,
       "buy": 0,
       "sell": 40,
       "stack": true
@@ -694,7 +694,7 @@
     "amethyst": {
       "name": "Amethyst cluster",
       "icon": "amethyst",
-      "weight": 0.6,
+      "weight": 0.4,
       "buy": 0,
       "sell": 60,
       "stack": true
@@ -702,7 +702,7 @@
     "sapphire": {
       "name": "Sapphire",
       "icon": "sapphire",
-      "weight": 0.3,
+      "weight": 0.2,
       "buy": 0,
       "sell": 90,
       "stack": true
@@ -710,7 +710,7 @@
     "emerald": {
       "name": "Emerald",
       "icon": "emerald",
-      "weight": 0.3,
+      "weight": 0.2,
       "buy": 0,
       "sell": 120,
       "stack": true
@@ -718,7 +718,7 @@
     "amberstone": {
       "name": "Amber",
       "icon": "amberstone",
-      "weight": 0.3,
+      "weight": 0.2,
       "buy": 0,
       "sell": 50,
       "stack": true
@@ -726,7 +726,7 @@
     "pearl": {
       "name": "Mire pearl",
       "icon": "pearl",
-      "weight": 0.2,
+      "weight": 0.1,
       "buy": 0,
       "sell": 75,
       "stack": true
@@ -734,21 +734,21 @@
     "copperring": {
       "name": "Copper ring",
       "icon": "copperring",
-      "weight": 0.5,
+      "weight": 0.3,
       "buy": 0,
       "sell": 15
     },
     "silverring": {
       "name": "Garnet ring",
       "icon": "silverring",
-      "weight": 0.5,
+      "weight": 0.3,
       "buy": 0,
       "sell": 70
     },
     "goldring": {
       "name": "Sapphire ring",
       "icon": "goldring",
-      "weight": 0.5,
+      "weight": 0.3,
       "buy": 0,
       "sell": 160
     },
@@ -769,7 +769,7 @@
     "crown": {
       "name": "Old crown",
       "icon": "crown",
-      "weight": 0.4,
+      "weight": 0.1,
       "buy": 0,
       "sell": 10,
       "stack": true
@@ -784,21 +784,21 @@
     "tinsoldier": {
       "name": "Tin soldier",
       "icon": "tinsoldier",
-      "weight": 2,
+      "weight": 1,
       "buy": 0,
       "sell": 6
     },
     "idol": {
       "name": "Bone idol",
       "icon": "idol",
-      "weight": 3,
+      "weight": 2,
       "buy": 0,
       "sell": 25
     },
     "glasseye": {
       "name": "Glass eye",
       "icon": "glasseye",
-      "weight": 0.5,
+      "weight": 0.2,
       "buy": 0,
       "sell": 12
     },
