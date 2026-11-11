@@ -19,8 +19,23 @@ export const kits: Record<string, Worn> = {
   knight: { weapon: 'blade', shield: 'banded', head: 'coif', body: 'jerkin', feet: 'boots', pack: 'pack' },
   woodman: { weapon: 'hatchet', head: 'coif', body: 'tunic' },
 };
+/** The item tiers on the body: rough, iron, steel, blued, gilded, and the rare finds. */
+export const tierKits: Record<string, Worn> = {
+  rough: { weapon: 'club', shield: 'lid', head: 'cap', body: 'gambeson', feet: 'boots', pack: 'satchel' },
+  iron: { weapon: 'mace', shield: 'heater', head: 'kettlehat', body: 'mailshirt', feet: 'shodboots', pack: 'pack' },
+  steel: { weapon: 'broadsword', shield: 'kite', head: 'visorhelm', body: 'scalecoat', feet: 'sabatons', pack: 'rucksack' },
+  spear: { weapon: 'boarspear', shield: 'tower', head: 'coif', body: 'mailshirt', feet: 'shodboots' },
+  blued: { weapon: 'broadaxe', shield: 'banded', head: 'visorhelm', body: 'cuirass', feet: 'sabatons' },
+  gilded: { weapon: 'longsword', shield: 'sunshield', head: 'gildedhelm', body: 'cuirass', feet: 'sabatons', pack: 'pack' },
+  rare: { weapon: 'dawnblade', head: 'gildedhelm', body: 'scalecoat', feet: 'sabatons' },
+  maul: { weapon: 'maul', head: 'kettlehat', body: 'jerkin', feet: 'boots' },
+  halberd: { weapon: 'halberd', head: 'visorhelm', body: 'mailshirt', feet: 'sabatons' },
+  dagger: { weapon: 'dirk', shield: 'buckler', head: 'cap', body: 'jerkin', feet: 'boots', pack: 'satchel' },
+  greataxe: { weapon: 'greataxe', head: 'kettlehat', body: 'scalecoat', feet: 'shodboots' },
+  flanged: { weapon: 'flangedmace', shield: 'kite', head: 'coif', body: 'gambeson', feet: 'boots' },
+};
 type Row = [dx: number, dy: number, look: string, name: string, kind: 'npc' | 'monster', facing: number, worn?: Worn];
-const heroRow = (dy: number, facing = 0): Row[] => Object.entries(kits).map(([k, w], i) => [i * 1.5 - 7.5, dy, 'hero', k, 'npc', facing, w]);
+const heroRow = (dy: number, facing = 0, set: Record<string, Worn> = kits): Row[] => Object.entries(set).map(([k, w], i) => [set === kits ? i * 1.5 - 7.5 : i * 1.3 - 7.2, dy, 'hero', k, 'npc', facing, w]);
 /** The line-up stands near the start tile (north of it, on open ground at the market): hero is live, the rest are display figures. */
 const lineups: Record<string, Row[]> = {
   '1': [[-2, 2, 'robe', 'Sister Wren', 'npc', 0], [2, 2, 'guard', 'Warden Corin', 'npc', Math.PI / 4], [0, 3, 'gutterRat', 'Gutter rat', 'monster', Math.PI / 2]],
@@ -38,6 +53,7 @@ const lineups: Record<string, Row[]> = {
     [3.8, -2.5, 'barrowTroll', 'Barrow troll', 'monster', Math.PI / 2],
   ],
   heroes: [...heroRow(-4), ...heroRow(-2, Math.PI)],
+  tiers: [...heroRow(-4, 0, tierKits), ...heroRow(-2, Math.PI, tierKits)],
 };
 
 export function mount(ctx: TabContext) {
@@ -64,7 +80,7 @@ export function mount(ctx: TabContext) {
   };
   group('Slow', [['100', '1×'], ['400', '¼×']], 'tick', '100', () => ctx.write(true));
   group('View', [['0', 'Scene'], ['1', 'Turntable']], 'turn', '0', () => ctx.write(true));
-  group('Line-up', [['0', 'Off'], ['1', 'Three'], ['all', 'All'], ['sizes', 'Sizes'], ['heroes', 'Heroes']], 'cast', '1', placeLineup);
+  group('Line-up', [['0', 'Off'], ['1', 'Three'], ['all', 'All'], ['sizes', 'Sizes'], ['heroes', 'Heroes'], ['tiers', 'Tiers']], 'cast', '1', placeLineup);
   group('Move', [['glide', 'Glide'], ['snap', 'Snap']], 'move', 'glide', v => { layer.motion = v as Motion; });
   group('Feel', [['off', 'Off'], ['subtle', 'Subtle'], ['heavy', 'Heavy']], 'feel', 'heavy', v => { layer.feel = v as FeelLevel; });
 

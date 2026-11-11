@@ -69,6 +69,13 @@ export const materials = {
   /** Barrow troll: lichen-grey hide, mossy shoulders. */
   trollHide: ['#191725', '#3e3d3f', '#55524f', '#736574', '#927e85'],
   moss: ['#0a120d', '#18291c', '#2b4a2d', '#4a7139', '#678d43'],
+  /** Metal tiers for worn and held gear, rough to fine: pitted iron, iron, blued steel, bronze, silver. */
+  rust: ['#1a120c', '#3b2819', '#5a3d27', '#6f6a63', '#8c867b'],
+  iron: ['#0c0f1e', '#3e3d3f', '#55524f', '#6f6a63', '#8c867b'],
+  blued: ['#06070d', '#141a31', '#2b365d', '#3e4c81', '#616ca1'],
+  bronze: ['#2e130b', '#43301a', '#7d5b2e', '#a07636', '#c4923f'],
+  silver: ['#191725', '#3c2e3e', '#736574', '#a7b4cb', '#d2d3d3'],
+  oak: ['#2c1f15', '#4d3422', '#7b5737', '#a07a4e', '#c4a072'],
 } as const satisfies Record<string, Ramp>;
 export type Mat = keyof typeof materials;
 /** Self-lit share per material: the smear and a lantern flame read even at night. */
@@ -85,6 +92,7 @@ export const grain: Partial<Record<Mat, [kind: number, amount: number]>> = {
   boarHide: [3, 0.42], boarDark: [3, 0.36], boarSnout: [3, 0.15], thorn: [4, 0.2], ratFur: [3, 0.4], gold: [2, 0.25], skin: [3, 0.08], skinDark: [3, 0.08],
   shell: [5, 0.2], chitin: [5, 0.15], lichen: [3, 0.3], grub: [3, 0.22], grubBand: [1, 0.2], mire: [3, 0.45], capsule: [5, 0.2],
   trollHide: [3, 0.4], moss: [3, 0.5],
+  rust: [2, 0.5], iron: [2, 0.25], blued: [2, 0.2], bronze: [5, 0.25], silver: [2, 0.15], oak: [4, 0.32],
 };
 
 export type Vec3 = readonly [number, number, number];
@@ -187,39 +195,80 @@ const humanJoints: JointDef[] = [
 type Weapon = { reach: number; build: (add: Add) => void };
 const GRIP: Vec3 = [0.7, 0, -0.35];
 const grip = (g: THREE.BufferGeometry) => place(g, [0, -0.04, 0], GRIP);
+/** Materials of a held piece: blade or head, guard and fittings, the wrap in the hand, the haft. Tiers differ by these. */
+type Fit = { metal: Mat; trim: Mat; grip: Mat; wood: Mat };
+const fit = (metal: Mat, trim: Mat, gripMat: Mat = 'leather', wood: Mat = 'wood'): Fit => ({ metal, trim, grip: gripMat, wood });
+/** A straight blade: `len` from the guard, `w` wide at the guard, a crossguard `guard` wide. Daggers are short swords. */
+const sword = (len: number, w: number, guard: number, m: Fit): Weapon => ({ reach: Math.max(0.3, len + 0.06), build: add => {
+  add('handR', m.metal, grip(wedge(w, 0.022, w * 0.42, 0.012, len, [0, -0.05, 0], [Math.PI / 2, 0, 0])));
+  add('handR', m.trim, grip(wedge(guard, 0.04, guard, 0.04, 0.04, [0, -0.02, 0], [Math.PI / 2, 0, 0])));
+  add('handR', m.grip, grip(limb(0.028, 0.028, 0.1, [0, 0.08, 0])));
+  add('handR', m.trim, grip(blob(0.035, 0.035, 0.035, [0, 0.1, 0], undefined, 6)));
+} });
+/** A haft with an axe head: `head` its depth from the haft, `drop` how far the beard runs down, `double` two bits. */
+const axe = (head: number, drop: number, m: Fit, double = false): Weapon => ({ reach: 0.46 + head * 0.4, build: add => {
+  add('handR', m.wood, grip(limb(0.026, 0.024, 0.48, [0, 0.06, 0])));
+  for (const side of double ? [1, -1] : [1]) add('handR', m.metal, grip(wedge(0.035, 0.1 + drop * 0.5, 0.018, 0.2 + drop, head, [0, -0.34 + drop * 0.3, side > 0 ? 0.02 : -0.02], side > 0 ? [0, 0, 0] : [0, Math.PI, 0])));
+  if (!double) add('handR', m.metal, grip(wedge(0.05, 0.08, 0.05, 0.08, 0.07, [0, -0.33, -0.07])));
+  add('handR', m.trim, grip(limb(0.034, 0.034, 0.05, [0, -0.3, 0])));
+} });
+/** A mace: haft, grip, a round head; flanged heads carry blades round it. */
+const mace = (r: number, flanges: number, m: Fit): Weapon => ({ reach: 0.48, build: add => {
+  add('handR', m.wood, grip(limb(0.026, 0.026, 0.4, [0, 0.06, 0])));
+  add('handR', m.grip, grip(limb(0.032, 0.032, 0.1, [0, 0.06, 0])));
+  add('handR', m.metal, grip(blob(r, r, r, [0, -0.36, 0], undefined, 7)));
+  for (let k = 0; k < flanges; k++) { const a = (k / flanges) * Math.PI * 2; add('handR', m.metal, grip(wedge(0.02, 0.11, 0.02, 0.07, r + 0.04, [0, -0.36, 0], [0, a, 0]))); }
+} });
+/** A two-handed hammer: a long haft and a block head across it. */
+const maul = (m: Fit): Weapon => ({ reach: 0.62, build: add => {
+  add('handR', m.wood, grip(limb(0.028, 0.026, 0.56, [0, 0.08, 0])));
+  add('handR', m.grip, grip(limb(0.034, 0.034, 0.12, [0, 0.08, 0])));
+  add('handR', m.metal, grip(wedge(0.13, 0.13, 0.13, 0.13, 0.3, [0, -0.5, -0.15])));
+  for (const z of [-0.14, 0.13]) add('handR', m.trim, grip(wedge(0.14, 0.14, 0.14, 0.14, 0.025, [0, -0.5, z])));
+} });
+/** A spear held upright; lugs below a boar spear's head, an axe blade on a halberd. */
+const spear = (head: number, m: Fit, o: { lugs?: boolean; blade?: boolean; pennant?: Mat } = {}): Weapon => ({ reach: 0.95, build: add => {
+  add('handR', m.wood, place(limb(0.032, 0.03, 1.6), [0, 1.05, 0.03]));
+  add('handR', m.metal, cone(0.07, head, [0, 1.05, 0.03], undefined, 4));
+  if (o.lugs) add('handR', m.trim, wedge(0.22, 0.03, 0.22, 0.03, 0.03, [0, 1.02, 0.02]));
+  if (o.blade) { add('handR', m.metal, wedge(0.02, 0.2, 0.02, 0.12, 0.22, [0, 0.95, 0.04])); add('handR', m.metal, cone(0.03, 0.12, [0, 0.95, -0.03], [-Math.PI / 2, 0, 0], 4)); }
+  if (o.pennant) add('handR', o.pennant, wedge(0.025, 0.16, 0.025, 0.06, 0.16, [0, 0.9, 0.06]));
+} });
 const weapons = {
   cudgel: { reach: 0.4, build: add => {
     add('handR', 'wood', grip(limb(0.028, 0.062, 0.36, [0, 0.05, 0])));
     add('handR', 'wood', grip(blob(0.07, 0.075, 0.07, [0, -0.33, 0], undefined, 7)));
     add('handR', 'leather', grip(limb(0.034, 0.034, 0.06, [0, 0.05, 0])));
   } },
-  shortsword: { reach: 0.48, build: add => {
-    add('handR', 'bright', grip(wedge(0.07, 0.022, 0.03, 0.012, 0.42, [0, -0.05, 0], [Math.PI / 2, 0, 0])));
-    add('handR', 'steel', grip(wedge(0.17, 0.04, 0.17, 0.04, 0.04, [0, -0.02, 0], [Math.PI / 2, 0, 0])));
-    add('handR', 'leather', grip(limb(0.028, 0.028, 0.1, [0, 0.08, 0])));
-    add('handR', 'steel', grip(blob(0.035, 0.035, 0.035, [0, 0.1, 0], undefined, 6)));
+  club: { reach: 0.48, build: add => {
+    add('handR', 'wood', grip(limb(0.032, 0.085, 0.44, [0, 0.05, 0])));
+    for (const [y, a] of [[-0.3, 0.4], [-0.38, 2.6], [-0.2, 4.4]] as const) add('handR', 'iron', grip(blob(0.03, 0.03, 0.03, [Math.sin(a) * 0.075, y, Math.cos(a) * 0.075], undefined, 5)));
+    add('handR', 'straw', grip(limb(0.036, 0.036, 0.07, [0, 0.05, 0])));
   } },
-  hatchet: { reach: 0.46, build: add => {
-    add('handR', 'wood', grip(limb(0.026, 0.024, 0.46, [0, 0.06, 0])));
-    add('handR', 'bright', grip(wedge(0.035, 0.1, 0.018, 0.2, 0.17, [0, -0.33, 0.02])));
-    add('handR', 'steel', grip(wedge(0.05, 0.08, 0.05, 0.08, 0.07, [0, -0.33, -0.07])));
-  } },
-  blade: { reach: 0.72, build: add => {
-    add('handR', 'bright', grip(wedge(0.085, 0.024, 0.04, 0.014, 0.66, [0, -0.06, 0], [Math.PI / 2, 0, 0])));
-    add('handR', 'gold', grip(wedge(0.26, 0.045, 0.26, 0.045, 0.045, [0, -0.025, 0], [Math.PI / 2, 0, 0])));
-    add('handR', 'leather', grip(limb(0.03, 0.03, 0.14, [0, 0.11, 0])));
-    add('handR', 'gold', grip(blob(0.045, 0.045, 0.045, [0, 0.13, 0], undefined, 6)));
-  } },
-  spear: { reach: 0.95, build: add => {
-    add('handR', 'wood', place(limb(0.032, 0.03, 1.6), [0, 1.05, 0.03]));
-    add('handR', 'steel', cone(0.07, 0.26, [0, 1.05, 0.03], undefined, 4));
-    add('handR', 'red', wedge(0.025, 0.16, 0.025, 0.06, 0.16, [0, 0.9, 0.06]));
-  } },
+  mace: mace(0.085, 0, fit('iron', 'iron')),
+  flangedmace: mace(0.07, 6, fit('bright', 'steel', 'red')),
+  maul: maul(fit('bright', 'gold', 'purple', 'oak')),
+  rustsword: sword(0.44, 0.07, 0.15, fit('rust', 'rust')),
+  shortsword: sword(0.42, 0.07, 0.17, fit('bright', 'steel')),
+  broadsword: sword(0.52, 0.095, 0.2, fit('bright', 'steel', 'red')),
+  blade: sword(0.66, 0.085, 0.26, fit('bright', 'gold')),
+  longsword: sword(0.72, 0.09, 0.28, fit('bright', 'gold', 'purple')),
+  dawnblade: sword(0.76, 0.11, 0.3, fit('silver', 'gold', 'cloakBlue')),
+  knife: sword(0.2, 0.05, 0.06, fit('iron', 'wood', 'wood')),
+  dagger: sword(0.26, 0.06, 0.13, fit('iron', 'iron')),
+  dirk: sword(0.3, 0.065, 0.14, fit('bright', 'bronze', 'red')),
+  hatchet: axe(0.17, 0, fit('bright', 'steel')),
+  beardedaxe: axe(0.2, 0.12, fit('bright', 'steel', 'red')),
+  broadaxe: axe(0.28, 0.08, fit('blued', 'bronze', 'leather', 'hairBlack')),
+  greataxe: axe(0.22, 0.06, fit('bright', 'gold', 'purple', 'oak'), true),
+  spear: spear(0.26, fit('steel', 'steel', 'leather', 'wood'), { pennant: 'red' }),
+  boarspear: spear(0.3, fit('bright', 'steel'), { lugs: true }),
+  halberd: spear(0.24, fit('blued', 'bronze', 'leather', 'hairBlack'), { blade: true }),
   hammer: { reach: 0.5, build: add => {
     add('handR', 'wood', place(limb(0.025, 0.025, 0.36), [0, 0.06, 0.06], [-1.2, 0, 0]));
     add('handR', 'steel', wedge(0.12, 0.12, 0.12, 0.12, 0.2, [0, -0.13, 0.3], [0, Math.PI / 2, 0]));
   } },
-  club: { reach: 1.0, build: add => {
+  trollclub: { reach: 1.0, build: add => {
     add('handR', 'wood', grip(limb(0.05, 0.13, 0.75, [0, 0.06, 0])));
     for (const [y, a] of [[-0.45, 0], [-0.62, 2.1], [-0.3, 4.2]] as const) add('handR', 'wood', grip(cone(0.05, 0.12, [Math.sin(a) * 0.09, y, Math.cos(a) * 0.09], [Math.cos(a) * 1.4, 0, -Math.sin(a) * 1.4], 4)));
     add('handR', 'moss', grip(blob(0.1, 0.06, 0.1, [0, -0.7, 0], undefined, 6)));
@@ -244,6 +293,30 @@ const offHands = {
     add('handL', 'steel', strap(lathe([[0.258, 0], [0.262, 0.04]], { seg: 14 })));
     add('handL', 'gold', strap(blob(0.055, 0.04, 0.055, [0, 0.08, 0], undefined, 7)));
   } },
+  lid: { hold: shieldHold, build: add => {
+    add('handL', 'oak', strap(lathe([[0.16, 0], [0.165, 0.02], [0, 0.03]], { seg: 10 })));
+    add('handL', 'rust', strap(wedge(0.34, 0.02, 0.34, 0.02, 0.05, [0, 0.03, -0.025])));
+  } },
+  heater: { hold: shieldHold, build: add => {
+    add('handL', 'tunicBlue', strap(lathe([[0.21, 0], [0.21, 0.025], [0.17, 0.05], [0, 0.06]], { seg: 12, sz: 1.25 })));
+    add('handL', 'iron', strap(lathe([[0.218, 0], [0.222, 0.035]], { seg: 12, sz: 1.25 })));
+    add('handL', 'linen', strap(wedge(0.04, 0.02, 0.04, 0.02, 0.48, [0, 0.055, -0.24])));
+  } },
+  kite: { hold: shieldHold, build: add => {
+    add('handL', 'pack', strap(lathe([[0.22, 0], [0.22, 0.025], [0.18, 0.05], [0, 0.065]], { seg: 12, sz: 1.55 })));
+    add('handL', 'bright', strap(lathe([[0.228, 0], [0.232, 0.035]], { seg: 12, sz: 1.55 })));
+    add('handL', 'gold', strap(blob(0.05, 0.035, 0.07, [0, 0.065, -0.05], undefined, 7)));
+  } },
+  tower: { hold: shieldHold, build: add => {
+    add('handL', 'wood', strap(wedge(0.44, 0.05, 0.44, 0.05, 0.72, [0, 0.03, -0.36])));
+    for (const z of [-0.2, 0.18]) add('handL', 'iron', strap(wedge(0.46, 0.06, 0.46, 0.06, 0.05, [0, 0.04, z])));
+  } },
+  sunshield: { hold: shieldHold, build: add => {
+    add('handL', 'red', strap(lathe([[0.26, 0], [0.26, 0.025], [0.2, 0.06], [0, 0.08]], { seg: 16 })));
+    add('handL', 'gold', strap(lathe([[0.268, 0], [0.272, 0.045]], { seg: 16 })));
+    for (let k = 0; k < 8; k++) add('handL', 'gold', strap(wedge(0.03, 0.012, 0.008, 0.008, 0.2, [0, 0.07, 0], [0, (k / 8) * Math.PI * 2, 0])));
+    add('handL', 'gold', strap(blob(0.07, 0.05, 0.07, [0, 0.08, 0], undefined, 8)));
+  } },
   torch: { hold: { shoulderL: [-2.35, 0, 0.18], elbowL: [-0.55, 0, 0] }, build: add => {
     add('handL', 'wood', place(limb(0.03, 0.026, 0.3), [0, 0.06, 0]));
     add('handL', 'leather', place(limb(0.042, 0.042, 0.06), [0, -0.2, 0]));
@@ -267,8 +340,10 @@ type Outfit = {
   tall?: boolean;
   hair?: Mat; hood?: 'round' | 'tall'; hoodMat?: Mat; cloak?: Mat;
   skirt?: { mat: Mat; to: number; flare: number }; apron?: Mat; trim?: Mat; studs?: Mat;
-  hat?: 'kettle' | 'top' | 'straw' | 'cap' | 'coif'; hatMat?: Mat; beard?: Mat; bun?: boolean;
+  hat?: 'kettle' | 'top' | 'straw' | 'cap' | 'coif' | 'visor' | 'greathelm'; hatMat?: Mat; beard?: Mat; bun?: boolean;
   pack?: boolean; hand?: Held; off?: Off; pauldrons?: Mat;
+  /** A small leather bag on the hip instead of a pack on the back. */
+  satchel?: boolean;
   /** The back is the most-seen view: a leather pack, a bedroll, an unlit lantern cage and a hem make it read. */
   packMat?: Mat; lantern?: boolean; cloakTrim?: Mat;
   /** A short shoulder mantle over the cloak, in a contrasting colour: shows the shoulders, so the figure is not a bell. */
@@ -326,7 +401,7 @@ function humanParts(o: Outfit): PartDef[] {
     add('neck', o.skin, limb(0.07, 0.07, 0.02, [0, 0.06, 0]));
     add('head', o.skin, blob(0.235, 0.215, 0.215, [0, 0.21, 0.01]));
     for (const x of [-0.09, 0.09]) add('head', 'eye', blob(0.04, 0.056, 0.03, [x, 0.17, 0.2], undefined, 6));
-    if (o.hair && (!o.hood || o.hat) && o.hat !== 'coif') {
+    if (o.hair && (!o.hood || o.hat) && o.hat !== 'coif' && o.hat !== 'visor' && o.hat !== 'greathelm') {
       // The camera looks down on the crown, so hair must cover it and stop at the brow, or every face reads as bald.
       add('head', o.hair, blob(0.255, 0.2, 0.24, [0, 0.3, -0.02]));
       add('head', o.hair, blob(0.23, 0.21, 0.09, [0, 0.19, -0.16]));
@@ -375,6 +450,18 @@ function humanParts(o: Outfit): PartDef[] {
       add('head', o.hatMat!, place(lathe([[0.29, -0.06], [0.28, 0.04], [0.27, 0.16], [0.26, 0.3], [0.2, 0.4], [0.1, 0.45], [0, 0.46]], { open: 2.3, sz: 1 }), [0, 0, -0.015], [-0.12, 0, 0]));
       add('head', 'steel', lathe([[0.272, 0.29], [0.276, 0.33], [0.262, 0.35]], { seg: 12 }));
       add('spine', o.hatMat!, lathe([[0.25, 0.24], [0.255, 0.3], [0.2, 0.36], [0.1, 0.4]], { sz: 0.86 }));
+    }
+    if (o.hat === 'visor' || o.hat === 'greathelm') {
+      // Closed helms: a visored barbute with a T slit, or a flat-topped great helm with a gilded band and a crest.
+      const great = o.hat === 'greathelm';
+      add('head', o.hatMat!, lathe(great ? [[0.27, -0.04], [0.275, 0.2], [0.27, 0.42], [0.2, 0.47], [0, 0.48]] : [[0.27, -0.06], [0.27, 0.12], [0.265, 0.3], [0.21, 0.42], [0.1, 0.47], [0, 0.48]], { seg: 12 }));
+      add('head', 'eye', wedge(0.3, 0.035, 0.3, 0.035, 0.05, [0, 0.2, 0.24]));
+      if (!great) add('head', 'eye', wedge(0.05, 0.16, 0.05, 0.16, 0.05, [0, 0.1, 0.24]));
+      if (great) { add('head', 'steel', lathe([[0.282, 0.28], [0.286, 0.33]], { seg: 12 })); add('head', 'red', wedge(0.05, 0.12, 0.05, 0.06, 0.4, [0, 0.52, -0.2])); }
+    }
+    if (o.satchel) {
+      add('pelvis', 'leather', wedge(0.08, 0.17, 0.07, 0.15, 0.2, [-0.2, 0.0, -0.1]));
+      add('spine', 'leather', place(limb(0.018, 0.018, 0.52), [-0.13, 0.36, 0.02], [0, 0, -0.62]));
     }
     if (o.pack) {
       const pm = o.packMat ?? 'pack', big = !!o.packMat;
@@ -426,14 +513,23 @@ export function identityOf(id: string): Identity {
 
 /** What each worn item does to the outfit. Items that are never worn change nothing. */
 const wornLook: Partial<Record<ItemKind, Partial<Outfit>>> = {
-  cudgel: { hand: 'cudgel' }, shortsword: { hand: 'shortsword' }, hatchet: { hand: 'hatchet' }, blade: { hand: 'blade' },
-  buckler: { off: 'buckler' }, banded: { off: 'banded' }, torch: { off: 'torch' },
-  cap: { hat: 'cap', hatMat: 'felt' }, coif: { hat: 'coif', hatMat: 'mail' },
+  cudgel: { hand: 'cudgel' }, club: { hand: 'club' }, mace: { hand: 'mace' }, flangedmace: { hand: 'flangedmace' }, maul: { hand: 'maul' },
+  rustsword: { hand: 'rustsword' }, shortsword: { hand: 'shortsword' }, broadsword: { hand: 'broadsword' }, blade: { hand: 'blade' }, longsword: { hand: 'longsword' }, dawnblade: { hand: 'dawnblade' },
+  hatchet: { hand: 'hatchet' }, beardedaxe: { hand: 'beardedaxe' }, broadaxe: { hand: 'broadaxe' }, greataxe: { hand: 'greataxe' },
+  knife: { hand: 'knife' }, dagger: { hand: 'dagger' }, dirk: { hand: 'dirk' }, spear: { hand: 'spear' }, boarspear: { hand: 'boarspear' }, halberd: { hand: 'halberd' },
+  lid: { off: 'lid' }, buckler: { off: 'buckler' }, heater: { off: 'heater' }, banded: { off: 'banded' }, kite: { off: 'kite' }, tower: { off: 'tower' }, sunshield: { off: 'sunshield' }, torch: { off: 'torch' },
+  cap: { hat: 'cap', hatMat: 'felt' }, coif: { hat: 'coif', hatMat: 'mail' }, kettlehat: { hat: 'kettle', hatMat: 'iron' }, visorhelm: { hat: 'visor', hatMat: 'steel' }, gildedhelm: { hat: 'greathelm', hatMat: 'gold' },
   tunic: { top: 'quilt', sleeve: 'quilt', skirt: { mat: 'quilt', to: 0.17, flare: 0.2 } },
+  gambeson: { top: 'linen', sleeve: 'linen', skirt: { mat: 'linen', to: 0.26, flare: 0.22 }, trim: 'quilt' },
   jerkin: { top: 'leather', sleeve: 'shirt', forearm: 'leather', studs: 'steel', pauldrons: 'leather' },
-  boots: { boots: 'boot', tall: true },
-  pack: { pack: true },
+  mailshirt: { top: 'mail', sleeve: 'mail', forearm: 'mail', skirt: { mat: 'mail', to: 0.22, flare: 0.21 } },
+  scalecoat: { top: 'bronze', sleeve: 'mail', pauldrons: 'bronze', skirt: { mat: 'bronze', to: 0.2, flare: 0.21 } },
+  cuirass: { top: 'steel', sleeve: 'mail', forearm: 'steel', pauldrons: 'steel', studs: 'gold' },
+  boots: { boots: 'boot', tall: true }, shodboots: { boots: 'apronDark', tall: true }, sabatons: { boots: 'steel', tall: true },
+  pack: { pack: true }, rucksack: { pack: true, packMat: 'pack' }, satchel: { satchel: true },
 };
+/** True if an item changes the hero's figure when worn. */
+export const hasWornLook = (kind: ItemKind) => kind in wornLook;
 const slotOrder = ['weapon', 'shield', 'head', 'body', 'feet', 'pack'] as const;
 export const heroKey = (worn: Worn, who: Identity) => `hero:${who.cape}:${who.hair}:${who.hood ? 1 : 0}:${slotOrder.map(s => worn[s] ?? '').join(',')}`;
 /** A hero as they are dressed: bare, a linen shirt and wrapped feet, then each worn item laid over it. */
@@ -597,7 +693,7 @@ export const creatures = {
   /** Display only: no mob kind uses it. It proves a giant is a row, at two and a half times a person. */
   barrowTroll: { label: 'Barrow troll', skeleton: 'human', joints: humanJoints, scale: 2.5, cadence: 1.5,
     stance: { spine: [0.38, 0, 0], neck: [-0.2, 0, 0], head: [-0.25, 0, 0], shoulderR: [-0.15, 0, -0.2], shoulderL: [-0.1, 0, 0.25], hipR: [-0.15, 0, 0], hipL: [-0.15, 0, 0], kneeR: [0.3, 0, 0], kneeL: [0.3, 0, 0] },
-    parts: () => humanParts({ skin: 'trollHide', top: 'trollHide', sleeve: 'trollHide', legs: 'trollHide', boots: 'trollHide', skirt: { mat: 'wool', to: 0.3, flare: 0.22 }, brute: 'moss', hand: 'club' }) },
+    parts: () => humanParts({ skin: 'trollHide', top: 'trollHide', sleeve: 'trollHide', legs: 'trollHide', boots: 'trollHide', skirt: { mat: 'wool', to: 0.3, flare: 0.22 }, brute: 'moss', hand: 'trollclub' }) },
 } satisfies Record<MobKind | 'barrowTroll', Creature>;
 export type CreatureKind = keyof typeof creatures;
 export const isCreature = (k: string): k is CreatureKind => k in creatures;

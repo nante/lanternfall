@@ -6,6 +6,7 @@ import { buildTown } from '../packages/game/src/town.ts';
 import { Balance, Icons, ICON_SIZE, RenderStyle, RegionMoods, missingIcons, balanceWarnings, xpCurveRises } from '../packages/game/src/content-schema.ts';
 import { stylePresets } from '../packages/game/src/style-presets.ts';
 import { itemKinds, type ItemKind } from '../packages/game/src/ids.ts';
+import { hasWornLook } from '../apps/client/src/render/figures/kit.ts';
 import { iconSvg } from '../packages/game/src/icon-svg.ts';
 import { fightScenarios, spellScenarios } from './m0-scenarios.ts';
 import fixture from './fixtures/balance.json' with { type: 'json' };
@@ -134,4 +135,9 @@ test('merchants, loot and the starter kit name real items', () => {
   const broken = structuredClone(JSON.parse(readFileSync('content/balance.json', 'utf8')));
   broken.creatures.gutterRat.loot.push({ item: 'dragonscale', chance: 0.1 });
   assert.equal(Balance.safeParse(broken).success, false);
+});
+
+test('every item that fits an equipment slot changes how the hero is drawn', () => {
+  const plain = Object.entries(content.items).filter(([k, d]) => d.slot && !hasWornLook(k as ItemKind)).map(([k]) => k);
+  assert.deepEqual(plain, []);
 });
