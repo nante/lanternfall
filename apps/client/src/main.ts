@@ -88,7 +88,7 @@ function redraw() {
   column.setDynamic(containers.windows());
   dialogue.drawTalk();
   // A shop needs room under the view: the console grows while one is open.
-  const footMin = dialogue.trading() ? '156' : v.self.talking ? '110' : '0';
+  const footMin = dialogue.trading() ? '168' : v.self.talking ? '110' : '0';
   if (hud.style.getPropertyValue('--foot-min') !== footMin) { hud.style.setProperty('--foot-min', footMin); requestAnimationFrame(() => world.resize()); }
   column.render();
   const shown = containers.takeReveal();

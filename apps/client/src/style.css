@@ -161,7 +161,7 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
 .chrome.v-glass .zone > * { pointer-events: auto; }
 .chrome.v-glass .zone[data-zone='left'] { left: calc(4 * var(--u)); bottom: calc((var(--foot) + 8) * var(--u)); }
 .chrome.v-glass .zone[data-zone='right'] { right: calc(4 * var(--u)); }
-.chrome.v-glass .foot { position: fixed; left: calc(5 * var(--u)); bottom: calc(5 * var(--u)); width: min(calc(330 * var(--u)), calc(100vw - (var(--col) + 20) * var(--u))); height: calc(max(var(--foot), var(--foot-min, 0)) * var(--u)); }
+.chrome.v-glass .foot { position: fixed; left: calc(5 * var(--u)); bottom: calc(5 * var(--u)); width: min(calc(380 * var(--u)), calc(100vw - (var(--col) + 20) * var(--u))); height: calc(max(var(--foot), var(--foot-min, 0)) * var(--u)); }
 .chrome.v-glass .foot { background: var(--a-glass-panel) 0 0 / calc(2 * var(--u)) calc(2 * var(--u)); }
 .chrome.v-glass .con-lines li { text-shadow: var(--outline); }
 .chrome.v-glass .viewport .views { right: calc((var(--col) + 12) * var(--u)); }
