@@ -487,11 +487,11 @@ function who(id?: string): Who | undefined {
 }
 function attack(id: string) { if (!view) return; pending = undefined; send({ kind: 'target', id: view.self.target === id ? null : id }); }
 function talkTo(npcId: string) { const npc = npcAt(npcId); if (!npc) return; approach(npc, 3); pending = { kind: 'talk', npc: npc.id }; resolvePending(); }
-/** Walk to a tile; your own tile stops a walk in progress. */
+/** Walk to a tile; your own tile stops a walk in progress (while walking, the hero is drawn a step ahead, on the route's first tile). */
 function walkTo(tile: Pos) {
   if (!view) return;
   pending = undefined; closeMenu();
-  if (same(tile, view.self)) { if (view.route.length) send({ kind: 'stop' }); return; }
+  if (same(tile, view.self) || (view.route[0] && same(tile, view.route[0]))) { if (view.route.length) send({ kind: 'stop' }); return; }
   send({ kind: 'path', to: tile });
 }
 function useAt(tile: Pos) {
@@ -955,7 +955,7 @@ function renderDialogue() {
   el.querySelectorAll<HTMLButtonElement>('[data-topic]').forEach(b => b.addEventListener('click', () => {
     const t = b.dataset.topic!;
     // Turning the shop off is the client's business; only turning it on says "trade".
-    if (t === 'trade' && tradeMode !== 'off') { tradeMode = 'off'; renderDialogue(); return; }
+    if (t === 'trade' && tradeMode !== 'off') { tradeMode = 'off'; tradeAmount = 1; renderDialogue(); return; }
     if (t === 'trade') tradeMode = def.sells.length ? 'buy' : 'sell';
     send({ kind: 'say', text: t });
     renderDialogue();
