@@ -3,7 +3,7 @@
 import { placeAt } from '../../../../packages/game/src/town.ts';
 import { grounds, T } from '../../../../packages/game/src/model.ts';
 import { core } from './core.ts';
-import { glyph, patch } from './kit.ts';
+import { glyph, parts, patch } from './kit.ts';
 import type { WinSpec } from './column.ts';
 import { walkTo } from './world-input.ts';
 
@@ -58,9 +58,10 @@ export const minimapWindow = (): WinSpec => ({
   id: 'map', title: core.view ? placeAt(core.map, core.view.self) : 'Map', icon: 'w-map', fixed: true,
   render(body) {
     const s = core.view!.self;
-    patch(body, `<div class="mm"><canvas class="mm-canvas" width="${SIZE}" height="${SIZE}" aria-label="Map. Click to walk there; scroll to zoom."></canvas>`
-      + `<div class="mm-side"><button type="button" class="ibtn btn" data-mm="1" aria-label="Zoom the map in" ${zoom >= 4 ? 'disabled' : ''}>${glyph('plus')}</button><button type="button" class="ibtn btn" data-mm="-1" aria-label="Zoom the map out" ${zoom <= 1 ? 'disabled' : ''}>${glyph('minus')}</button>`
-      + `<span class="mm-tag num" title="Zoom">${zoom}×</span><span class="mm-tag" title="Floor">${s.z ? 'B1' : 'G'}</span><span class="mm-tag num" title="Where you stand">${s.x}</span><span class="mm-tag num">${s.y}</span></div></div>`
+    const p = parts(body, ['mm']);
+    if (!p.mm.firstElementChild) p.mm.innerHTML = `<canvas class="mm-canvas" width="${SIZE}" height="${SIZE}" aria-label="Map. Click to walk there; scroll to zoom."></canvas><div class="mm-side"></div>`;
+    patch(p.mm.lastElementChild!, `<button type="button" class="ibtn btn" data-mm="1" aria-label="Zoom the map in" ${zoom >= 4 ? 'disabled' : ''}>${glyph('plus')}</button><button type="button" class="ibtn btn" data-mm="-1" aria-label="Zoom the map out" ${zoom <= 1 ? 'disabled' : ''}>${glyph('minus')}</button>`
+      + `<span class="mm-tag num" title="Zoom">${zoom}×</span><span class="mm-tag" title="Floor">${s.z ? 'B1' : 'G'}</span><span class="mm-tag num" title="Where you stand">${s.x}</span><span class="mm-tag num">${s.y}</span>`
       );
     draw(body.querySelector('canvas')!);
   },

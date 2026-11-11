@@ -9,7 +9,11 @@ export const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
 // Windows re-render on every update; replacing DOM mid-click swallows the click, so only touch the DOM when markup changes.
 const rendered = new WeakMap<Element, string>();
 export function patch(el: Element, html: string) { if (rendered.get(el) === html) return false; rendered.set(el, html); el.innerHTML = html; return true; }
-export function forget(el: Element) { rendered.delete(el); }
+/** A body split into parts that patch on their own, so a change in one (a health bar) leaves the others (the doll) alone. */
+export function parts(body: HTMLElement, names: string[]) {
+  if (body.dataset.parts !== names.join()) { body.dataset.parts = names.join(); body.innerHTML = names.map(n => `<div class="part p-${n}"></div>`).join(''); }
+  return Object.fromEntries(names.map((n, i) => [n, body.children[i] as HTMLElement]));
+}
 
 /** Item icons are square, ICON UI pixels a side; cells and the column follow it. */
 export const ICON = ICON_SIZE;
@@ -40,6 +44,14 @@ export function setScale(setting: ScaleSetting) {
 grid.setting = readSetting();
 applyScale();
 addEventListener('resize', () => { const before = grid.u; applyScale(); if (grid.u !== before) dispatchEvent(new Event('hud-scale')); });
+// Scrolled content stays on the grid: a scroll position is rounded to whole UI pixels.
+document.addEventListener('scroll', e => {
+  const el = e.target as HTMLElement;
+  if (!(el instanceof HTMLElement)) return;
+  const t = Math.round(el.scrollTop / grid.u) * grid.u, l = Math.round(el.scrollLeft / grid.u) * grid.u;
+  if (Math.abs(el.scrollTop - t) > 0.01) el.scrollTop = t;
+  if (Math.abs(el.scrollLeft - l) > 0.01) el.scrollLeft = l;
+}, true);
 /** A CSS-pixel coordinate moved onto the UI grid. */
 export const snap = (px: number) => Math.round(px / grid.u) * grid.u;
 

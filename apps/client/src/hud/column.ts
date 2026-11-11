@@ -50,6 +50,7 @@ export class Column {
     document.body.append(this.announcer, Object.assign(document.createElement('p'), { className: 'sr-only', id: 'w-move-help', textContent: 'Drag the header to move this window, or use the arrow keys: up and down to reorder, left and right to change columns.' }));
     this.wire();
     addEventListener('resize', () => this.place());
+    this.o.root.addEventListener('scroll', () => this.place(), true);
     addEventListener('hud-scale', () => { this.built = ''; this.render(); this.o.onViewportResize(); });
   }
 
@@ -124,6 +125,7 @@ export class Column {
 
   /** Clip world labels to the view, and set the console splitter over the console's top edge. */
   private place() {
+    for (const z of this.o.root.querySelectorAll<HTMLElement>('.zone')) z.toggleAttribute('data-more', z.scrollTop + z.clientHeight < z.scrollHeight - 2);
     const vr = this.o.viewport.getBoundingClientRect();
     const clip = `inset(${vr.top}px ${innerWidth - vr.right}px ${innerHeight - vr.bottom}px ${vr.left}px)`;
     this.o.labels.style.clipPath = clip;

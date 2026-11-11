@@ -74,7 +74,12 @@ export function primary(i: GameItem, from?: string) {
   if (def.slot) return move(i, eq, equipSlots.indexOf(def.slot));
   statusLine(`${def.name} sells to a merchant.`);
 }
-export function lookAt(i: GameItem) { const s = core.view?.self; if (s) core.send({ kind: 'look', at: { x: s.x, y: s.y, z: s.z }, item: i.id }); }
+/** What looking at each kind of item said, so its tooltip can carry the description after the first look. */
+const looks = new Map<ItemKind, string>();
+let looking: { kind: ItemKind; at: number } | undefined;
+export function lookAt(i: GameItem) { const s = core.view?.self; if (!s) return; looking = { kind: i.kind, at: performance.now() }; core.send({ kind: 'look', at: { x: s.x, y: s.y, z: s.z }, item: i.id }); }
+/** An information line just came back: if it answers a look at an item, remember it. */
+export function heardInfo(text: string) { if (looking && performance.now() - looking.at < 2000) { looks.set(looking.kind, text); looking = undefined; } }
 
 export function itemMenu(i: GameItem, from?: string): Menu | undefined {
   const v = core.view; if (!v) return;
@@ -96,7 +101,8 @@ export function describe(i: GameItem) {
   if (d.light) bits.push(`Light ${d.light}`);
   const use = primaryLabel(i), mine = core.view && isCarried(core.view, i.id);
   const how = use ? `${mine ? 'Double-click' : 'Click'} to ${use.toLowerCase()}. Right-click for more.` : 'Right-click for more.';
-  return `<b>${esc(d.name)}${i.count > 1 ? ` × ${i.count}` : ''}</b>${bits.length ? `<span>${bits.join(' · ')}</span>` : ''}<span class="tip-row"><span>${(d.weight * i.count).toFixed(1)} oz</span>${d.sell ? `<span class="gold">${d.sell} gold each</span>` : ''}</span><span class="tip-how">${how}</span>`;
+  const seen = looks.get(i.kind);
+  return `<b>${esc(d.name)}${i.count > 1 ? ` × ${i.count}` : ''}</b>${seen ? `<span class="tip-look">${esc(seen)}</span>` : ''}${bits.length ? `<span>${bits.join(' · ')}</span>` : ''}<span class="tip-row"><span>${(d.weight * i.count).toFixed(1)} oz</span>${d.sell ? `<span class="gold">${d.sell} gold each</span>` : ''}</span><span class="tip-how">${how}</span>`;
 }
 
 // ---------------------------------------------------------------- selection and clicks

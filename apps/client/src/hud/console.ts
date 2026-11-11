@@ -4,6 +4,7 @@ import type { Notice } from '../../../../packages/game/src/model.ts';
 import { core, npcAt } from './core.ts';
 import { $, esc, glyph, patch } from './kit.ts';
 import { floatText, lookLine, speak, statusLine } from './overlay.ts';
+import { heardInfo } from './items.ts';
 
 const tabs = [['local', 'Local'], ['server', 'Server log'], ['combat', 'Combat'], ['npc', 'NPC']] as const;
 type Tab = (typeof tabs)[number][0];
@@ -86,6 +87,6 @@ export function addNotice(n: Notice) {
   if (n.kind === 'level') floatText(innerWidth / 2, innerHeight * 0.42, n.text, 'level');
   if (n.kind === 'error') statusLine(n.text, 'warn');
   if (n.kind === 'combat') statusLine(n.text);
-  if (n.kind === 'info') lookLine(n.text);
+  if (n.kind === 'info') { lookLine(n.text); heardInfo(n.text); }
   if (said && (n.from || n.npc)) speak(n.from ?? n.npc!, said.name, said.words, n.kind);
 }

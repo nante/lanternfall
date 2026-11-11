@@ -187,8 +187,8 @@ export function balanceWarnings(b: Balance): Warning[] {
 /** The HUD frame around the game view. Players can still reorder, collapse and resize panels inside it. */
 export const chromeLayouts = [
   { id: 'classic', label: 'Classic frame', blurb: 'Game view top left, one column on the right, chat underneath. The 7.6 arrangement.' },
-  { id: 'rails', label: 'Twin rails', blurb: 'Fight panels on the left, your own on the right. Fits a laptop without scrolling.' },
-  { id: 'glass', label: 'Edge glass', blurb: 'The world fills the window; translucent panels float on its edges.' },
+  { id: 'rails', label: 'Twin columns', blurb: 'Battle, skills and spells on the left; the map, your hero and containers on the right.' },
+  { id: 'glass', label: 'Edge', blurb: 'The world fills the window; the same windows stand on its edges, the console see-through.' },
 ] as const;
 export const ChromeLayout = z.enum(['classic', 'rails', 'glass']);
 export type ChromeLayout = z.infer<typeof ChromeLayout>;

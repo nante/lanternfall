@@ -4,7 +4,7 @@
 import type { EquipSlot } from '../../../../packages/game/src/model.ts';
 import { equipSlots } from '../../../../packages/game/src/model.ts';
 import { core, countOf, equipKey, kids, stats, weightOf } from './core.ts';
-import { ICON, esc, glyph, patch } from './kit.ts';
+import { ICON, esc, glyph, parts, patch } from './kit.ts';
 import { cellHtml } from './items.ts';
 import { statusHtml } from './status.ts';
 import type { WinSpec } from './column.ts';
@@ -54,7 +54,9 @@ export const dollWindow = (): WinSpec => ({
     const cells = places.map(p => `<div class="doll-slot" style="grid-column:${p.col};grid-row:${p.row} / span 2" title="${p.label}">${p.slot
       ? cellHtml(worn.find(i => i.slot === equipSlots.indexOf(p.slot!)), eq, equipSlots.indexOf(p.slot), `slot${p.id}`)
       : `<div class="cell empty locked" aria-disabled="true" aria-label="${p.label}: not used yet"><span class="ph">${icon(`slot${p.id}`)}</span></div>`}</div>`).join('');
-    patch(body, `${statusHtml()}<div class="gear"><div class="doll" style="background-image:${figureArt()}">${cells}`
+    const p = parts(body, ['status', 'doll']);
+    patch(p.status, statusHtml());
+    patch(p.doll, `<div class="gear"><div class="doll" style="background-image:${figureArt()}">${cells}`
       + `<div class="doll-box" style="grid-column:1;grid-row:8 / span 2" title="${weightOf(v).toFixed(1)} of ${st.cap} oz carried"><span>Cap</span><b class="num">${free}</b></div>`
       + `<div class="doll-box" style="grid-column:3;grid-row:8 / span 2" title="Gold carried"><span>Gold</span><b class="num">${countOf(v, 'gold')}</b></div></div>`
       + `<div class="doll-ctl" role="group" aria-label="Fighting">${modes.map(([k, g, tip]) => `<button type="button" class="ibtn btn big" data-mode="${k}" aria-pressed="${s.fightMode === k}" aria-label="${esc(tip)}" title="${esc(tip)}">${glyph(`m-${g}`)}</button>`).join('')}`
