@@ -11,10 +11,11 @@ export const previewScenes: Record<string, { at: Pos; prey?: MobKind; label: str
 };
 
 let timer = 0;
-export function startPreview(map: MapData, sceneId: string, out: { view: (v: GameView) => void; notice: (n: Notice) => void }) {
+/** `dark` turns the darkness rule on, so creatures out of the light come through as shades (for checking input on them). */
+export function startPreview(map: MapData, sceneId: string, out: { view: (v: GameView) => void; notice: (n: Notice) => void }, dark = false) {
   clearInterval(timer);
   const scene = previewScenes[sceneId] ?? previewScenes.meadow;
-  const e = new Engine(map, defaultBalance);
+  const e = new Engine(map, dark ? { ...defaultBalance, world: { ...defaultBalance.world, darkness: true } } : defaultBalance);
   e.state.rng = 4242;
   const place = (p: Hero, dx: number, dy: number) => Object.assign(p, e.geo.near({ ...scene.at, x: scene.at.x + dx, y: scene.at.y + dy }, q => e.occupied(q, p.id)));
   const hero = e.createPlayer('Wayfarer of the Long Road'), friends = [e.createPlayer('Ash'), e.createPlayer('Mira')];

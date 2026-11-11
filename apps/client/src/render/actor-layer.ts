@@ -73,6 +73,8 @@ function lookOf(kind: ActorKind, id: string, look: string, worn?: Worn): Look {
 type Body = { sprite: SpriteBody; look: Look; held?: Look };
 type Actor = ActorHandle & {
   look: string; worn: string; body: Body; label?: HTMLDivElement; bar?: HTMLDivElement;
+  /** Where the name label sits on screen (over the head), for every actor including our hero; kept for speech bubbles. */
+  over?: { x: number; y: number; shown: boolean };
   from?: THREE.Vector3; startedAt?: number; stepMs: number; glideMs: number;
   /** Where the figure is drawn walking to. The server's tile is `target`; they differ only while our hero walks a step ahead. */
   goal: THREE.Vector3;
@@ -161,6 +163,8 @@ export class ActorLayer {
   }
 
   get(id: string): ActorHandle | undefined { return this.actors.get(id); }
+  /** The screen point over an actor's head, where its name label goes, as of the last frame. */
+  overHead(id: string) { return this.actors.get(id)?.over; }
   hideAll() { for (const a of this.actors.values()) this.show(a, false); }
   setExtras(list: Extra[]) { this.extras = list; }
 
@@ -548,12 +552,14 @@ export class ActorLayer {
         if (!held) a.height = (drawn.s.height * Math.cos(drawn.atlas.pitch)) / c;
       } else a.body.sprite.visible = false;
 
-      if (a.label) {
+      {
         const head = pos.clone().add(a.lift).add(new THREE.Vector3(0, a.height, 0)), s = this.screen(head);
         // A fifth of a tile over the head, but never more than a few pixels: through a lens a near tile is tall.
         s.y -= Math.min(10, s.y - this.screen(head.add(new THREE.Vector3(0, 0.2, 0))).y);
         // Scenery has no picking, and labels there would float over walls that hide their actors.
-        const onScreen = shown && !ctx.wide && !ctx.occluded(Math.round(a.target.x), Math.round(a.target.z)) && s.x > -50 && s.y > -50 && s.x < innerWidth + 50 && s.y < innerHeight + 50;
+        const onScreen = shown && !ctx.wide && !(held && a.kind === 'self') && !ctx.occluded(Math.round(a.target.x), Math.round(a.target.z)) && s.x > -50 && s.y > -50 && s.x < innerWidth + 50 && s.y < innerHeight + 50;
+        a.over = { x: Math.round(s.x), y: Math.round(s.y), shown: onScreen };
+        if (!a.label) continue;
         a.label.style.transform = `translate3d(${Math.round(s.x)}px, ${Math.round(s.y)}px, 0) translate(-50%, -100%)`;
         a.label.style.visibility = onScreen ? 'visible' : 'hidden';
         a.label.classList.toggle('targeted', ctx.selfTarget === a.id);
