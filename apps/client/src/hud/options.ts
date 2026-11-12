@@ -2,6 +2,7 @@
 // out confirmation, refused while a fight keeps you here.
 import { core, inPz } from './core.ts';
 import { $, grid, setScale, type ScaleSetting } from './kit.ts';
+import { musicVolume, setMusicVolume } from '../audio/music.ts';
 
 const controls: [string, string][] = [
   ['Click ground', 'Walk there. Hold and move the pointer to keep walking. <kbd>Esc</kbd> stops'],
@@ -38,7 +39,13 @@ export function mountOptions(o: { leave: () => void; resetLayout: () => void }) 
     else if (a === 'leave') { d.close(); leaveFn(); }
     else if (a === 'reset') { resetFn(); d.close(); }
     else if (a === 'controls') { d.querySelector('.help')?.toggleAttribute('hidden'); }
-    else if (a.startsWith('scale:')) { const s = a.slice(6); setScale(s === 'auto' ? 'auto' : (Number(s) as ScaleSetting)); draw('pause'); }
+    else if (a.startsWith('scale:')) { const s = a.slice(6); setScale(s === 'auto' ? 'auto' : (Number(s) as ScaleSetting)); draw('pause'); }  });
+  // Volume follows the slider live; the menu is not redrawn, so the drag is never interrupted.
+  d.addEventListener('input', e => {
+    const t = e.target as HTMLInputElement;
+    if (t.dataset.m !== 'music') return;
+    setMusicVolume(Number(t.value));
+    t.nextElementSibling!.textContent = String(musicVolume());
   });
   d.addEventListener('change', e => { const t = e.target as HTMLInputElement; if (t.dataset.m === 'names') core.world.labels.classList.toggle('names', t.checked); });
   document.addEventListener('click', e => { const b = (e.target as HTMLElement).closest<HTMLElement>('[data-open]'); if (b) openMenu(b.dataset.open === 'logout' ? 'logout' : 'pause'); });
@@ -60,6 +67,8 @@ function draw(kind: 'pause' | 'logout') {
     + `<div class="opt"><span>Scale</span><span class="seg" role="radiogroup" aria-label="Interface scale">${scales.map(([s, l]) => `<button type="button" class="btn small" role="radio" aria-checked="${grid.setting === s}" data-m="scale:${s}">${l}</button>`).join('')}</span></div>`
     + `<label class="opt"><span>Names and health over everyone</span><input type="checkbox" class="check" data-m="names" ${core.world.labels.classList.contains('names') ? 'checked' : ''}></label>`
     + `<div class="opt"><span>Windows</span><button type="button" class="btn small" data-m="reset">Reset layout</button></div>`
+    + `<h3 class="banner"><span>Sound</span></h3>`
+    + `<label class="opt"><span>Music</span><span class="volume"><input type="range" min="0" max="100" step="1" value="${musicVolume()}" data-m="music" aria-label="Music volume"><output>${musicVolume()}</output></span></label>`
     + `<h3 class="banner"><span>Controls</span></h3><dl class="help">${controls.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('')}</dl>`
     + `</div><div class="w-foot"><button type="button" class="btn" data-m="leave">Save and leave</button><button type="button" class="btn primary" data-m="resume" autofocus>Resume</button></div>`;
 }

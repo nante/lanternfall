@@ -34,6 +34,7 @@ import { resolvePending, wireWorld } from './hud/world-input.ts';
 import { wireKeys } from './hud/keys.ts';
 import { fightLocked, mountOptions, openMenu as openPause } from './hud/options.ts';
 import { gateBusy, mountGate, showGate } from './hud/gate.ts';
+import { startMusic } from './audio/music.ts';
 
 $('#app').innerHTML = `
 <div class="chrome" id="hud" data-ready="false"></div>
@@ -183,6 +184,7 @@ if (previewScene !== null) {
   parent.postMessage({ type: 'lanternfall:preview-ready' }, '*');
 } else if (params.get('as')) enter(params.get('as')!);
 else showGate();
+if (previewScene === null) startMusic();
 
 // ---------------------------------------------------------------- updates
 let place = '';

@@ -513,9 +513,10 @@ h3.banner > span { margin: 0; padding: 0; color: var(--muted); font-weight: 400;
 .count-body { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: calc(4 * var(--u)) calc(4 * var(--u)); padding: calc(5 * var(--u)) calc(5 * var(--u)) calc(4 * var(--u)); }
 .count-body .cell .item { pointer-events: none; }
 .count-name { line-height: calc(12 * var(--u)); color: var(--bone); grid-column: 2 / 4; }
-.count input[type='range'] { grid-column: 1 / 3; appearance: none; height: calc(11 * var(--u)); margin: 0; background: none; cursor: pointer; }
-.count input[type='range']::-webkit-slider-runnable-track { height: calc(4 * var(--u)); background: var(--well); border-radius: var(--u); }
-.count input[type='range']::-webkit-slider-thumb { appearance: none; width: calc(7 * var(--u)); height: calc(11 * var(--u)); margin-top: calc(-4 * var(--u)); background: var(--a3); border-radius: var(--u); box-shadow: inset 0 var(--u) 0 rgb(255 255 255 / 0.3); }
+.count input[type='range'] { grid-column: 1 / 3; }
+.count input[type='range'], .opt input[type='range'] { appearance: none; height: calc(11 * var(--u)); margin: 0; background: none; cursor: pointer; }
+.count input[type='range']::-webkit-slider-runnable-track, .opt input[type='range']::-webkit-slider-runnable-track { height: calc(4 * var(--u)); background: var(--well); border-radius: var(--u); }
+.count input[type='range']::-webkit-slider-thumb, .opt input[type='range']::-webkit-slider-thumb { appearance: none; width: calc(7 * var(--u)); height: calc(11 * var(--u)); margin-top: calc(-4 * var(--u)); background: var(--a3); border-radius: var(--u); box-shadow: inset 0 var(--u) 0 rgb(255 255 255 / 0.3); }
 .count .field { width: calc(28 * var(--u)); text-align: right; appearance: textfield; }
 .count .field::-webkit-inner-spin-button { appearance: none; }
 .count .w-foot, .menu .w-foot { padding: 0 calc(5 * var(--u)); }
@@ -531,6 +532,9 @@ h3.banner > span { margin: 0; padding: 0; color: var(--muted); font-weight: 400;
 .opt .seg .btn { flex: none; }
 label.opt { cursor: pointer; }
 label.opt .check { margin-top: var(--u); }
+.opt .volume { display: flex; align-items: center; gap: calc(4 * var(--u)); }
+.opt .volume input { width: calc(90 * var(--u)); }
+.opt .volume output { min-width: calc(18 * var(--u)); text-align: right; font-variant-numeric: tabular-nums; }
 .help { display: grid; gap: calc(3 * var(--u)); margin: 0; }
 .help div { display: grid; grid-template-columns: calc(70 * var(--u)) minmax(0, 1fr); gap: calc(6 * var(--u)); line-height: calc(14 * var(--u)); }
 .help dt { color: var(--muted); }
