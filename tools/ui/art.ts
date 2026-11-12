@@ -1,7 +1,7 @@
-// The HUD's pixel art: masks (one-colour glyphs tinted by CSS), status and window icons, banner ends, plank parts and
+// The HUD's pixel art: icons (Pixelarticons, one-colour masks tinted by CSS), banner ends, plank parts and
 // ground patterns, drawn on a grid in the game's palette and written as SVG data URIs to apps/client/src/hud/art.css.
 // SVG rects on whole units stay crisp at any whole-number UI scale. Run: npx tsx tools/ui/art.ts
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 
 const P: Record<string, string> = {
   k: '#06070d', n: '#0c0f1e', m: '#141a31', s: '#1e2646', S: '#2b365d', t: '#3c4a78', l: '#55627a', L: '#7a879c',
@@ -32,271 +32,62 @@ const art: Record<string, string[]> = {};
 const sizes: Record<string, [number, number]> = {};
 const put = (name: string, a: string[]) => { art[name] = a; sizes[name] = [Math.max(...a.map(r => r.length)), a.length]; };
 
-// ---------------------------------------------------------------- masks: '#' is ink, tinted with currentColor
-put('close', rows(`
-#...#
-.#.#.
-..#..
-.#.#.
-#...#`));
-put('chev-up', rows(`
-.....
-..#..
-.#.#.
-#...#
-.....`));
-put('chev-down', rows(`
-.....
-#...#
-.#.#.
-..#..
-.....`));
-put('back', rows(`
-..#..
-.#...
-#####
-.#...
-..#..`));
-put('plus', rows(`
-..#..
-..#..
-#####
-..#..
-..#..`));
-put('minus', rows(`
-.....
-.....
-#####
-.....
-.....`));
-put('arrow-down', rows(`
-..#..
-..#..
-#.#.#
-.###.
-..#..`));
-put('check', rows(`
-....#
-...#.
-#.#..
-.#...
-.....`));
+// ---------------------------------------------------------------- icons: Pixelarticons (MIT, pixelarticons.com)
+// Each icon is drawn on a 24-unit grid in 2-unit strokes that may start on any unit. It is rasterised on that grid and
+// kept in its whole frame, where the set balances its icons by eye, so every icon is the same 12 UI pixels and centres
+// the same way. Drawn at half a UI pixel per unit: crisp whenever the UI pixel is an even number of device pixels, as it
+// is on most HiDPI screens. All icons are one-colour masks.
+const icons: Record<string, string> = {
+  close: 'close', 'chev-up': 'chevron-up', 'chev-down': 'chevron-down', back: 'arrow-left', plus: 'plus', minus: 'minus',
+  'arrow-down': 'arrow-down', check: 'check',
+  'm-attack': 'sword', 'm-balance': 'chevrons-horizontal', 'm-defend': 'shield', 'm-chase': 'arrow-right', 'm-stand': 'anchor',
+  'm-options': 'settings-cog', 'm-logout': 'logout',
+  'st-combat': 'sword', 'st-hungry': 'apple', 'st-protected': 'shield', 'st-torch': 'fire',
+  'w-map': 'map', 'w-status': 'human', 'w-battle': 'target', 'w-skills': 'trending-up', 'w-journal': 'book-open',
+  'w-pack': 'backpack', 'w-bag': 'handbag', 'w-body': 'skull', 'w-pile': 'archive', 'w-vault': 'lock',
+};
 
-// ---------------------------------------------------------------- fight controls beside the doll (masks, 9×9)
-put('m-attack', rows(`
-.......##
-......###
-.....###.
-....###..
-.#.###...
-..###....
-..##.....
-.#..#....
-#........`));
-put('m-balance', rows(`
-......##.
-.....##..
-####.#...
-#..##....
-#..##....
-#..#.#...
-.#..#....
-..##.....
-.........`));
-put('m-defend', rows(`
-#########
-#.......#
-#.#####.#
-#.#####.#
-#.#####.#
-.#.###.#.
-..#.#.#..
-...#.#...
-....#....`));
-put('m-chase', rows(`
-....#....
-.....#...
-######.#.
-.......##
-######.#.
-.....#...
-....#....
-.........
-.........`));
-put('m-stand', rows(`
-.#######.
-.#.....#.
-.#.....#.
-.#.....#.
-.#.....#.
-.#.....#.
-.#######.
-.........
-#########`));
-put('m-options', rows(`
-...#.#...
-.#.###.#.
-..#####..
-.##...##.
-###...###
-.##...##.
-..#####..
-.#.###.#.
-...#.#...`));
-put('m-logout', rows(`
-#####....
-#...#....
-#...#..#.
-#...#...#
-#.#.#####
-#...#...#
-#...#..#.
-#...#....
-#####....`));
+/** The closed outlines of an SVG path made only of straight moves (M L H V Z, absolute or relative). */
+function outlines(d: string) {
+  const loops: [number, number][][] = [];
+  let x = 0, y = 0, loop: [number, number][] = [];
+  const toks = d.match(/[a-zA-Z]|-?\d*\.?\d+/g)!;
+  let cmd = '';
+  for (let i = 0; i < toks.length;) {
+    if (/[a-zA-Z]/.test(toks[i])) cmd = toks[i++];
+    const n = () => Number(toks[i++]);
+    switch (cmd) {
+      case 'M': if (loop.length) loops.push(loop); x = n(); y = n(); loop = [[x, y]]; cmd = 'L'; break;
+      case 'm': if (loop.length) loops.push(loop); x += n(); y += n(); loop = [[x, y]]; cmd = 'l'; break;
+      case 'L': x = n(); y = n(); loop.push([x, y]); break;
+      case 'l': x += n(); y += n(); loop.push([x, y]); break;
+      case 'H': x = n(); loop.push([x, y]); break;
+      case 'h': x += n(); loop.push([x, y]); break;
+      case 'V': y = n(); loop.push([x, y]); break;
+      case 'v': y += n(); loop.push([x, y]); break;
+      case 'Z': case 'z': if (loop.length) { loops.push(loop); [x, y] = loop[0]; loop = [[x, y]]; } break;
+      default: throw new Error(`pixelarticons: path command ${cmd} is not a straight move`);
+    }
+  }
+  if (loop.length > 1) loops.push(loop);
+  return loops;
+}
+/** Non-zero winding: is the point inside the filled path? */
+function inside(loops: [number, number][][], px: number, py: number) {
+  let wind = 0;
+  for (const l of loops) for (let i = 0; i < l.length; i++) {
+    const [x1, y1] = l[i], [x2, y2] = l[(i + 1) % l.length];
+    if (y1 <= py ? y2 > py && (x2 - x1) * (py - y1) - (px - x1) * (y2 - y1) > 0 : y2 <= py && (x2 - x1) * (py - y1) - (px - x1) * (y2 - y1) < 0) wind += y1 <= py ? 1 : -1;
+  }
+  return wind !== 0;
+}
+function pixelarticon(name: string): string[] {
+  const src = readFileSync(new URL(`../../node_modules/pixelarticons/svg/${name}.svg`, import.meta.url), 'utf8');
+  const loops = [...src.matchAll(/ d="([^"]+)"/g)].flatMap(m => outlines(m[1]));
+  return Array.from({ length: 24 }, (_, y) => Array.from({ length: 24 }, (_, x) => (inside(loops, x + 0.5, y + 0.5) ? '#' : '.')).join(''));
+}
+for (const [name, src] of Object.entries(icons)) { put(name, pixelarticon(src)); sizes[name] = [sizes[name][0] / 2, sizes[name][1] / 2]; }
 
-// ---------------------------------------------------------------- status icons (9×9, coloured)
-put('st-combat', rows(`
-L.......L
-bL.....Lb
-.bL...Lb.
-..bL.Lb..
-...bLb...
-..7b.b7..
-.7.7.7.7.
-7.....7..
-.........`));
-put('st-hungry', rows(`
-.........
-....BB...
-...BbbB..
-..B7777B.
-.B777777B
-.8777776.
-..866665.
-...5555..
-.........`));
-put('st-protected', rows(`
-.kkkkkkk.
-kQQQQQQQk
-kQQpppQQk
-kQQpPpQQk
-kQQpppQQk
-.kQQQQQk.
-..kQQQk..
-...kQk...
-....k....`));
-put('st-torch', rows(`
-....y....
-...yY....
-...yYy...
-..oyYyo..
-..ooyoo..
-...rOr...
-....6....
-....5....
-....5....`));
-
-// ---------------------------------------------------------------- window icons (9×9, coloured)
-put('w-map', rows(`
-.........
-.88.888..
-8778777.8
-87h87hh78
-8h7877h78
-87hh8777.
-.888.888.
-.........
-.........`));
-put('w-status', rows(`
-.........
-.XX...XX.
-XzzX.XzzX
-XzYzXzzzX
-XzzzzzzzX
-.XzzzzzX.
-..XzzzX..
-...XzX...
-....X....`));
-put('w-battle', rows(`
-...BBB...
-..BBBBB..
-.BkBBBkB.
-.BkkBkkB.
-.BBBBBBB.
-..BBkBB..
-..B.B.B..
-.........
-.........`));
-put('w-skills', rows(`
-....y....
-....y....
-...yYy...
-yyyYYYyyy
-.yyYYYyy.
-..yYyYy..
-..yy.yy..
-.yy...yy.
-.........`));
-put('w-journal', rows(`
-.888888..
-8777777..
-.8BBBB7..
-.8BkkB7..
-.8BBBB7..
-.8BkkB7..
-.8BBBB78.
-..8888887
-.........`));
-put('w-pack', rows(`
-...666...
-..6...6..
-.6777776.
-6777777776
-.67766776
-.67766776
-.67777776
-..666666.
-.........`));
-put('w-bag', rows(`
-...7.7...
-....7....
-...777...
-..77777..
-.7787777.
-.7777787.
-.7777777.
-..77777..
-.........`));
-put('w-body', rows(`
-.........
-..CCCC...
-.CbbbbC..
-.CbkbkC..
-..CbbCC..
-...CbC...
-.CbCbCbC.
-.C.C.C.C.
-.........`));
-put('w-pile', rows(`
-.........
-.........
-....c....
-...cCc...
-..cCCcc..
-.cCcccCc.
-cccCcccCc
-.........
-.........`));
-put('w-vault', rows(`
-.........
-.6666666.
-6777777776
-6555y55556
-6777777776
-6777777776
-6666666666
-.........
-.........`));
 
 // ---------------------------------------------------------------- banner ends: dark slate cloth with torn ends (14 tall)
 const bannerRows = ['k', 't', 'S', 'S', 's', 's', 's', 's', 's', 's', 's', 's', 'm', 'k'];
@@ -328,14 +119,16 @@ put('dither-dark', ['k.', '.k']);
 put('dither-amber', ['O.', '..']);
 put('glass-panel', ['mm', 'm.']);
 
-const masks = new Set(['m-attack', 'm-balance', 'm-defend', 'm-chase', 'm-stand', 'm-options', 'm-logout', 'close', 'chev-up', 'chev-down', 'back', 'plus', 'minus', 'arrow-down', 'check']);
-const lines = ['/* Generated by tools/ui/art.ts. Do not edit; change the drawing there and rerun it. */', ':root {'];
+const lines = ['/* Generated by tools/ui/art.ts. Do not edit; change the drawing there and rerun it. Icons: Pixelarticons (MIT). */', ':root {'];
 for (const [name, a] of Object.entries(art)) lines.push(`  --a-${name}: ${svg(a)};`);
 lines.push('}');
-// Masks are tinted with the text colour; the rest are drawn in their own colours. Sizes are in UI pixels.
+// Icons are masks tinted with the text colour, as .g- (glyph) and .a- (art) alike; the rest are drawn in their own
+// colours. Sizes are in UI pixels.
 for (const name of Object.keys(art)) {
   const [w, h] = sizes[name];
-  lines.push(masks.has(name) ? `.g-${name} { --w: ${w}; --h: ${h}; -webkit-mask-image: var(--a-${name}); mask-image: var(--a-${name}); }` : `.a-${name} { --w: ${w}; --h: ${h}; background-image: var(--a-${name}); }`);
+  lines.push(name in icons
+    ? `.g-${name}, .a-${name} { --w: ${w}; --h: ${h}; background: currentColor; -webkit-mask: var(--a-${name}) 0 0 / 100% 100% no-repeat; mask: var(--a-${name}) 0 0 / 100% 100% no-repeat; }`
+    : `.a-${name} { --w: ${w}; --h: ${h}; background-image: var(--a-${name}); }`);
 }
 lines.push('');
 writeFileSync(new URL('../../apps/client/src/hud/art.css', import.meta.url), lines.join('\n'));

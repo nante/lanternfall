@@ -64,6 +64,10 @@ export function wireKeys(o: { saveView: () => void; toggleVista: () => void; tog
     if (k === ' ' || k === 'tab') { if (!own) return; e.preventDefault(); if (!e.repeat) cycleTarget(); return; }
     if (k === 'i') { togglePack(); return; }
     if (k === 'c') { o.toggleWindow('skills'); return; }
+    if (k === 'm') { o.toggleWindow('map'); return; }
+    if (k === 'g') { o.toggleWindow('gear'); return; }
+    if (k === 'b') { o.toggleWindow('battle'); return; }
+    if (k === 'j') { o.toggleWindow('journal'); return; }
     if (e.key === '-') { w.stepStop(1); return; }
     if (e.key === '=' || e.key === '+') { w.stepStop(-1); return; }
     if (k === 'q' || k === 'e') { w.turn(k === 'q' ? 1 : -1); o.saveView(); return; }

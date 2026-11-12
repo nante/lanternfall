@@ -18,7 +18,7 @@ export type WinSpec = {
   kind?: string;
 };
 type Layout = Record<string, string[]>;
-type Saved = { layouts: Partial<Record<ChromeLayout, Layout>>; heights: Record<string, number>; collapsed: string[]; foot: Partial<Record<ChromeLayout, number>> };
+type Saved = { edge?: 'rail'; layouts: Partial<Record<ChromeLayout, Layout>>; heights: Record<string, number>; collapsed: string[]; foot: Partial<Record<ChromeLayout, number>> };
 const BAGS = '@bags';
 const KEY = 'lanternfall.column.v2';
 const zoneNames: Record<string, string> = { side: 'side column', left: 'left column', right: 'right column' };
@@ -30,6 +30,8 @@ export class Column {
   private heights: Record<string, number>;
   private foot: Partial<Record<ChromeLayout, number>>;
   private collapsed: Set<string>;
+  /** The Edge layout has been set up as the rail: its essentials open, its summoned windows closed. */
+  private edge: Saved['edge'];
   private wins = new Map<string, { el: HTMLElement; body: HTMLElement; spec: WinSpec; head: string }>();
   private built = '';
   private dynamic: WinSpec[] = [];
@@ -37,7 +39,7 @@ export class Column {
   private drag: null | { id: string; el: HTMLElement; ph?: HTMLElement; x: number; y: number; pointer: number } = null;
   private resize: null | { kind: 'panel' | 'foot'; id: string; start: number; from: number; pointer: number } = null;
 
-  constructor(private o: { root: HTMLElement; viewport: HTMLElement; footer: HTMLElement; labels: HTMLElement; statics: Record<string, WinSpec | (() => WinSpec)>; defaults: Record<ChromeLayout, Layout>; collapsedByDefault: string[]; onViewportResize: () => void; canDraw: () => boolean }) {
+  constructor(private o: { root: HTMLElement; viewport: HTMLElement; footer: HTMLElement; labels: HTMLElement; statics: Record<string, WinSpec | (() => WinSpec)>; defaults: Record<ChromeLayout, Layout>; collapsedByDefault: string[]; onViewportResize: () => void; onToggle?: () => void; canDraw: () => boolean; summoned: string[] }) {
     const saved = this.read();
     const ids = Object.keys(o.defaults) as ChromeLayout[];
     const all = (l: Layout) => Object.values(l).flat().sort().join();
@@ -45,6 +47,7 @@ export class Column {
     this.heights = { ...saved.heights };
     this.foot = { ...saved.foot };
     this.collapsed = new Set(saved.collapsed ?? o.collapsedByDefault);
+    this.edge = saved.edge;
     this.announcer = Object.assign(document.createElement('p'), { className: 'sr-only' });
     this.announcer.setAttribute('aria-live', 'polite');
     document.body.append(this.announcer, Object.assign(document.createElement('p'), { className: 'sr-only', id: 'w-move-help', textContent: 'Drag the header to move this window, or use the arrow keys: up and down to reorder, left and right to change columns.' }));
@@ -55,12 +58,21 @@ export class Column {
   }
 
   private read(): Partial<Saved> { try { return JSON.parse(localStorage.getItem(KEY) ?? '{}'); } catch { return {}; } }
-  private persist() { try { localStorage.setItem(KEY, JSON.stringify({ layouts: this.layouts, heights: this.heights, collapsed: [...this.collapsed], foot: this.foot } satisfies Saved)); } catch { /* not saved: the arrangement lasts this session */ } }
+  private persist() { try { localStorage.setItem(KEY, JSON.stringify({ layouts: this.layouts, heights: this.heights, collapsed: [...this.collapsed], foot: this.foot, edge: this.edge } satisfies Saved)); } catch { /* not saved: the arrangement lasts this session */ } }
   private say(text: string) { this.announcer.textContent = text; }
 
-  setLayout(id: ChromeLayout) { if (id === this.id && this.built) return; this.id = id; this.built = ''; this.render(); this.o.onViewportResize(); }
-  toggle(id: string) { if (this.collapsed.has(id)) this.collapsed.delete(id); else this.collapsed.add(id); this.persist(); this.render(); this.o.onViewportResize(); }
-  reset() { this.layouts[this.id] = structuredClone(this.o.defaults[this.id]); this.heights = {}; this.foot = {}; this.collapsed = new Set(this.o.collapsedByDefault); this.persist(); this.built = ''; this.render(); this.say('Window layout reset.'); }
+  setLayout(id: ChromeLayout) {
+    if (id === this.id && this.built) return;
+    if (id === 'glass' && this.edge !== 'rail') { this.edge = 'rail'; this.layouts.glass = structuredClone(this.o.defaults.glass); this.collapsed = new Set(this.o.summoned); this.persist(); }
+    this.id = id; this.built = ''; this.render(); this.o.onViewportResize();
+  }
+  isOpen(id: string) { return !this.collapsed.has(id); }
+  private isSummoned(id: string) { return this.id === 'glass' && this.o.summoned.includes(id); }
+  /** Open or close a window. In Edge the summoned windows share one place, so opening one closes the others. */
+  toggle(id: string) {
+    if (this.collapsed.has(id)) { this.collapsed.delete(id); if (this.isSummoned(id)) for (const o of this.o.summoned) if (o !== id) this.collapsed.add(o); }
+    else this.collapsed.add(id); this.persist(); this.render(); this.o.onViewportResize(); this.o.onToggle?.(); }
+  reset() { this.layouts[this.id] = structuredClone(this.o.defaults[this.id]); this.heights = {}; this.foot = {}; this.collapsed = new Set(this.id === 'glass' ? this.o.summoned : this.o.collapsedByDefault); this.persist(); this.built = ''; this.render(); this.o.onToggle?.(); this.say('Window layout reset.'); }
   setDynamic(list: WinSpec[]) { this.dynamic = list; }
   /** The window element for an id, if shown. */
   win(id: string) { return this.wins.get(id)?.el; }
@@ -81,13 +93,16 @@ export class Column {
     }
     root.style.setProperty('--foot', String(this.foot[this.id] ?? FOOT.def));
     const specs = new Map<string, WinSpec>([...Object.entries(this.o.statics).map(([k, v]) => [k, typeof v === 'function' ? v() : v] as const), ...this.dynamic.map(d => [d.id, d] as const)]);
+    // While a window is being dragged the player owns the order: the world redraws many times a second, and re-sorting
+    // the columns then would move the windows under the pointer. Contents still refresh; the order is set on drop.
+    const dragging = !!this.drag?.ph;
     for (const [z, list] of Object.entries(L)) {
       const zoneEl = root.querySelector<HTMLElement>(`.zone[data-zone="${z}"]`)!;
       const order = list.flatMap(id => (id === BAGS ? this.dynamic.map(d => d.id) : [id]));
       let prev: Element | null = null;
       for (const id of order) {
         const el = this.ensure(specs.get(id)!);
-        if (this.drag?.id === id && this.drag.ph) { prev = this.drag.ph; continue; }
+        if (dragging) { if (!el.isConnected) zoneEl.append(el); continue; }
         const want: Element | null = prev ? prev.nextElementSibling : zoneEl.firstElementChild;
         if (want !== el || el.parentElement !== zoneEl) { if (prev) prev.after(el); else zoneEl.prepend(el); }
         prev = el;
@@ -101,10 +116,14 @@ export class Column {
   /** The window's shell: header, body, bottom edge. Its header is redrawn only when its title or buttons change. */
   private ensure(spec: WinSpec) {
     let w = this.wins.get(spec.id);
-    const shut = this.collapsed.has(spec.id), h = this.heights[spec.id];
+    const edge = this.id === 'glass', shut = this.collapsed.has(spec.id);
+    // Edge sizes its fixed and summoned windows to their contents (they have no resize edge there), whatever was saved.
+    const h = edge && (spec.fixed || this.isSummoned(spec.id)) ? undefined : this.heights[spec.id];
     const head = `<button type="button" class="w-grip" data-grip="${spec.id}" aria-label="Move ${esc(spec.title)}" aria-describedby="w-move-help">${art(spec.icon)}</button><h2>${esc(spec.title)}</h2>`
       + (spec.back ? `<button type="button" class="ibtn" data-w="back" aria-label="Back up to the container this one is in">${glyph('back')}</button>` : '')
-      + `<button type="button" class="ibtn" data-w="collapse" aria-expanded="${!shut}" aria-label="${shut ? 'Expand' : 'Collapse'} ${esc(spec.title)}">${glyph(shut ? 'chev-down' : 'chev-up')}</button>`
+      // Edge windows are open or gone: one close button. Stacked ones fold to their header.
+      + (edge ? (spec.close ? '' : `<button type="button" class="ibtn" data-w="collapse" aria-label="Close ${esc(spec.title)}">${glyph('close')}</button>`)
+        : `<button type="button" class="ibtn" data-w="collapse" aria-expanded="${!shut}" aria-label="${shut ? 'Expand' : 'Collapse'} ${esc(spec.title)}">${glyph(shut ? 'chev-down' : 'chev-up')}</button>`)
       + (spec.close ? `<button type="button" class="ibtn" data-w="close" aria-label="Close ${esc(spec.title)}">${glyph('close')}</button>` : '');
     if (!w) {
       const el = document.createElement('section');
@@ -113,7 +132,7 @@ export class Column {
       this.wins.set(spec.id, w);
     }
     w.spec = spec;
-    w.el.className = `win frame${shut ? ' collapsed' : ''}${spec.fixed ? ' fixed' : ''}${spec.kind ? ` k-${spec.kind}` : ''}`;
+    w.el.className = `win frame${w.el.classList.contains('lifted') ? ' lifted' : ''}${shut ? ' collapsed' : ''}${spec.fixed ? ' fixed' : ''}${this.isSummoned(spec.id) ? ' summoned' : ''}${spec.kind ? ` k-${spec.kind}` : ''}`;
     w.el.dataset.win = spec.id;
     w.el.setAttribute('aria-label', spec.title);
     if (w.head !== head) { w.head = head; w.el.querySelector('.w-head')!.innerHTML = head; }
@@ -157,7 +176,7 @@ export class Column {
     });
     root.addEventListener('keydown', ev => {
       const g = (ev.target as HTMLElement).closest<HTMLElement>('[data-grip]');
-      if (!g || !['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(ev.key) || !(g.dataset.grip! in this.o.statics)) return;
+      if (!g || !['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(ev.key) || !(g.dataset.grip! in this.o.statics) || this.isSummoned(g.dataset.grip!)) return;
       ev.preventDefault(); ev.stopPropagation();
       const id = g.dataset.grip!, L = this.layouts[this.id], zs = Object.keys(L), zi = zs.findIndex(z => L[z].includes(id)), i = L[zs[zi]].indexOf(id);
       if (ev.key === 'ArrowUp' && i > 0) this.place_(id, zs[zi], i - 1);
@@ -181,7 +200,7 @@ export class Column {
       }
       const head = t.closest<HTMLElement>('.w-head');
       const el = head?.parentElement as HTMLElement | undefined;
-      if (!head || !el || t.closest('[data-w]') || !(el.dataset.win! in this.o.statics)) return;
+      if (!head || !el || t.closest('[data-w]') || !(el.dataset.win! in this.o.statics) || this.isSummoned(el.dataset.win!)) return;
       this.drag = { id: el.dataset.win!, el, x: ev.clientX, y: ev.clientY, pointer: ev.pointerId };
       head.setPointerCapture(ev.pointerId);
     });
@@ -205,7 +224,8 @@ export class Column {
       }
       d.el.style.translate = `${Math.round((ev.clientX - d.x) / grid.u) * grid.u}px ${Math.round((ev.clientY - d.y) / grid.u) * grid.u}px`;
       const zones = [...root.querySelectorAll<HTMLElement>('.zone')];
-      const dist = (z: HTMLElement) => { const b = z.getBoundingClientRect(); return ev.clientX < b.left ? b.left - ev.clientX : ev.clientX > b.right ? ev.clientX - b.right : 0; };
+      // Distance to the zone's box in both axes: zones may share an edge and stand one above the other.
+      const dist = (z: HTMLElement) => { const b = z.getBoundingClientRect(); return Math.hypot(Math.max(b.left - ev.clientX, 0, ev.clientX - b.right), Math.max(b.top - ev.clientY, 0, ev.clientY - b.bottom)); };
       const z = zones.sort((a, b) => dist(a) - dist(b))[0];
       const next = [...z.querySelectorAll<HTMLElement>(':scope > .win:not(.lifted)')].find(p => { const b = p.getBoundingClientRect(); return ev.clientY < b.top + b.height / 2; });
       if (next) { if (d.ph.nextElementSibling !== next) next.before(d.ph); } else if (z.lastElementChild !== d.ph) z.append(d.ph);
@@ -221,8 +241,11 @@ export class Column {
       d.el.classList.remove('lifted'); d.el.removeAttribute('style');
       if (ev.type === 'pointerup') {
         const z = d.ph.parentElement as HTMLElement, zone = z.dataset.zone!;
-        // Position among the fixed windows of that column; container windows stand at the marker and are skipped.
-        const before = [...z.querySelectorAll<HTMLElement>(':scope > .win:not(.lifted), :scope > .win-drop')].slice(0, [...z.children].indexOf(d.ph)).map(e => e.dataset.win).filter(id => id && id in this.o.statics);
+        // Position among the column's entries: fixed windows by id, container windows by the bags marker they stand at,
+        // so a window dropped below the bags lands below them.
+        const entries = [...z.querySelectorAll<HTMLElement>(':scope > .win, :scope > .win-drop')].filter(e => e !== d.el);
+        const before = entries.slice(0, entries.indexOf(d.ph))
+          .map(e => e.dataset.win).map(id => (id && id in this.o.statics ? id : id && this.dynamic.some(w => w.id === id) ? BAGS : undefined)).filter(id => id !== undefined);
         const L = this.layouts[this.id][zone].filter(id => id !== d.id);
         const at = before.length ? L.indexOf(before.at(-1)!) + 1 : 0;
         this.place_(d.id, zone, at);

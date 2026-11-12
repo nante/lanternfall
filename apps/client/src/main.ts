@@ -1,3 +1,4 @@
+import '@fontsource-variable/outfit';
 import './hud/fonts.css';
 import './hud/art.css';
 import './style.css';
@@ -16,6 +17,7 @@ import { Net } from './net.ts';
 import { $ } from './hud/kit.ts';
 import { balance, core, findItem } from './hud/core.ts';
 import { Column } from './hud/column.ts';
+import { drawDock, mountDock } from './hud/dock.ts';
 import { minimapWindow } from './hud/minimap.ts';
 import { dollWindow } from './hud/doll.ts';
 import { battleWindow } from './hud/battle.ts';
@@ -30,7 +32,7 @@ import { checkTip } from './hud/tooltip.ts';
 import { checkMenu, setWorldFocus } from './hud/menu.ts';
 import { resolvePending, wireWorld } from './hud/world-input.ts';
 import { wireKeys } from './hud/keys.ts';
-import { fightLocked, mountOptions } from './hud/options.ts';
+import { fightLocked, mountOptions, openMenu as openPause } from './hud/options.ts';
 import { gateBusy, mountGate, showGate } from './hud/gate.ts';
 
 $('#app').innerHTML = `
@@ -69,22 +71,33 @@ const column = new Column({
   defaults: {
     classic: { side: ['map', 'gear', 'battle', '@bags', 'skills', 'journal'] },
     rails: { left: ['battle', 'skills', 'journal'], right: ['map', 'gear', '@bags'] },
-    glass: { left: ['battle', 'skills', 'journal'], right: ['map', 'gear', '@bags'] },
+    // Edge: the essentials in the right column, battle last (it stands at the column's foot); skills and spells are summoned.
+    glass: { left: ['skills', 'journal'], right: ['map', 'gear', '@bags', 'battle'] },
   },
   collapsedByDefault: ['journal', 'skills'],
+  summoned: ['skills', 'journal'],
   onViewportResize: () => world.resize(),
+  onToggle: () => drawDock(),
   canDraw: () => !!core.view,
 });
-const applyChrome = (id: ChromeLayout | undefined) => column.setLayout(id ?? 'classic');
-applyChrome(savedStyle.success ? savedStyle.data.chrome : undefined);
+let hotbar: HTMLElement | undefined;
+/** In the Edge layout the action bar floats at the foot of the view; in the others it sits in the console's top row. */
+const applyChrome = (id: ChromeLayout | undefined) => { document.documentElement.dataset.chrome = id ?? 'classic'; column.setLayout(id ?? 'classic'); if (hotbar) { if (id === 'glass') viewport.append(hotbar); else $('.con-top', footer).append(hotbar); } };
+const chromeNow = savedStyle.success ? savedStyle.data.chrome : undefined;
+applyChrome(chromeNow);
 mountOverlay(viewport);
 mountConsole(footer);
-mountHotbar($('#hotbar', footer));
+hotbar = $('#hotbar', footer);
+mountHotbar(hotbar);
+const toggleWindow = (id: string) => { if (id === 'pack') containers.togglePack(); else if (id === 'menu') openPause('pause'); else column.toggle(id); };
+mountDock({ isOpen: id => (id === 'pack' ? containers.windows().some(w => w.icon === 'w-pack') : id !== 'menu' && column.isOpen(id)), toggle: toggleWindow });
+applyChrome(chromeNow);
 
 function redraw() {
   const v = core.view;
   drawViews();
   if (!v) return;
+  drawDock();
   column.setDynamic(containers.windows());
   dialogue.drawTalk();
   // A shop needs room under the view: the console grows while one is open.
@@ -140,7 +153,7 @@ function leave() {
 mountOptions({ leave, resetLayout: () => column.reset() });
 wireWorld();
 world.onEffect = onEffect;
-wireKeys({ saveView, toggleVista, toggleWindow: id => column.toggle(id) });
+wireKeys({ saveView, toggleVista, toggleWindow });
 $('#chat').addEventListener('submit', e => {
   e.preventDefault();
   const input = $<HTMLInputElement>('#chat-input'), text = input.value.trim();
@@ -192,3 +205,4 @@ setInterval(() => { if (core.view) drawHotbar(); }, 100);
 
 // Developer hook for automated screenshots.
 Object.assign(window, { __lanternfall: { world, net, enter, get view() { return core.view; }, mobDefs: balance.creatures, stylePresets, column, core, redraw } });
+

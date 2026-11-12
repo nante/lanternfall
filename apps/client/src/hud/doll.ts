@@ -45,9 +45,10 @@ function figureArt() {
   return figure;
 }
 
-/** The hero's window: its title is the hero's name; status on top, the doll and fight controls below. */
+/** The hero's window: its title is the hero's name; status on top, the doll and fight controls below. In Edge the name,
+ * health and mana stand over the action bar instead, so the window is the hero's equipment. */
 export const dollWindow = (): WinSpec => ({
-  id: 'gear', title: core.view?.self.name ?? 'You', icon: 'w-status', fixed: true, kind: 'gear',
+  id: 'gear', title: document.documentElement.dataset.chrome === 'glass' ? 'Equipment' : core.view?.self.name ?? 'You', icon: 'w-status', fixed: true, kind: 'gear',
   render(body) {
     const v = core.view!, s = v.self, st = stats(v), eq = equipKey(v), worn = kids(v, eq);
     const free = Math.max(0, Math.floor(st.cap - weightOf(v)));
@@ -56,7 +57,9 @@ export const dollWindow = (): WinSpec => ({
       : `<div class="cell empty locked" aria-disabled="true" aria-label="${p.label}: not used yet"><span class="ph">${icon(`slot${p.id}`)}</span></div>`}</div>`).join('');
     const p = parts(body, ['status', 'doll']);
     patch(p.status, statusHtml());
-    patch(p.doll, `<div class="gear"><div class="doll" style="background-image:${figureArt()}">${cells}`
+    // The figure is drawn in the slate the old frames were made of; on Edge's glass the slots alone read as the body.
+    const fig = document.documentElement.dataset.chrome === 'glass' ? '' : ` style="background-image:${figureArt()}"`;
+    patch(p.doll, `<div class="gear"><div class="doll"${fig}>${cells}`
       + `<div class="doll-box" style="grid-column:1;grid-row:8 / span 2" title="${weightOf(v).toFixed(1)} of ${st.cap} oz carried"><span>Cap</span><b class="num">${free}</b></div>`
       + `<div class="doll-box" style="grid-column:3;grid-row:8 / span 2" title="Gold carried"><span>Gold</span><b class="num">${countOf(v, 'gold')}</b></div></div>`
       + `<div class="doll-ctl" role="group" aria-label="Fighting">${modes.map(([k, g, tip]) => `<button type="button" class="ibtn btn big" data-mode="${k}" aria-pressed="${s.fightMode === k}" aria-label="${esc(tip)}" title="${esc(tip)}">${glyph(`m-${g}`)}</button>`).join('')}`
